@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { checkFund, formatNaira, kobo, naira, type WalletLimits } from '@erp/domain';
 import { PAYMENTS, newReference, type ChargeEvent, type PayMethod, type PaymentsAdapter } from '../adapters/payments';
 import { AgencyBillingService } from '../agencies/billing.service';
+import { creditPool, poolFundFailed } from '../reports/bounties.service';
 import { Audit } from '../core/audit';
 import type { Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
@@ -174,12 +175,16 @@ export class WalletService {
           );
         } else if (pay.purpose === 'agency_invoice') {
           await this.agencyBilling.onPaystackSuccess(c, pay, amount);
+        } else if (pay.purpose === 'bounty_pool') {
+          await creditPool(c, pay, amount, randomUUID(), { card: 'card', bank_transfer: 'bank transfer', ussd: 'USSD' }[mapChannel(event.data.channel)]);
         }
         await this.audit.write({ actorId: null, actorRole: 'system', action: 'payment.succeeded', entity: 'payment', entityId: pay.id, payload: { amount, reference: pay.provider_ref } }, c);
       } else if (event.event === 'charge.failed' && pay.state !== 'succeeded') {
         await c.query(`update payments set state = 'failed', failure_reason = $2 where id = $1`, [pay.id, event.data.gateway_response]);
         if (pay.purpose === 'agency_invoice') {
           await this.agencyBilling.onPaystackFailed(c, pay);
+        } else if (pay.purpose === 'bounty_pool') {
+          await poolFundFailed(c, pay);
         } else {
           await c.query(
             `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'wallet_fund_failed', 'money', 'in_app', 'Funding failed', 'Your card was not charged. Try again or use another card.', '/wallet')`,

@@ -203,6 +203,7 @@ export class TipsService {
 
   async queue(p: Principal, agencyId: string, tab: 'new' | 'claims' | 'closed') {
     await this.agencies.requireStaff(p, agencyId);
+    await this.agencies.requireHandles(agencyId, 'tips');
     const filter = { new: `t.state in ('in_queue', 'more_info')`, claims: `t.state = 'claim_review'`, closed: `t.state not in ('in_queue', 'more_info', 'claim_review')` }[tab];
     const r = await this.db.query(
       `select t.id, t.public_no, t.category, t.state, t.description, t.anonymous, t.created_at, l.postcode, l.area_label, u.display_name, c.outcome, c.suggested_kobo, c.approved_kobo

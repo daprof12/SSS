@@ -31,6 +31,23 @@ export const tipCategories: TipCategory[] = [
 ];
 export const tipCategory = (code: string) => tipCategories.find((c) => c.code === code);
 
+/** Board "Agency bounties": the result that makes a tip count as verified for a bounty. */
+export const BOUNTY_VERIFIED_WHEN: Record<string, string> = {
+  human_trafficking: 'Victim rescued or case opened',
+  drugs: 'Seizure or arrest',
+  illegal_mining: 'Site shut and equipment seized',
+  cult_activity: 'Arrest or case opened',
+  fake_drugs: 'Products seized or recalled',
+  fake_products: 'Products seized',
+  environmental: 'Polluter stopped or fined',
+  fraud: 'Case opened or money recovered',
+  smuggling: 'Goods seized',
+  immigration: 'Arrest or case opened',
+};
+
+/** Agencies top up their bounty pool in advance (Rewards doc), so a bounty is never promised without money behind it. */
+export const POOL_FUND_LIMITS = { minKobo: 1_000_000, maxKobo: 5_000_000_000 } as const; // ₦10,000 to ₦50,000,000 per payment
+
 /** States doc: "Emergency words found: This sounds urgent. Use SOS so help is sent now." */
 const URGENT = /\b(now|right now|bleeding|dying|dead|gun|shoot|shooting|kidnap|kidnapped|fire|burning|attack|attacking|help me|trapped|stabbed)\b/i;
 export const soundsUrgent = (text: string) => URGENT.test(text);
@@ -118,3 +135,22 @@ export function tipStatus(state: string, agency: string): { title: string; chip:
   };
   return map[state] ?? { title: state, chip: state, tone: 'neutral' };
 }
+
+/**
+ * What an agency of this kind handles, from the tip and issue catalogues.
+ * Drives its menus: a fire service gets neither Bounties nor Public issues,
+ * NAPTIP gets Bounties only, a roads agency gets Public issues only.
+ */
+export function agencyHandles(kind: string) {
+  const tips = tipCategories.filter((c) => c.agencyKinds.includes(kind));
+  const issues = issueCategories.filter((c) => c.agencyKinds.includes(kind));
+  return {
+    tips: tips.length > 0,
+    bounties: tips.some((c) => c.bounty),
+    issues: issues.length > 0,
+    tipCategories: tips.map((c) => c.code),
+    bountyCategories: tips.filter((c) => c.bounty).map((c) => c.code),
+    issueCategories: issues.map((c) => c.code),
+  };
+}
+export type AgencyHandles = ReturnType<typeof agencyHandles>;

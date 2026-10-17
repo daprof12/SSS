@@ -2,6 +2,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import {
+  agencyHandles,
   agencyCopy,
   agencyDirectory,
   agencyDocumentLabels,
@@ -90,11 +91,14 @@ export class AgenciesService {
 
   async mine(p: Principal) {
     const r = await this.db.query(
-      `select a.id, a.name, a.status from agencies a join user_roles r on r.scope_type = 'agency' and r.scope_id = a.id
+      `select a.id, a.name, a.status, a.kind from agencies a join user_roles r on r.scope_type = 'agency' and r.scope_id = a.id
         where r.user_id = $1 and r.role in ('agency_admin', 'agency_finance') order by a.created_at`,
       [p.userId],
     );
-    return r.rows.map((a) => ({ ...a, statusLabel: stateLabels[a.status as AgencyRow['status']] }));
+    return r.rows.map((a) => {
+      const h = agencyHandles(a.kind);
+      return { ...a, statusLabel: stateLabels[a.status as AgencyRow['status']], handles: { tips: h.tips, bounties: h.bounties, issues: h.issues } };
+    });
   }
 
   // ---------------------------------------------------------------- 2 documents

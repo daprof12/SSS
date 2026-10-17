@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@erp/web-ui/api';
-import { AgencySwitcher, WithAgency, dateTime, type MyAgency } from '@/components/Agency';
+import { AgencySwitcher, WithAgency, dateTime, useToast, type MyAgency } from '@/components/Agency';
+import { FundSheet, RateSheet, naira, type PoolSummary } from '@/components/BountyPool';
 import { TipStateChip, outcomeLabel } from '@/components/IssueChips';
 
 interface TipRow {
@@ -33,20 +34,9 @@ const EMPTY: Record<Tab, [string, string]> = {
   closed: ['Nothing closed yet.', 'Paid, declined and closed tips are kept here.'],
 };
 
-/** Tips and bounty claims for the agency (board "Agency bounties"). */
+/** Tips, bounty rates, the pool the agency funds, and claims (board "Agency bounties"). */
 export default function BountiesPage() {
-  return (
-    <>
-      <div className="page-head">
-        <div>
-          <h1>Bounties</h1>
-          <p className="lede">Tips from citizens, and what you pay when a tip leads to a verified result.</p>
-        </div>
-        <AgencySwitcher />
-      </div>
-      <WithAgency>{(a) => <Bounties key={a.id} agency={a} />}</WithAgency>
-    </>
-  );
+  return <WithAgency needs="tips">{(a) => <Bounties key={a.id} agency={a} />}</WithAgency>;
 }
 
 function Bounties({ agency }: { agency: MyAgency }) {
@@ -60,6 +50,16 @@ function Bounties({ agency }: { agency: MyAgency }) {
   });
   const [data, setData] = useState<Partial<Record<Tab, TipRow[]>>>({});
   const [error, setError] = useState<ApiError | null>(null);
+  const [pool, setPool] = useState<PoolSummary | null>(null);
+  const [sheet, setSheet] = useState<{ kind: 'fund' } | { kind: 'rate'; category: string } | null>(null);
+  const [toast, setToast] = useToast();
+  const [n, setN] = useState(0);
+  const reload = () => setN((x) => x + 1);
+
+  useEffect(() => {
+    if (!agency.handles.bounties) return;
+    api<PoolSummary>(`/agencies/${agency.id}/bounties/summary`).then(setPool).catch(setError);
+  }, [agency.id, agency.handles.bounties, n]);
 
   useEffect(() => {
     // All three tabs at once so the counts are right.
@@ -69,7 +69,7 @@ function Bounties({ agency }: { agency: MyAgency }) {
         setError(null);
       })
       .catch(setError);
-  }, [agency.id]);
+  }, [agency.id, n]);
 
   const pick = (t: Tab) => {
     setTab(t);
@@ -82,6 +82,49 @@ function Bounties({ agency }: { agency: MyAgency }) {
 
   return (
     <>
+      <div className="page-head">
+        <div>
+          <h1>Bounties</h1>
+          <p className="lede">{agency.handles.bounties ? 'What you pay people whose tips lead to a verified result.' : 'Tips citizens send to your agency.'}</p>
+        </div>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <AgencySwitcher />
+          {agency.handles.bounties && (
+            <button className="btn primary" type="button" disabled={!pool} onClick={() => setSheet({ kind: 'fund' })}>
+              Fund bounty pool
+            </button>
+          )}
+        </div>
+      </div>
+      {sheet?.kind === 'fund' && pool && (
+        <FundSheet
+          agencyId={agency.id}
+          summary={pool}
+          onClose={() => {
+            setSheet(null);
+            reload();
+          }}
+          onFunded={(m) => {
+            setSheet(null);
+            setToast(m);
+            reload();
+          }}
+        />
+      )}
+      {sheet?.kind === 'rate' && pool && (
+        <RateSheet
+          agencyId={agency.id}
+          rates={pool.rates}
+          initial={sheet.category}
+          onClose={() => setSheet(null)}
+          onSaved={(m) => {
+            setSheet(null);
+            setToast(m);
+            reload();
+          }}
+        />
+      )}
+      {toast}
       {error && (
         <div className={`banner ${error.status === 0 ? 'warning' : 'critical'}`} role="alert">
           <strong>{error.status === 0 ? 'You are offline.' : 'Could not load tips'}</strong>
@@ -89,23 +132,129 @@ function Bounties({ agency }: { agency: MyAgency }) {
         </div>
       )}
 
-      <div className="stats">
-        <div className="stat">
-          <span>New tips</span>
-          <strong>{data.new?.length ?? '—'}</strong>
-          <small>Waiting for you to act</small>
+      {pool?.pool.low && (
+        <div className="banner warning" role="status">
+          <strong>Pool low</strong>
+          {pool.pool.low}{' '}
+          <button className="link-btn" type="button" onClick={() => setSheet({ kind: 'fund' })}>
+            Add funds
+          </button>
         </div>
+      )}
+
+      <div className="stats">
+        {agency.handles.bounties ? (
+          <div className="stat">
+            <span>Bounty pool</span>
+            <strong className="pool-amount">{pool ? naira(pool.pool.availableKobo) : '—'}</strong>
+            <small>Paid out of this</small>
+          </div>
+        ) : (
+          <div className="stat">
+            <span>New tips</span>
+            <strong>{data.new?.length ?? '—'}</strong>
+            <small>Waiting for you to act</small>
+          </div>
+        )}
         <div className="stat">
           <span>Claims waiting</span>
           <strong className={data.claims?.length ? 'warning' : undefined}>{data.claims?.length ?? '—'}</strong>
-          <small>Result recorded</small>
+          <small>Outcome recorded</small>
         </div>
+        {agency.handles.bounties && (
+          <div className="stat">
+            <span>Paid this month</span>
+            <strong>{pool ? naira(pool.paidThisMonth.kobo) : '—'}</strong>
+            <small>{pool ? (pool.paidThisMonth.tips === 1 ? '1 tip' : `${pool.paidThisMonth.tips} tips`) : ''}</small>
+          </div>
+        )}
         <div className="stat">
-          <span>Bounties paid</span>
-          <strong className="success">{data.closed ? formatNaira(paid.reduce((s, r) => s + (r.bountyKobo ?? 0), 0)).replace('.00', '') : '—'}</strong>
-          <small>{paid.length === 1 ? '1 tip' : `${paid.length} tips`}</small>
+          <span>Tips received</span>
+          <strong className="info">{pool ? pool.tipsThisMonth : (data.new?.length ?? '—')}</strong>
+          <small>{pool ? 'This month' : 'Waiting for you to act'}</small>
         </div>
       </div>
+
+      {pool && (
+        <div className="bounty-grid">
+          <section className="card" aria-labelledby="rates" style={{ overflowX: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <h2 id="rates" style={{ margin: 0 }}>
+                Bounty rates
+              </h2>
+              <button className="btn" type="button" onClick={() => setSheet({ kind: 'rate', category: pool.rates[0]!.category })}>
+                Add or change a rate
+              </button>
+            </div>
+            <table className="table" style={{ marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th>Tip category</th>
+                  <th>Counts as verified when</th>
+                  <th>Basis</th>
+                  <th>Bounty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pool.rates.map((r) => (
+                  <tr key={r.category} className="link" onClick={() => setSheet({ kind: 'rate', category: r.category })}>
+                    <td style={{ fontWeight: 700 }}>{r.label}</td>
+                    <td>{r.verifiedWhen}</td>
+                    <td>{!r.set ? '—' : r.basis === 'tiered' ? 'Tiered' : 'Fixed'}</td>
+                    <td>
+                      {!r.set ? (
+                        <span className="muted" title="No rate set, so this category pays no bounty.">No rate set</span>
+                      ) : !r.active ? (
+                        <span className="chip neutral">Paused</span>
+                      ) : r.basis === 'tiered' && r.seriousKobo !== r.standardKobo ? (
+                        `${naira(r.standardKobo!)} to ${naira(r.seriousKobo!)}`
+                      ) : (
+                        naira(r.standardKobo!)
+                      )}
+                      {r.set && r.active && r.capKobo != null && <div className="muted">cap {naira(r.capKobo)}</div>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="card" aria-labelledby="pool-history">
+            <h2 id="pool-history" style={{ marginTop: 0 }}>
+              Pool activity
+            </h2>
+            {pool.pendingFunding.map((f) => (
+              <div key={f.reference} className="row" style={{ cursor: 'default' }}>
+                <span style={{ flex: 1 }}>
+                  Confirming payment
+                  <small className="muted" style={{ display: 'block' }}>
+                    {dateTime(f.since)}
+                  </small>
+                </span>
+                <span className="chip warning">{naira(f.amountKobo)}</span>
+              </div>
+            ))}
+            {!pool.history.length && !pool.pendingFunding.length ? (
+              <p className="muted">Nothing yet. Fund the pool so you can approve bounties.</p>
+            ) : (
+              pool.history.slice(0, 8).map((h, i) => (
+                <div key={`${h.at}-${i}`} className="row" style={{ cursor: 'default' }}>
+                  <span style={{ flex: 1 }}>
+                    {h.label}
+                    <small className="muted" style={{ display: 'block' }}>
+                      {dateTime(h.at)}
+                    </small>
+                  </span>
+                  <span className={`ledger-amount ${h.amountKobo > 0 ? 'in' : ''}`}>
+                    {h.amountKobo > 0 ? '+' : '−'}
+                    {naira(Math.abs(h.amountKobo))}
+                  </span>
+                </div>
+              ))
+            )}
+          </section>
+        </div>
+      )}
 
       <div className="segmented tabs" role="tablist" aria-label="Tips">
         {TABS.map(([t, l]) => (

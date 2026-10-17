@@ -82,12 +82,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <small>{session.roleLabel}</small>
           </div>
         </div>
-        {items.map((i) => (
-          <Link key={i.label} href={i.href} aria-current={current(i) ? 'page' : undefined}>
-            {i.label}
-            {!i.built && <span className="soon">next</span>}
-          </Link>
-        ))}
+        <RailLinks items={items} current={current} gated={surface === 'agency'} />
       </nav>
       <div className="main">
         <TopBar session={session} />
@@ -98,6 +93,24 @@ export function Shell({ children }: { children: React.ReactNode }) {
     </div>
   );
   return surface === 'agency' ? <AgencyProvider>{shell}</AgencyProvider> : shell;
+}
+
+/** Agency menus that depend on what the agency handles: hidden until known, so they never flash in and out. */
+const GATED: Record<string, 'tips' | 'issues'> = { Bounties: 'tips', 'Public issues': 'issues' };
+
+function RailLinks({ items, current, gated }: { items: NavItem[]; current: (i: NavItem) => boolean | undefined; gated: boolean }) {
+  const { agency } = useAgency();
+  const shown = gated ? items.filter((i) => !GATED[i.label] || !!agency?.handles[GATED[i.label]!]) : items;
+  return (
+    <>
+      {shown.map((i) => (
+        <Link key={i.label} href={i.href} aria-current={current(i) ? 'page' : undefined}>
+          {i.label}
+          {!i.built && <span className="soon">next</span>}
+        </Link>
+      ))}
+    </>
+  );
 }
 
 function AgencyName() {

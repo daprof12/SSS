@@ -1050,3 +1050,60 @@ input[type='text'] {
 .field .segmented {
   justify-self: start;
 }
+
+/* ---------- bounty pool ---------- */
+.confirming {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-4);
+  border-radius: 10px;
+  background: var(--color-surface-sunken);
+}
+.confirming strong {
+  display: block;
+}
+.spinner {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  border: 3px solid var(--color-divider);
+  border-top-color: var(--color-signal);
+  animation: spin 800ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+[data-motion='reduced'] .spinner {
+  animation-duration: 3s;
+}
+.stat .pool-amount {
+  color: var(--color-success-text);
+}
+.ledger-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+  text-align: right;
+  white-space: nowrap;
+}
+.ledger-amount.in {
+  color: var(--color-success-text);
+}
+.bounty-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+  margin-bottom: var(--space-4);
+}
+@media (max-width: 1100px) {
+  .bounty-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.stat .info {
+  color: var(--color-signal-text);
+}

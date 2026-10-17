@@ -32,6 +32,8 @@ import { JobsController } from './jobs/jobs.controller';
 import { JobsService } from './jobs/jobs.service';
 import { MediaController } from './media/media.controller';
 import { MediaService } from './media/media.service';
+import { BountiesController } from './reports/bounties.controller';
+import { BountiesService } from './reports/bounties.service';
 import { BriefController } from './reports/brief.controller';
 import { BriefService } from './reports/brief.service';
 import { WalletController } from './wallet/wallet.controller';
@@ -66,6 +68,7 @@ export class AppModule {
         AdminAgenciesController,
         MediaController,
         BriefController,
+        BountiesController,
         JobsController,
         ...(config.devTools ? [DevController] : []),
       ],
@@ -87,6 +90,7 @@ export class AppModule {
         AgenciesService,
         MediaService,
         BriefService,
+        BountiesService,
         JobsService,
         // Mock adapters — swap each for the real provider once its contract is signed.
         { provide: POSTCODE, useValue: new MockPostcodeAdapter() },

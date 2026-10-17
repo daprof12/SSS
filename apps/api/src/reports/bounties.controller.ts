@@ -1,0 +1,44 @@
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
+import { z } from 'zod';
+import { CurrentUser, type Principal } from '../core/auth';
+import { ZodPipe } from '../core/http';
+import { BountiesService } from './bounties.service';
+
+const naira = z.number().int().positive('Enter an amount.');
+const RateBody = z.object({
+  basis: z.enum(['fixed', 'tiered']),
+  standardKobo: naira,
+  seriousKobo: naira.optional(),
+  capKobo: naira.nullable().optional(),
+  active: z.boolean().default(true),
+});
+const FundBody = z.object({
+  amountKobo: z.number().int().positive('Enter an amount.'),
+  method: z.enum(['card', 'bank_transfer', 'ussd']),
+  idempotencyKey: z.string().min(8).max(80),
+});
+
+@Controller('agencies/:agencyId')
+export class BountiesController {
+  constructor(@Inject(BountiesService) private readonly bounties: BountiesService) {}
+
+  @Get('bounties/summary')
+  summary(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string) {
+    return this.bounties.summary(p, a);
+  }
+
+  @Put('bounty-rates/:category')
+  setRate(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Param('category') category: string, @Body(new ZodPipe(RateBody)) b: z.infer<typeof RateBody>) {
+    return this.bounties.setRate(p, a, category, b);
+  }
+
+  @Post('bounty-pool/fund')
+  fund(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Body(new ZodPipe(FundBody)) b: z.infer<typeof FundBody>) {
+    return this.bounties.fund(p, a, b);
+  }
+
+  @Get('bounty-pool/payments/:reference')
+  status(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Param('reference') ref: string) {
+    return this.bounties.fundStatus(p, a, ref);
+  }
+}

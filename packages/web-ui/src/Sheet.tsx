@@ -26,6 +26,11 @@ export function Sheet({ open, title, description, onClose, busy, children, foote
   const titleId = useId();
   const descId = useId();
 
+  // Latest busy/onClose without re-running the open effect: re-running it would move
+  // focus back to the first field every time a save starts or fails.
+  const latest = useRef({ busy, onClose });
+  latest.current = { busy, onClose };
+
   useEffect(() => {
     if (!open) return;
     opener.current = document.activeElement;
@@ -35,9 +40,9 @@ export function Sheet({ open, title, description, onClose, busy, children, foote
     document.body.style.overflow = 'hidden';
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) {
+      if (e.key === 'Escape' && !latest.current.busy) {
         e.preventDefault();
-        onClose();
+        latest.current.onClose();
       }
       if (e.key !== 'Tab' || !panel.current) return;
       const items = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE));
@@ -58,7 +63,7 @@ export function Sheet({ open, title, description, onClose, busy, children, foote
       document.body.style.overflow = prevOverflow;
       (opener.current as HTMLElement | null)?.focus?.();
     };
-  }, [open, busy, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (

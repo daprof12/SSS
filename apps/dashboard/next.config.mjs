@@ -8,7 +8,8 @@ export default function config(phase) {
     poweredByHeader: false,
     // `next dev` and `next build` get separate output folders, so running a build
     // while the dev server is up can't corrupt the dev cache ("Cannot find module './976.js'").
-    distDir: phase === PHASE_DEVELOPMENT_SERVER ? '.next-dev' : '.next',
+    // A second dev server on another port (two sessions at once) gets its own folder too.
+    distDir: phase !== PHASE_DEVELOPMENT_SERVER ? '.next' : process.env.PORT ? `.next-dev-${process.env.PORT}` : '.next-dev',
     async headers() {
       return [
         {

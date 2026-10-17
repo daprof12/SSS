@@ -1,7 +1,7 @@
 // The single path for agency state changes (UX Gap Analysis §10): lock the row,
 // check the machine, write state + timeline event + audit in one transaction.
 import { Inject, Injectable } from '@nestjs/common';
-import { applyEvent, agencyMachine, type AgencyActor, type AgencyEvent, type AgencyState } from '@erp/domain';
+import { agencyHandles, applyEvent, agencyMachine, type AgencyActor, type AgencyEvent, type AgencyState } from '@erp/domain';
 import { Audit } from '../core/audit';
 import { hasRole, type Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
@@ -122,6 +122,14 @@ export class AgencyLifecycle {
       roles,
     ]);
     if (!r.rowCount) throw new AppError(404, 'not_found', 'Agency not found.');
+  }
+
+  /** Not every agency handles every queue: a fire service takes no tips, NAPTIP no public issues. */
+  async requireHandles(agencyId: string, what: 'tips' | 'bounties' | 'issues'): Promise<void> {
+    const a = (await this.db.query(`select kind from agencies where id = $1`, [agencyId])).rows[0];
+    if (a && agencyHandles(a.kind)[what]) return;
+    const message = { tips: 'Your agency does not receive tips.', bounties: 'Your agency does not pay bounties.', issues: 'Your agency does not handle public issues.' }[what];
+    throw new AppError(409, 'not_handled', message);
   }
 
   requirePlatformAdmin(p: Principal): void {

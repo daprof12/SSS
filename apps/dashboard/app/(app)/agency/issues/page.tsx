@@ -44,7 +44,7 @@ export default function IssuesPage() {
         </div>
         <AgencySwitcher />
       </div>
-      <WithAgency>{(a) => <Issues key={a.id} agency={a} />}</WithAgency>
+      <WithAgency needs="issues">{(a) => <Issues key={a.id} agency={a} />}</WithAgency>
     </>
   );
 }

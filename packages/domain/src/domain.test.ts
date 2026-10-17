@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  agencyHandles,
   accountDeletionBlockers,
   agencyInvoiceMachine,
   agencyMachine,
@@ -300,5 +301,16 @@ describe('tips and public issues', () => {
     expect(availableEvents(issueMachine, 'awaiting_check', 'citizen').sort()).toEqual(['confirm_fixed', 'not_fixed']);
     expect(issueStatus('awaiting_check', 'FERMA').title).toBe('Is it fixed?');
     expect(tipStatus('in_queue', 'NAPTIP').chip).toBe('With NAPTIP');
+  });
+});
+
+describe('what each agency handles', () => {
+  it('shows only the menus an agency kind can use', () => {
+    expect(agencyHandles('naptip')).toMatchObject({ bounties: true, issues: false });
+    expect(agencyHandles('roads')).toMatchObject({ tips: false, bounties: false, issues: true });
+    expect(agencyHandles('police')).toMatchObject({ bounties: true, issues: true });
+    expect(agencyHandles('fire')).toMatchObject({ tips: false, bounties: false, issues: false });
+    // A health agency gets virus outbreak tips, but they pay no bounty.
+    expect(agencyHandles('health')).toMatchObject({ tips: true, bounties: false });
   });
 });

@@ -6,4 +6,4 @@ coverage/
 .env
 .env.local
 .DS_Store
-.next-dev/
+.next-dev*/

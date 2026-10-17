@@ -7,7 +7,8 @@ export default function config(phase) {
     poweredByHeader: false,
     transpilePackages: ['@erp/web-ui'],
     // Separate dev and build output so a build can't corrupt the running dev server.
-    distDir: phase === PHASE_DEVELOPMENT_SERVER ? '.next-dev' : '.next',
+    // A second dev server on another port (two sessions at once) gets its own folder too.
+    distDir: phase !== PHASE_DEVELOPMENT_SERVER ? '.next' : process.env.PORT ? `.next-dev-${process.env.PORT}` : '.next-dev',
     async headers() {
       return [
         {

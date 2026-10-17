@@ -260,6 +260,7 @@ export class IssuesService {
 
   async queue(p: Principal, agencyId: string) {
     await this.agencies.requireStaff(p, agencyId);
+    await this.agencies.requireHandles(agencyId, 'issues');
     const r = await this.db.query(
       `select k.id, k.public_no, k.category, k.state, k.severity, k.report_count, k.people_count, k.first_at, k.last_at, k.target_on, l.postcode, l.area_label
          from issue_cases k left join locations l on l.id = k.location_id

@@ -86,7 +86,7 @@ The 11-stage lifecycle runs on `agencyMachine` and `agencyInvoiceMachine` in `pa
 
 **Overdue never stops dispatch.** Routing takes stations of agencies that are `live`, `overdue` or `offboarding` (`dispatchingAgencyStates`). While an agency is overdue, adding stations, inventory or plan upgrades returns `402 billing_hold` ("New stations and equipment are on hold until you pay."). Paying the last overdue invoice restores the agency right away.
 
-**Not built yet:** auto-charging a saved card (agencies pay each invoice), receipt PDFs, credit notes (the machine has `credit`), funding the bounty pool, officer invites (officers are added directly, verified when their KYC is), and records export at offboarding. The Paystack subaccount is mocked. Run the billing jobs from a scheduler once the durable queue exists.
+**Not built yet:** auto-charging a saved card (agencies pay each invoice), receipt PDFs, credit notes (the machine has `credit`), officer invites (officers are added directly, verified when their KYC is), and records export at offboarding. The Paystack subaccount is mocked. Run the billing jobs from a scheduler once the durable queue exists.
 
 ## Phase 1 dispatch backend
 
@@ -169,3 +169,27 @@ Both are safe to run twice and across instances (`skip locked`).
 Neither the PDF nor the link carries reporter names, ids or their free text.
 
 **Not built yet:** virus scanning and video length checks (needs the media worker), and a dashboard viewer for tip and issue photos.
+
+## What each agency handles, bounty rates and the bounty pool
+
+**Menus by agency kind.** `agencyHandles(kind)` in `@erp/domain` reads the tip and issue catalogues:
+- **Bounties** shows when the agency receives tips. The pool and rates appear only when one of its tip categories pays a bounty.
+- **Public issues** shows when it handles an issue category.
+
+Examples: NAPTIP gets Bounties only, FERMA (roads) gets Public issues only, Police gets both, and a fire service gets neither. `/me/agencies` returns `handles`, and the API refuses a queue the agency does not handle with "Your agency does not handle public issues." (409). A page reached by link shows the same message, with the agency switcher.
+
+**Bounty rates** (`PUT /agencies/:id/bounty-rates/:category`, agency admins only). Each rate is either fixed or tiered by result:
+- tiered rates pay a standard amount, and a serious amount when the result is recorded as high severity;
+- a cap is optional;
+- a rate can be paused;
+- it applies only to the bounty categories the agency receives.
+
+Every change is audited. Citizens see the new range on the tip form at once.
+
+**Funding the pool** (Rewards doc: "The agency funds a bounty pool in advance"):
+- `POST /agencies/:id/bounty-pool/fund {amountKobo, method, idempotencyKey}` takes ₦10,000 to ₦50,000,000 per payment, by card, bank transfer or USSD through Paystack.
+- The pool is credited only by the signed webhook: pool +, platform clearing −, balanced. Agency staff are notified, and a failed payment is reported too.
+- `GET /agencies/:id/bounties/summary` gives what the Bounties page shows, as on the "Agency bounties" board: pool balance, claims waiting, paid this month, tips this month, the rates table, pool activity and payments still confirming. When the pool is below pending claims, the page warns "Pool has [Amount], below pending claims of [Amount]."
+- In development, the fund sheet plays the Paystack checkout with "Pay now (test)" and "Decline card (test)".
+
+**Not built yet:** the platform fee of [%] on each bounty (still to be decided), percentage-of-recovered-value rates, and paying the pool back out at offboarding.
