@@ -28,6 +28,12 @@ import { PlacesController } from './places/places.controller';
 import { IssuesService } from './reports/issues.service';
 import { ReportsController } from './reports/reports.controller';
 import { TipsService } from './reports/tips.service';
+import { JobsController } from './jobs/jobs.controller';
+import { JobsService } from './jobs/jobs.service';
+import { MediaController } from './media/media.controller';
+import { MediaService } from './media/media.service';
+import { BriefController } from './reports/brief.controller';
+import { BriefService } from './reports/brief.service';
 import { WalletController } from './wallet/wallet.controller';
 import { WalletService } from './wallet/wallet.service';
 
@@ -58,6 +64,9 @@ export class AppModule {
         ReportsController,
         AgenciesController,
         AdminAgenciesController,
+        MediaController,
+        BriefController,
+        JobsController,
         ...(config.devTools ? [DevController] : []),
       ],
       providers: [
@@ -76,6 +85,9 @@ export class AppModule {
         AgencyLifecycle,
         AgencyBillingService,
         AgenciesService,
+        MediaService,
+        BriefService,
+        JobsService,
         // Mock adapters — swap each for the real provider once its contract is signed.
         { provide: POSTCODE, useValue: new MockPostcodeAdapter() },
         { provide: KYC, useValue: new MockKycAdapter() },

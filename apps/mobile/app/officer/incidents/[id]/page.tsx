@@ -10,6 +10,7 @@ import { Icon } from '@/components/Icon';
 import { MiniMap } from '@/components/MiniMap';
 import { api, ApiError, haptic, locate, typeInfo } from '@/lib/client';
 import { FreshLabel, useIncident } from '@/lib/useIncident';
+import { Attachments } from '@/components/reports/Attach';
 
 interface LatLng {
   lat: number;
@@ -173,6 +174,8 @@ export default function OfficerIncident({ params }: { params: Promise<{ id: stri
           {v.rating.comment}
         </div>
       )}
+
+      <Attachments ownerType="incident" ownerId={id} refreshKey={v.timeline.filter((e) => /^(Photo|Video) added$/.test(e.label)).length} title="From the reporter" />
 
       <p className="section-label">Timeline</p>
       <div className="list">

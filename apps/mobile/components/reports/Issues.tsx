@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Header, Toast, useToast } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
 import { api, ApiError, uid } from '@/lib/client';
+import { AddFiles, AttachPicker, Attachments, uploadPicked, usePicked } from './Attach';
 import { WherePicker, whereBody, type Where } from './WherePicker';
 
 interface Cat {
@@ -66,6 +67,8 @@ export function IssueForm({ category, base, sosHref }: { category: string; base:
   const [errs, setErrs] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const clientRef = useRef(uid());
+  const picked = usePicked();
+  const [stage, setStage] = useState<'sending' | 'uploading' | null>(null);
 
   useEffect(() => {
     api<Cat[]>('/issues/categories').then((cs) => setCat(cs.find((c) => c.code === category) ?? null));
@@ -85,20 +88,28 @@ export function IssueForm({ category, base, sosHref }: { category: string; base:
     if (!where || where.kind === 'none') e.where = 'Add where it is: your location or a postcode.';
     if (!subtype) e.subtype = 'Choose what it is.';
     if (!severity) e.severity = 'Choose how bad it is.';
-    if (text.trim().length < 10) e.description = 'Photo or a few words needed so the team can find it.';
+    if (text.trim().length < 10 && !picked.items.length) e.description = 'Photo or a few words needed so the team can find it.';
     setErrs(e);
     if (Object.keys(e).length) return requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-invalid="true"] input, [data-invalid="true"] textarea, [data-invalid="true"] button')?.focus());
     setBusy(true);
+    setStage('sending');
     try {
       const r = await api<{ id: string; joined: boolean; already: boolean; urgent: boolean }>('/issues', {
         method: 'POST',
-        body: JSON.stringify({ category, subtype, severity, description: text.trim(), anonymous, clientRef: clientRef.current, ...whereBody(where!) }),
+        body: JSON.stringify({ category, subtype, severity, description: text.trim(), withMedia: picked.items.length > 0, anonymous, clientRef: clientRef.current, ...whereBody(where!) }),
       });
-      router.replace(`${base}/${r.id}?sent=${r.already ? 'again' : r.joined ? 'joined' : 'new'}${r.urgent ? '&urgent=1' : ''}`);
+      // The report is in; files follow. A failed file never loses the report.
+      let failed = 0;
+      if (picked.items.length) {
+        setStage('uploading');
+        failed = await uploadPicked('issue_case', r.id, picked);
+      }
+      router.replace(`${base}/${r.id}?sent=${r.already ? 'again' : r.joined ? 'joined' : 'new'}${r.urgent ? '&urgent=1' : ''}${failed ? `&files=${failed}` : ''}`);
     } catch (x) {
       if (x instanceof ApiError && x.fields?.length) setErrs(Object.fromEntries(x.fields.map((f) => [f.field, f.message])));
       else setErrs({ form: x instanceof ApiError ? x.message : 'Could not send. Try again.' });
       setBusy(false);
+      setStage(null);
     }
   };
 
@@ -143,18 +154,11 @@ export function IssueForm({ category, base, sosHref }: { category: string; base:
         {errs.severity && <span className="field-error">{errs.severity}</span>}
       </div>
 
-      <div className="btn-row" style={{ marginBottom: 12 }}>
-        <button className="btn" type="button" disabled style={{ borderStyle: 'dashed', minHeight: 72 }}>
-          Add photo (next)
-        </button>
-        <button className="btn" type="button" disabled style={{ borderStyle: 'dashed', minHeight: 72 }}>
-          Add short video (next)
-        </button>
-      </div>
+      <AttachPicker picked={picked} disabled={busy} />
 
       <label className="field" data-invalid={!!errs.description}>
         <span>Tell us more</span>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} aria-invalid={!!errs.description} placeholder="A few words so the team can find it" />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} aria-invalid={!!errs.description} placeholder={picked.items.length ? 'Optional with a photo' : 'A few words so the team can find it'} />
         {errs.description && <span className="field-error">{errs.description}</span>}
       </label>
 
@@ -177,7 +181,7 @@ export function IssueForm({ category, base, sosHref }: { category: string; base:
         </div>
       </div>
       <button className="btn block primary" type="button" onClick={send} disabled={busy}>
-        {busy ? 'Sending…' : nearby ? 'Add my report' : 'Send report'}
+        {stage === 'uploading' ? 'Sending photos…' : busy ? 'Sending…' : nearby ? 'Add my report' : 'Send report'}
       </button>
     </main>
   );
@@ -211,6 +215,7 @@ export function IssueDetail({ id, back, sosHref }: { id: string; back: string; s
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useToast();
+  const [files, setFiles] = useState(0);
 
   const load = useCallback(() => api<Detail>(`/issues/${id}`).then(setD).catch((e: ApiError) => setErr(e.message)), [id]);
   useEffect(() => {
@@ -218,7 +223,8 @@ export function IssueDetail({ id, back, sosHref }: { id: string; back: string; s
   }, [load]);
   useEffect(() => {
     const s = params.get('sent');
-    if (s) setToast(s === 'joined' ? 'Added to the existing report.' : s === 'again' ? 'You already reported this. We added your new details.' : 'Report sent. Thank you.');
+    if (params.get('files')) setToast('Report sent, but some files did not upload. Add them again below.');
+    else if (s) setToast(s === 'joined' ? 'Added to the existing report.' : s === 'again' ? 'You already reported this. We added your new details.' : 'Report sent. Thank you.');
   }, [params, setToast]);
 
   const vote = async (v: 'yes' | 'no') => {
@@ -298,6 +304,17 @@ export function IssueDetail({ id, back, sosHref }: { id: string; back: string; s
         <p className="muted" style={{ margin: '4px 0 0' }}>{d.mine.description}</p>
         <p className="muted" style={{ margin: '8px 0 0' }}>{d.mine.anonymous ? 'Sent without your name.' : 'Sent with your name.'}</p>
       </div>
+      <Attachments ownerType="issue_case" ownerId={id} refreshKey={files} />
+      {d.state !== 'fixed' && (
+        <AddFiles
+          ownerType="issue_case"
+          ownerId={id}
+          onDone={(n) => {
+            setFiles((k) => k + 1);
+            setToast(n === 1 ? 'Photo added to the report.' : 'Files added to the report.');
+          }}
+        />
+      )}
 
       <p className="section-label">History</p>
       <div className="list">

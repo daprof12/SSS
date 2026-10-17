@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Header, Toast, useToast } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
 import { api, ApiError } from '@/lib/client';
+import { Attachments, AttachPicker, uploadPicked, usePicked } from './Attach';
 
 interface Tip {
   publicNo: string;
@@ -35,6 +36,7 @@ export function TipDetail({ id, back }: { id: string; back: string }) {
   const [err, setErr] = useState<string | null>(null);
   const [sheet, setSheet] = useState<'info' | 'withdraw' | null>(null);
   const [toast, setToast] = useToast();
+  const [files, setFiles] = useState(0);
 
   const load = useCallback(
     () =>
@@ -122,6 +124,7 @@ export function TipDetail({ id, back }: { id: string; back: string }) {
 
       <p className="muted">{t.anonymous ? 'Your name is hidden from the agency.' : 'The agency can see your name.'}</p>
 
+      <Attachments ownerType="tip" ownerId={id} refreshKey={files} title="Your photos and videos" />
       {t.canAddInfo && (
         <button className="btn block signal" type="button" onClick={() => setSheet('info')}>
           Add more information
@@ -133,7 +136,7 @@ export function TipDetail({ id, back }: { id: string; back: string }) {
         </button>
       )}
 
-      {sheet === 'info' && <InfoSheet id={id} onClose={() => setSheet(null)} onDone={() => { setSheet(null); setToast('Sent to the agency.'); void load(); }} />}
+      {sheet === 'info' && <InfoSheet id={id} onClose={() => setSheet(null)} onDone={() => { setSheet(null); setToast('Sent to the agency.'); setFiles((k) => k + 1); void load(); }} />}
       <Sheet
         open={sheet === 'withdraw'}
         title="Withdraw this tip?"
@@ -174,6 +177,7 @@ function InfoSheet({ id, onClose, onDone }: { id: string; onClose: () => void; o
   const [text, setText] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const picked = usePicked();
   return (
     <Sheet
       open
@@ -190,10 +194,13 @@ function InfoSheet({ id, onClose, onDone }: { id: string; onClose: () => void; o
             type="button"
             disabled={busy}
             onClick={async () => {
-              if (text.trim().length < 3) return setErr('Write a little more.');
+              const n = picked.items.length;
+              if (text.trim().length < 3 && !n) return setErr('Write a little more, or add a photo.');
               setBusy(true);
               try {
-                await api(`/tips/${id}/info`, { method: 'POST', body: JSON.stringify({ text: text.trim() }) });
+                if (n && (await uploadPicked('tip', id, picked))) return setBusy(false);
+                const note = text.trim().length >= 3 ? text.trim() : `Added ${n} ${n === 1 ? 'file' : 'files'}.`;
+                await api(`/tips/${id}/info`, { method: 'POST', body: JSON.stringify({ text: note }) });
                 onDone();
               } catch (e) {
                 setErr(e instanceof ApiError ? e.message : 'Could not send.');
@@ -211,6 +218,9 @@ function InfoSheet({ id, onClose, onDone }: { id: string; onClose: () => void; o
         <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} aria-invalid={!!err} />
       </label>
       {err && <span className="field-error">{err}</span>}
+      <div style={{ marginTop: 12 }}>
+        <AttachPicker picked={picked} disabled={busy} />
+      </div>
     </Sheet>
   );
 }

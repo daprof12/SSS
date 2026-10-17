@@ -119,7 +119,7 @@ One installable app; the signed-in person decides the surface. Sign in with a de
 
 **Test-only screens:** while Paystack is mocked, `/pay/[ref]` stands in for the hosted checkout and the transfer screen has a "simulate arrival" button. Both are hidden in production builds.
 
-**Not built yet** (rows say "Soon" or open a "Coming next" page): Learn, tips, donations, withdraw, security, discreet mode, language, officer history and field reports, protected calling and messaging, photos and voice notes.
+**Not built yet** (rows say "Soon" or open a "Coming next" page): Learn, tips, donations, withdraw, security, discreet mode, language, officer history and field reports, protected calling and messaging, and voice notes.
 
 ## Sign-in and onboarding
 
@@ -139,4 +139,33 @@ Agency side (`/agencies/:id/tips`, `…/tips/:tipId/actions`): the queue shows "
 **Public issues** (Public Issues doc §1–2; B3): pick one of 8 categories, place (GPS first, home or postcode), what it is, how bad, a few words, optional anonymity. Before sending, the form shows how many people already reported it within 100 m; reports there join the same case, and one person counts once. The case shows the count, Sent → Taken on → Work started → Fix reported → Fixed, and asks reporters "Is it fixed?": enough "yes" closes it, one "no" reopens it and every reporter answers again next round.
 Agency side (`/agencies/:id/issues`, `…/issues/:caseId/actions`): assign with a target date, start, mark fixed with a note. Reporters are told at each step.
 
-Both are linked from Home ("Not an emergency?"), the SOS type picker, Activity, Profile, and the officer's Report tab. Photo and video upload, the agency dashboard pages for these queues, the PDF brief and "send to a superior" link, and the 7-day silence rule that closes a fix are not built yet.
+Both are linked from Home ("Not an emergency?"), the SOS type picker, Activity, Profile, and the officer's Report tab. The agency dashboard pages for these queues are in `apps/dashboard/app/(app)/agency`.
+
+## Photos, videos, scheduled rules and the issue brief
+
+**Photos and videos** (`apps/api/src/media`, migration 009). There are two steps, so production can switch to presigned object-storage uploads: `POST /media` registers the type, size and owner, then `PUT /media/:id/content` sends the bytes. Each file:
+- must be JPEG, PNG, WebP, MP4 or MOV, at most 10 MB, with at most 6 per person per report;
+- is checked by its own header bytes, not its name or claimed type;
+- has its EXIF/GPS segments stripped if it is a JPEG.
+
+Who can see and add files:
+- **Tips:** the tipper adds files while the tip is open; NAPTIP-side staff see them.
+- **Issues:** any reporter adds until the issue is fixed; the agency sees them.
+- **Live reports:** the reporter adds; assigned officers and the station head or dispatcher see them, and each upload adds "Photo added" to the response log and stream.
+
+Every staff view is written to the audit log. Files are served `private, no-store`, and only with a session token. In the PWA, the issue form, a tip's "Add more information" and a live report's "Add info" all take photos and videos, with thumbnails, upload progress and a viewer. Development keeps the bytes in `media_blobs`.
+
+**Scheduled rules** (`apps/api/src/jobs`). They run every 5 minutes in the API process, and on demand with `POST /admin/jobs/run`:
+- **Fix silence:** if no reporter says "not fixed" within 7 days of "marked fixed", the issue closes as fixed (by system) and reporters are told.
+- **Bounty release:** when a bounty's 7-day hold ends, the tip moves to "Ready to withdraw" and the tipper is told.
+
+Both are safe to run twice and across instances (`skip locked`).
+
+**Issue brief and share link** (`apps/api/src/reports/brief.*`):
+- `GET /agencies/:id/issues/:caseId/brief.pdf` is a one-page PDF: facts, counts, a reports-per-day chart, what people report, and the history. Each download is logged.
+- `POST …/shares {note, days 1–14}` returns a view-only link `/shared/<token>` for a superior or another office. Only the token's hash is stored. List links with `GET …/shares`; turn one off with `DELETE …/shares/:id`.
+- The public page `apps/dashboard/app/shared/[token]` needs no sign-in, sends no referrer and is not indexed. It shows the agency's note, and counts and logs every view. After expiry or revoke it says "This link has expired."
+
+Neither the PDF nor the link carries reporter names, ids or their free text.
+
+**Not built yet:** virus scanning and video length checks (needs the media worker), and a dashboard viewer for tip and issue photos.

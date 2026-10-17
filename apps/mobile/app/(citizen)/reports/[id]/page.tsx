@@ -10,6 +10,7 @@ import { Icon } from '@/components/Icon';
 import { MiniMap } from '@/components/MiniMap';
 import { api, ApiError, haptic, typeInfo } from '@/lib/client';
 import { FreshLabel, useIncident } from '@/lib/useIncident';
+import { AttachPicker, uploadPicked, usePicked } from '@/components/reports/Attach';
 
 interface LatLng {
   lat: number;
@@ -289,6 +290,7 @@ function CancelSheet({ id, state, onClose, onDone }: { id: string; state: string
 
 function InfoSheet({ id, onClose, onDone }: { id: string; onClose: () => void; onDone: () => void }) {
   const [text, setText] = useState('');
+  const picked = usePicked();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   return (
@@ -308,10 +310,12 @@ function InfoSheet({ id, onClose, onDone }: { id: string; onClose: () => void; o
             type="button"
             disabled={busy}
             onClick={async () => {
-              if (!text.trim()) return setErr('Write something before sending.');
+              if (!text.trim() && !picked.items.length) return setErr('Write something or add a photo before sending.');
               setBusy(true);
               try {
-                await api(`/incidents/${id}/events`, { method: 'POST', body: JSON.stringify({ kind: 'add_info', text: text.trim() }) });
+                // Each file shows on the response log as it lands; text follows.
+                if (picked.items.length && (await uploadPicked('incident', id, picked))) return;
+                if (text.trim()) await api(`/incidents/${id}/events`, { method: 'POST', body: JSON.stringify({ kind: 'add_info', text: text.trim() }) });
                 onDone();
               } catch (e) {
                 setErr(e instanceof ApiError ? e.message : 'Could not send. Try again.');
@@ -329,8 +333,11 @@ function InfoSheet({ id, onClose, onDone }: { id: string; onClose: () => void; o
         <span>What should they know?</span>
         <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={500} aria-invalid={!!err} />
       </label>
-      <span className="muted">{text.length > 450 ? `${500 - text.length} characters left` : 'Photos and voice notes come next.'}</span>
+      <span className="muted">{text.length > 450 ? `${500 - text.length} characters left` : 'Only if it is safe to take a photo.'}</span>
       {err && <span className="field-error">{err}</span>}
+      <div style={{ marginTop: 12 }}>
+        <AttachPicker picked={picked} disabled={busy} />
+      </div>
     </Sheet>
   );
 }
