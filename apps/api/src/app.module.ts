@@ -4,6 +4,7 @@ import { AdminAgenciesController, AgenciesController } from './agencies/agencies
 import { AgenciesService } from './agencies/agencies.service';
 import { AgencyLifecycle } from './agencies/agency.lifecycle';
 import { AgencyBillingService } from './agencies/billing.service';
+import { PayoutsService } from './agencies/payouts.service';
 import { KYC, MockKycAdapter } from './adapters/kyc';
 import { MockPaystackAdapter, PAYMENTS } from './adapters/payments';
 import { MockPostcodeAdapter, POSTCODE } from './adapters/postcode';
@@ -87,6 +88,7 @@ export class AppModule {
         IssuesService,
         AgencyLifecycle,
         AgencyBillingService,
+        PayoutsService,
         AgenciesService,
         MediaService,
         BriefService,

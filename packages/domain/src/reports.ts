@@ -154,3 +154,32 @@ export function agencyHandles(kind: string) {
   };
 }
 export type AgencyHandles = ReturnType<typeof agencyHandles>;
+
+/** An agency's bounty rate for one tip category (Rewards doc: fixed, tiered by severity, or % of recovered value with a cap). */
+export interface BountyRate {
+  basis: 'fixed' | 'tiered' | 'percent_capped';
+  /** fixed/tiered: min = standard result, max = serious result. percent_capped: percent of the value recovered. */
+  tiers: { min?: number | null; max?: number | null; percent?: number | null };
+  capKobo: number | null;
+}
+
+/** The bounty suggested when the agency records a result. Never above the cap. */
+export function suggestBounty(rate: BountyRate | null, input: { severity: 'standard' | 'high'; recoveredKobo?: number | null }): number {
+  if (!rate) return 0;
+  let kobo: number;
+  if (rate.basis === 'percent_capped') {
+    kobo = Math.floor(((input.recoveredKobo ?? 0) * Number(rate.tiers.percent ?? 0)) / 100);
+  } else {
+    const min = Number(rate.tiers.min ?? 0);
+    kobo = rate.basis === 'tiered' && input.severity === 'high' ? Number(rate.tiers.max ?? min) : min;
+  }
+  return rate.capKobo != null ? Math.min(kobo, rate.capKobo) : kobo;
+}
+
+/** What a tipper is told before sending, e.g. "₦50,000 to ₦500,000" or "5% of the value recovered, up to ₦1,000,000". */
+export function bountyRangeText(rate: BountyRate, naira: (kobo: number) => string): string {
+  if (rate.basis === 'percent_capped') return `${rate.tiers.percent}% of the value recovered${rate.capKobo != null ? `, up to ${naira(rate.capKobo)}` : ''}`;
+  const min = Number(rate.tiers.min ?? 0);
+  const max = rate.basis === 'tiered' ? Number(rate.tiers.max ?? min) : min;
+  return min === max ? naira(min) : `${naira(min)} to ${naira(max)}`;
+}

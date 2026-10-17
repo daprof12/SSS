@@ -168,7 +168,9 @@ Both are safe to run twice and across instances (`skip locked`).
 
 Neither the PDF nor the link carries reporter names, ids or their free text.
 
-**Not built yet:** virus scanning and video length checks (needs the media worker), and a dashboard viewer for tip and issue photos.
+On the dashboard, the agency's tip and issue pages show the reporter's photos and videos, with a full-screen viewer (arrow keys, Escape); each view is audited.
+
+**Not built yet:** virus scanning and video length checks (needs the media worker).
 
 ## What each agency handles, bounty rates and the bounty pool
 
@@ -192,4 +194,13 @@ Every change is audited. Citizens see the new range on the tip form at once.
 - `GET /agencies/:id/bounties/summary` gives what the Bounties page shows, as on the "Agency bounties" board: pool balance, claims waiting, paid this month, tips this month, the rates table, pool activity and payments still confirming. When the pool is below pending claims, the page warns "Pool has [Amount], below pending claims of [Amount]."
 - In development, the fund sheet plays the Paystack checkout with "Pay now (test)" and "Decline card (test)".
 
-**Not built yet:** the platform fee of [%] on each bounty (still to be decided), percentage-of-recovered-value rates, and paying the pool back out at offboarding.
+**Percentage rates.** A rate can also be "Share of value recovered", which needs a percent (up to 50%) and a cap. The agency then enters the value recovered or seized when it records a result, and the suggested bounty is that share, never above the cap. Tippers see, for example, "5% of the value recovered, up to ₦1,000,000". `suggestBounty` and `bountyRangeText` in `@erp/domain` are the one rule used by the API and the dashboard.
+
+**Paying the pool back when an agency leaves:**
+- An agency cannot ask to leave while bounty claims are waiting for a decision. Once it has asked, the pool is closed: no funding and no new approvals.
+- The request creates one payout for the pool balance. Platform admins approve it, two of them above ₦100,000 (`POST /admin/payouts/:id/approve`).
+- On final approval, the pool is debited and a Paystack transfer is queued to the agency's verified account. The signed `transfer.success` webhook marks the payout paid. `transfer.failed` puts the money back in the pool, tells the agency, and keeps offboarding blocked until `POST /admin/payouts/:id/retry` succeeds.
+- `GET /admin/payouts?state=` lists payouts for platform admins. The agency's Bounties page shows where its payout stands.
+- In development, `POST /dev/paystack/transfer/:payoutId?outcome=success|failed` stands in for Paystack.
+
+**Not built yet:** the platform fee of [%] on each bounty (still to be decided), and a platform admin screen for the payout queue (the API is there).

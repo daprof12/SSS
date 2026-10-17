@@ -2,7 +2,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { checkFund, formatNaira, kobo, naira, type WalletLimits } from '@erp/domain';
-import { PAYMENTS, newReference, type ChargeEvent, type PayMethod, type PaymentsAdapter } from '../adapters/payments';
+import { PAYMENTS, newReference, type ChargeEvent, type PayMethod, type PaymentsAdapter, type TransferEvent } from '../adapters/payments';
+import { PayoutsService } from '../agencies/payouts.service';
 import { AgencyBillingService } from '../agencies/billing.service';
 import { creditPool, poolFundFailed } from '../reports/bounties.service';
 import { Audit } from '../core/audit';
@@ -27,6 +28,7 @@ export class WalletService {
     @Inject(Audit) private readonly audit: Audit,
     @Inject(PAYMENTS) private readonly payments: PaymentsAdapter,
     @Inject(AgencyBillingService) private readonly agencyBilling: AgencyBillingService,
+    @Inject(PayoutsService) private readonly payouts: PayoutsService,
   ) {}
 
   async walletId(userId: string, c: Queryable = this.db.pool): Promise<string> {
@@ -144,7 +146,7 @@ export class WalletService {
   /** Step 4: signed webhook → ledger. Idempotent on Paystack event id and reference. */
   async handleWebhook(rawBody: Buffer, signature: string | undefined): Promise<{ ok: true; duplicate?: boolean }> {
     if (!this.payments.verifySignature(rawBody, signature)) throw new AppError(401, 'bad_signature', 'Invalid signature.');
-    const event = JSON.parse(rawBody.toString('utf8')) as ChargeEvent;
+    const event = JSON.parse(rawBody.toString('utf8')) as ChargeEvent | TransferEvent;
 
     return this.db.tx(async (c) => {
       const stored = await c.query(
@@ -152,14 +154,20 @@ export class WalletService {
         [String(event.data.id), event.event, event],
       );
       if (!stored.rowCount) return { ok: true as const, duplicate: true };
+      if (event.event.startsWith('transfer.')) {
+        await this.payouts.onTransfer(c, event as TransferEvent);
+        await c.query(`update webhook_events set processed_at = now() where provider = 'paystack' and event_id = $1`, [String(event.data.id)]);
+        return { ok: true as const };
+      }
 
-      const pay = (await c.query(`select * from payments where provider_ref = $1 for update`, [event.data.reference])).rows[0];
+      const charge = event as ChargeEvent;
+      const pay = (await c.query(`select * from payments where provider_ref = $1 for update`, [charge.data.reference])).rows[0];
       if (!pay) {
-        this.log.warn(`webhook for unknown reference ${event.data.reference}`);
-      } else if (event.event === 'charge.success' && pay.state !== 'succeeded') {
+        this.log.warn(`webhook for unknown reference ${charge.data.reference}`);
+      } else if (charge.event === 'charge.success' && pay.state !== 'succeeded') {
         // Credit what actually arrived (transfers can differ from the amount typed).
-        const amount = event.data.amount;
-        await c.query(`update payments set state = 'succeeded', paid_at = now(), amount_kobo = $2, method = coalesce(method, $3) where id = $1`, [pay.id, amount, mapChannel(event.data.channel)]);
+        const amount = charge.data.amount;
+        await c.query(`update payments set state = 'succeeded', paid_at = now(), amount_kobo = $2, method = coalesce(method, $3) where id = $1`, [pay.id, amount, mapChannel(charge.data.channel)]);
         if (pay.purpose === 'wallet_fund') {
           const userWallet = await this.walletId(pay.user_id, c);
           const platform = (await c.query(`select id from wallets where owner_type = 'platform' and owner_id is null`)).rows[0].id;
@@ -167,7 +175,7 @@ export class WalletService {
           await c.query(
             `insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values
                ($1, 'fund', $3, $4, $5, $6), ($2, 'fund', -$3::bigint, $4, $5, $6)`,
-            [userWallet, platform, amount, pay.provider_ref, journal, `Funded by ${{ card: 'card', bank_transfer: 'bank transfer', ussd: 'USSD' }[mapChannel(event.data.channel)]}`],
+            [userWallet, platform, amount, pay.provider_ref, journal, `Funded by ${{ card: 'card', bank_transfer: 'bank transfer', ussd: 'USSD' }[mapChannel(charge.data.channel)]}`],
           );
           await c.query(
             `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'wallet_funded', 'money', 'in_app', 'Wallet funded', $2, '/wallet')`,
@@ -176,11 +184,11 @@ export class WalletService {
         } else if (pay.purpose === 'agency_invoice') {
           await this.agencyBilling.onPaystackSuccess(c, pay, amount);
         } else if (pay.purpose === 'bounty_pool') {
-          await creditPool(c, pay, amount, randomUUID(), { card: 'card', bank_transfer: 'bank transfer', ussd: 'USSD' }[mapChannel(event.data.channel)]);
+          await creditPool(c, pay, amount, randomUUID(), { card: 'card', bank_transfer: 'bank transfer', ussd: 'USSD' }[mapChannel(charge.data.channel)]);
         }
         await this.audit.write({ actorId: null, actorRole: 'system', action: 'payment.succeeded', entity: 'payment', entityId: pay.id, payload: { amount, reference: pay.provider_ref } }, c);
-      } else if (event.event === 'charge.failed' && pay.state !== 'succeeded') {
-        await c.query(`update payments set state = 'failed', failure_reason = $2 where id = $1`, [pay.id, event.data.gateway_response]);
+      } else if (charge.event === 'charge.failed' && pay.state !== 'succeeded') {
+        await c.query(`update payments set state = 'failed', failure_reason = $2 where id = $1`, [pay.id, charge.data.gateway_response]);
         if (pay.purpose === 'agency_invoice') {
           await this.agencyBilling.onPaystackFailed(c, pay);
         } else if (pay.purpose === 'bounty_pool') {

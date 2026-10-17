@@ -1107,3 +1107,100 @@ input[type='text'] {
 .stat .info {
   color: var(--color-signal-text);
 }
+
+/* ---------- evidence (photos and videos from reporters) ---------- */
+.evidence {
+  margin-top: var(--space-3);
+}
+.evidence-label {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-2);
+}
+.evidence-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--space-2);
+}
+.evidence-grid li {
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-surface-sunken);
+  position: relative;
+  animation: fade-in 200ms var(--motion-fast-easing);
+}
+.evidence-grid button {
+  all: unset;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: zoom-in;
+}
+.evidence-grid button:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: -2px;
+}
+.evidence-grid img,
+.evidence-grid video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.evidence-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+}
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgb(0 0 0 / 0.9);
+  display: grid;
+  place-items: center;
+  padding: var(--space-6, 32px);
+  animation: fade-in 150ms var(--motion-fast-easing);
+}
+.viewer img,
+.viewer video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+}
+.viewer-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  background: rgb(255 255 255 / 0.15);
+  color: #fff;
+  font-size: 24px;
+  cursor: pointer;
+}
+.viewer-count {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: var(--text-sm);
+}
+[data-motion='reduced'] .viewer,
+[data-motion='reduced'] .evidence-grid li {
+  animation: none;
+}

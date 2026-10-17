@@ -90,7 +90,7 @@ function Bounties({ agency }: { agency: MyAgency }) {
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <AgencySwitcher />
           {agency.handles.bounties && (
-            <button className="btn primary" type="button" disabled={!pool} onClick={() => setSheet({ kind: 'fund' })}>
+            <button className="btn primary" type="button" disabled={!pool || pool.closed} title={pool?.closed ? 'Your agency is leaving, so the pool is closed.' : undefined} onClick={() => setSheet({ kind: 'fund' })}>
               Fund bounty pool
             </button>
           )}
@@ -132,7 +132,16 @@ function Bounties({ agency }: { agency: MyAgency }) {
         </div>
       )}
 
-      {pool?.pool.low && (
+      {pool?.payout && (
+        <div className={`banner ${pool.payout.state === 'failed' ? 'critical' : pool.payout.state === 'paid' ? 'success' : 'info'}`} role="status">
+          <strong>
+            {pool.payout.state === 'paid' ? 'Pool paid back' : 'Paying your pool back'}: {naira(pool.payout.amountKobo)}
+          </strong>
+          {pool.payout.line}
+          {pool.payout.reason && pool.payout.state === 'failed' ? ` (${pool.payout.reason})` : ''}
+        </div>
+      )}
+      {pool?.pool.low && !pool.closed && (
         <div className="banner warning" role="status">
           <strong>Pool low</strong>
           {pool.pool.low}{' '}
@@ -200,12 +209,14 @@ function Bounties({ agency }: { agency: MyAgency }) {
                   <tr key={r.category} className="link" onClick={() => setSheet({ kind: 'rate', category: r.category })}>
                     <td style={{ fontWeight: 700 }}>{r.label}</td>
                     <td>{r.verifiedWhen}</td>
-                    <td>{!r.set ? '—' : r.basis === 'tiered' ? 'Tiered' : 'Fixed'}</td>
+                    <td>{!r.set ? '—' : r.basis === 'tiered' ? 'Tiered' : r.basis === 'percent_capped' ? '% of value' : 'Fixed'}</td>
                     <td>
                       {!r.set ? (
                         <span className="muted" title="No rate set, so this category pays no bounty.">No rate set</span>
                       ) : !r.active ? (
                         <span className="chip neutral">Paused</span>
+                      ) : r.basis === 'percent_capped' ? (
+                        `${r.percent}%`
                       ) : r.basis === 'tiered' && r.seriousKobo !== r.standardKobo ? (
                         `${naira(r.standardKobo!)} to ${naira(r.seriousKobo!)}`
                       ) : (

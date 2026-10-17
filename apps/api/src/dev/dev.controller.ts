@@ -197,6 +197,17 @@ export class DevController {
     return this.wallet.handleWebhook(Buffer.from(body), signature);
   }
 
+  /** Simulates Paystack settling (or failing) a payout transfer; posts a signed transfer.* webhook. */
+  @Post('paystack/transfer/:payoutId')
+  async settleTransfer(@Param('payoutId') id: string, @Query('outcome') outcome: 'success' | 'failed' = 'success') {
+    if (!(this.payments instanceof MockPaystackAdapter)) throw new AppError(400, 'not_mock', 'Only with the mock Paystack adapter.');
+    const po = (await this.db.query(`select id, amount_kobo, transfer_code, reason from payouts where id = $1`, [id])).rows[0];
+    if (!po?.transfer_code) throw new AppError(404, 'not_found', 'No transfer for this payout.');
+    this.payments.restoreTransfer({ reference: `payout:${po.id}`, amountKobo: Number(po.amount_kobo), recipientCode: 'RCP_dev', reason: po.reason ?? 'Agency payout', transferCode: po.transfer_code });
+    const { body, signature } = this.payments.buildTransferWebhook(`payout:${po.id}`, outcome);
+    return this.wallet.handleWebhook(Buffer.from(body), signature);
+  }
+
   /** Mock object storage: accepts the upload a presigned URL points at and discards it. */
   @Put('storage/*key')
   @HttpCode(200)

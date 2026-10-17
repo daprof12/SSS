@@ -26,8 +26,24 @@ export interface ChargeEvent {
   data: { id: number; reference: string; amount: number; status: string; channel: string; gateway_response: string; metadata: Record<string, unknown> };
 }
 
+/** Money out (payouts, withdrawals): Paystack pays a saved transfer recipient. */
+export interface TransferInput {
+  reference: string;
+  amountKobo: number;
+  /** Paystack transfer recipient for the verified bank account. */
+  recipientCode: string;
+  reason: string;
+}
+
+export interface TransferEvent {
+  event: 'transfer.success' | 'transfer.failed' | 'transfer.reversed';
+  data: { id: number; reference: string; amount: number; transfer_code: string; status: string; reason: string };
+}
+
 export interface PaymentsAdapter {
   initialize(input: InitInput): Promise<InitResult>;
+  /** Queues a transfer. The outcome arrives later as a signed transfer.* webhook. */
+  transfer(input: TransferInput): Promise<{ transferCode: string }>;
   verifySignature(rawBody: Buffer, signature: string | undefined): boolean;
 }
 
@@ -53,6 +69,31 @@ export class MockPaystackAdapter implements PaymentsAdapter {
       return { reference: input.reference, transferAccount: { bankName: 'Wema Bank (mock)', accountNumber: `99${String(Date.now()).slice(-8)}`, accountName: 'ERP / Test User' } };
     }
     return { reference: input.reference, checkoutUrl: `${this.baseUrl}/dev/paystack/checkout/${encodeURIComponent(input.reference)}` };
+  }
+
+  private readonly transfers = new Map<string, TransferInput & { transferCode: string }>();
+
+  async transfer(input: TransferInput): Promise<{ transferCode: string }> {
+    const transferCode = `TRF_${randomBytes(6).toString('hex')}`;
+    this.transfers.set(input.reference, { ...input, transferCode });
+    return { transferCode };
+  }
+
+  /** Dev only: re-register a transfer queued before an API restart. */
+  restoreTransfer(input: TransferInput & { transferCode: string }) {
+    if (!this.transfers.has(input.reference)) this.transfers.set(input.reference, input);
+  }
+
+  /** Dev only: what Paystack would POST when a transfer settles or fails. */
+  buildTransferWebhook(reference: string, outcome: 'success' | 'failed'): { body: string; signature: string } {
+    const t = this.transfers.get(reference);
+    if (!t) throw new Error(`unknown transfer ${reference}`);
+    const event: TransferEvent = {
+      event: outcome === 'success' ? 'transfer.success' : 'transfer.failed',
+      data: { id: this.nextEventId(), reference, amount: t.amountKobo, transfer_code: t.transferCode, status: outcome, reason: outcome === 'success' ? t.reason : 'Account could not be credited' },
+    };
+    const body = JSON.stringify(event);
+    return { body, signature: signPaystack(this.secret, body) };
   }
 
   verifySignature(rawBody: Buffer, signature: string | undefined): boolean {

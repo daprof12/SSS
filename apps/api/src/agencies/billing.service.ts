@@ -28,6 +28,7 @@ import { Audit } from '../core/audit';
 import type { Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
+import { PayoutsService } from './payouts.service';
 import { AgencyLifecycle, type AgencyRow } from './agency.lifecycle';
 
 // Placeholders until pricing is settled — held as config, not code (PRD).
@@ -79,6 +80,7 @@ export class AgencyBillingService {
     @Inject(Audit) private readonly audit: Audit,
     @Inject(PAYMENTS) private readonly payments: PaymentsAdapter,
     @Inject(AgencyLifecycle) private readonly life: AgencyLifecycle,
+    @Inject(PayoutsService) private readonly payouts: PayoutsService,
   ) {}
 
   // ---------------------------------------------------------------- prices and plans
@@ -598,7 +600,7 @@ export class AgencyBillingService {
   /** Payout approval: the destination account must be verified; above the threshold, two people. */
   async approvePayout(p: Principal, payoutId: string) {
     this.life.requirePlatformAdmin(p);
-    return this.db.tx(async (c) => {
+    const result = await this.db.tx(async (c) => {
       const po = (await c.query(`select * from payouts where id = $1 for update`, [payoutId])).rows[0];
       if (!po) throw new AppError(404, 'not_found', 'Payout not found.');
       if (!['pending', 'awaiting_second_approval'].includes(po.state)) throw new AppError(409, 'invalid_transition', `This payout is ${po.state}.`);
@@ -608,22 +610,16 @@ export class AgencyBillingService {
       if (!a.ok) throw new AppError(409, a.code, a.message);
       const state = a.complete ? 'processing' : 'awaiting_second_approval';
       await c.query(`update payouts set approved_by = $2, state = $3, decided_at = case when $4 then now() else decided_at end where id = $1`, [payoutId, a.approvals, state, a.complete]);
-      if (a.complete && po.source_wallet_id) {
-        // Money leaves through Paystack: book it against the platform wallet so the journal balances.
-        const platform = (await c.query(`select id from wallets where owner_type = 'platform' and owner_id is null`)).rows[0].id;
-        const journal = randomUUID();
-        await c.query(
-          `insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values
-             ($1, 'withdrawal', -$3::bigint, $4, $5, $6), ($2, 'withdrawal', $3, $4, $5, $6)`,
-          [po.source_wallet_id, platform, po.amount_kobo, `payout:${po.id}`, journal, po.reason ?? 'Agency payout'],
-        );
-      }
+      if (a.complete) await this.payouts.debitSource(c, po);
       await this.audit.write(
         { actorId: p.userId, actorRole: 'platform_admin', action: a.complete ? 'payout.approved' : 'payout.first_approval', entity: 'payout', entityId: payoutId, payload: { amountKobo: po.amount_kobo, approvals: a.approvals.length } },
         c,
       );
-      return { state, approvals: a.approvals.length, message: a.complete ? 'Payout approved.' : 'Approval recorded. A second approver must confirm.' };
+      return { state, approvals: a.approvals.length, message: a.complete ? 'Payout approved. The transfer is on its way.' : 'Approval recorded. A second approver must confirm.' };
     });
+    // The transfer is queued only once the approval (and the debit) is committed.
+    if (result.state === 'processing') result.state = (await this.payouts.send(payoutId)).state;
+    return result;
   }
 }
 

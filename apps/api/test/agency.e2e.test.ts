@@ -396,6 +396,10 @@ describe('agency lifecycle: happy path, ask-for-more loop, overdue lock, offboar
     // Dispatch continues until the platform approves leaving.
     expect((await fireReport('agency-fire-0003')).state).toBe('offered');
 
+    // Leaving completes only once the pool's transfer has reached the bank.
+    expect((await http.post(`/admin/agencies/${id}/offboard/approve`).set(as('platformAdmin')).expect(422)).body.blockers.map((b: any) => b.code)).toEqual(['payout_processing']);
+    await http.post(`/dev/paystack/transfer/${payoutId}`).expect(201);
+
     const done = await http.post(`/admin/agencies/${id}/offboard/approve`).set(as('platformAdmin')).expect(201);
     expect(done.body).toMatchObject({ status: 'offboarded', stationsPaused: 1 });
     expect((await db.query(`select status from stations where id = $1`, [stationId])).rows[0].status).toBe('paused');

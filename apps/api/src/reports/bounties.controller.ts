@@ -6,8 +6,9 @@ import { BountiesService } from './bounties.service';
 
 const naira = z.number().int().positive('Enter an amount.');
 const RateBody = z.object({
-  basis: z.enum(['fixed', 'tiered']),
-  standardKobo: naira,
+  basis: z.enum(['fixed', 'tiered', 'percent_capped']),
+  standardKobo: naira.optional(),
+  percent: z.number().positive().max(50, 'Enter a share between 0.1% and 50%.').optional(),
   seriousKobo: naira.optional(),
   capKobo: naira.nullable().optional(),
   active: z.boolean().default(true),

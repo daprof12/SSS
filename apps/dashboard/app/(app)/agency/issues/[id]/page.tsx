@@ -5,6 +5,7 @@ import { use, useCallback, useState } from 'react';
 import { api } from '@erp/web-ui/api';
 import { ErrorBox, focusFirstError, useSubmit } from '@erp/web-ui/CloseReportSheet';
 import { Sheet } from '@erp/web-ui/Sheet';
+import { Evidence } from '@/components/Evidence';
 import { WithAgency, dateOnly, dateTime, daysSince, plural, shortDate, useAgencyRecord, useToast } from '@/components/Agency';
 import { IssueStateChip, isOverdue, severityLabel } from '@/components/IssueChips';
 import { IssueShare } from '@/components/IssueShare';
@@ -155,6 +156,7 @@ function IssueDetail({ id }: { id: string }) {
               {c.text}
             </p>
           ))}
+          <Evidence ownerType="issue_case" ownerId={v.id} />
         </section>
 
         <section className="card" aria-labelledby="act">

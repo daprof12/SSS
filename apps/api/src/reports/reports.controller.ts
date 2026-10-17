@@ -44,6 +44,8 @@ const TipAct = z.object({
   outcome: z.string().max(40).optional(),
   severity: z.enum(['standard', 'high']).optional(),
   amountKobo: z.number().int().positive().optional(),
+  /** Value recovered or seized, for "% of seized value" rates. */
+  recoveredKobo: z.number().int().positive().optional(),
   reason: z.string().max(1000).optional(),
 });
 const IssueAct = z.object({

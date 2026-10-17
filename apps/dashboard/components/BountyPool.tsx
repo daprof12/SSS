@@ -13,6 +13,7 @@ export interface Rate {
   set: boolean;
   active: boolean;
   basis: 'fixed' | 'tiered' | 'percent_capped';
+  percent: number | null;
   standardKobo: number | null;
   seriousKobo: number | null;
   capKobo: number | null;
@@ -20,6 +21,9 @@ export interface Rate {
 
 export interface PoolSummary {
   pool: { availableKobo: number; pendingClaimsKobo: number; low: string | null };
+  /** True once the agency asked to leave: no funding, no new bounties. */
+  closed: boolean;
+  payout: { amountKobo: number; state: string; line: string; reason: string | null; paidAt: string | null } | null;
   claimsWaiting: number;
   paidThisMonth: { kobo: number; tips: number };
   tipsThisMonth: number;
@@ -253,7 +257,9 @@ export function FundSheet({ agencyId, summary, onClose, onFunded }: { agencyId: 
 export function RateSheet({ agencyId, rates, initial, onClose, onSaved }: { agencyId: string; rates: Rate[]; initial: string; onClose: () => void; onSaved: (message: string) => void }) {
   const [category, setCategory] = useState(initial);
   const r = rates.find((x) => x.category === category)!;
-  const [basis, setBasis] = useState<'fixed' | 'tiered'>(r.basis === 'fixed' ? 'fixed' : 'tiered');
+  type Basis = Rate['basis'];
+  const [basis, setBasis] = useState<Basis>(r.basis);
+  const [percent, setPercent] = useState(r.percent == null ? '' : String(r.percent));
   const [standard, setStandard] = useState(fromKobo(r.standardKobo));
   const [serious, setSerious] = useState(fromKobo(r.seriousKobo));
   const [cap, setCap] = useState(fromKobo(r.capKobo));
@@ -264,7 +270,8 @@ export function RateSheet({ agencyId, rates, initial, onClose, onSaved }: { agen
   const pick = (code: string) => {
     const x = rates.find((y) => y.category === code)!;
     setCategory(code);
-    setBasis(x.basis === 'fixed' ? 'fixed' : 'tiered');
+    setBasis(x.basis);
+    setPercent(x.percent == null ? '' : String(x.percent));
     setStandard(fromKobo(x.standardKobo));
     setSerious(fromKobo(x.seriousKobo));
     setCap(fromKobo(x.capKobo));
@@ -274,13 +281,22 @@ export function RateSheet({ agencyId, rates, initial, onClose, onSaved }: { agen
 
   const save = async () => {
     const e: Record<string, string> = {};
-    if (!toKobo(standard)) e.standardKobo = 'Enter an amount.';
-    if (basis === 'tiered' && !toKobo(serious)) e.seriousKobo = 'Enter an amount.';
+    const pct = Number(percent);
+    if (basis === 'percent_capped') {
+      if (!(pct > 0 && pct <= 50)) e.percent = 'Enter a share between 0.1% and 50%.';
+      if (!toKobo(cap)) e.capKobo = 'A share of the value needs a cap per tip.';
+    } else {
+      if (!toKobo(standard)) e.standardKobo = 'Enter an amount.';
+      if (basis === 'tiered' && !toKobo(serious)) e.seriousKobo = 'Enter an amount.';
+    }
     setErrs(e);
     if (Object.keys(e).length) return focusFirstError();
     setBusy(true);
     try {
-      const body = { basis, standardKobo: toKobo(standard), seriousKobo: basis === 'tiered' ? toKobo(serious) : undefined, capKobo: cap ? toKobo(cap) : null, active };
+      const body =
+        basis === 'percent_capped'
+          ? { basis, percent: Number(percent), capKobo: toKobo(cap), active }
+          : { basis, standardKobo: toKobo(standard), seriousKobo: basis === 'tiered' ? toKobo(serious) : undefined, capKobo: cap ? toKobo(cap) : null, active };
       const res = await api<{ message: string }>(`/agencies/${agencyId}/bounty-rates/${category}`, { method: 'PUT', body: JSON.stringify(body) });
       onSaved(res.message);
     } catch (x) {
@@ -335,12 +351,19 @@ export function RateSheet({ agencyId, rates, initial, onClose, onSaved }: { agen
       </label>
       <label className="field" style={{ marginBottom: 12 }}>
         <span>Basis</span>
-        <select value={basis} onChange={(e) => setBasis(e.target.value as 'fixed' | 'tiered')}>
+        <select value={basis} onChange={(e) => setBasis(e.target.value as Basis)}>
           <option value="tiered">Tiered by result</option>
           <option value="fixed">Fixed</option>
+          <option value="percent_capped">Share of value recovered</option>
         </select>
       </label>
-      {basis === 'tiered' ? (
+      {basis === 'percent_capped' ? (
+        <label className="field" data-invalid={!!errs.percent} style={{ marginBottom: 12 }}>
+          <span>Share of the value recovered (%)</span>
+          <input inputMode="decimal" value={percent} onChange={(e) => setPercent(e.target.value)} placeholder="%" aria-label="Share of the value recovered in percent" aria-invalid={!!errs.percent} />
+          {errs.percent ? <span className="field-error">{errs.percent}</span> : <small className="muted">You enter the value recovered or seized when you record the result.</small>}
+        </label>
+      ) : basis === 'tiered' ? (
         <>
           {money('standardKobo', 'Standard result', standard, setStandard, 'When you record the result as standard.')}
           {money('seriousKobo', 'Serious result', serious, setSerious, 'When you record the result as high severity.')}
@@ -348,7 +371,7 @@ export function RateSheet({ agencyId, rates, initial, onClose, onSaved }: { agen
       ) : (
         money('standardKobo', 'Bounty', standard, setStandard)
       )}
-      {money('capKobo', 'Cap per tip (optional)', cap, setCap, 'You can never approve more than this for one tip.')}
+      {money('capKobo', basis === 'percent_capped' ? 'Cap per tip' : 'Cap per tip (optional)', cap, setCap, 'You can never approve more than this for one tip.')}
       <div className="row" style={{ marginBottom: 12 }}>
         <span style={{ flex: 1 }}>
           <strong>Pays a bounty</strong>

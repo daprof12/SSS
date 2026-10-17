@@ -1,7 +1,7 @@
 // Tips → bounty (Rewards doc "Whistleblower bounty"; Report Tracking B2).
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { applyEvent, availableEvents, formatNaira, tipCategories, tipCategory, tipMachine, tipStatus } from '@erp/domain';
+import { applyEvent, availableEvents, bountyRangeText, formatNaira, suggestBounty, type BountyRate, tipCategories, tipCategory, tipMachine, tipStatus } from '@erp/domain';
 import { POSTCODE, PostcodeUnavailable, type PostcodeAdapter } from '../adapters/postcode';
 import { AgencyLifecycle } from '../agencies/agency.lifecycle';
 import { Audit } from '../core/audit';
@@ -30,17 +30,21 @@ export class TipsService {
     const out = [];
     for (const c of tipCategories) {
       const agency = await receivingAgency(this.db.pool, c.agencyKinds);
-      let range: { min: number; max: number } | null = null;
+      let range: { min: number; max: number; text: string } | null = null;
       if (agency && c.bounty) {
-        const rate = (await this.db.query(`select tiers, cap_kobo from bounty_rates where agency_id = $1 and category = $2 and active`, [agency.id, c.code])).rows[0];
-        if (rate?.tiers?.min != null) range = { min: Number(rate.tiers.min), max: Number(rate.tiers.max ?? rate.cap_kobo ?? rate.tiers.min) };
+        const r = (await this.db.query(`select basis, tiers, cap_kobo from bounty_rates where agency_id = $1 and category = $2 and active`, [agency.id, c.code])).rows[0];
+        if (r) {
+          const rate = toRate(r);
+          const top = rate.basis === 'percent_capped' ? rate.capKobo! : suggestBounty(rate, { severity: 'high' });
+          range = { min: rate.basis === 'percent_capped' ? 0 : suggestBounty(rate, { severity: 'standard' }), max: top, text: bountyRangeText(rate, (k) => formatNaira(k).replace('.00', '')) };
+        }
       }
       out.push({
         code: c.code,
         label: c.label,
         agencyLabel: agency?.name ?? c.agencyLabel,
         joined: !!agency,
-        bounty: range ? { ...range, text: `${formatNaira(range.min).replace('.00', '')} to ${formatNaira(range.max).replace('.00', '')}` } : null,
+        bounty: range,
         emergencyHint: c.emergencyHint ?? null,
         anonymousDefault: c.anonymousDefault ?? true,
       });
@@ -231,7 +235,7 @@ export class TipsService {
     await this.agencies.requireStaff(p, agencyId);
     const t = (
       await this.db.query(
-        `select t.*, l.postcode, l.area_label, u.display_name, c.outcome, c.severity as claim_severity, c.suggested_kobo, c.approved_kobo, c.decline_reason, c.created_at as claimed_at
+        `select t.*, l.postcode, l.area_label, u.display_name, c.outcome, c.severity as claim_severity, c.suggested_kobo, c.approved_kobo, c.decline_reason, c.recovered_kobo, c.created_at as claimed_at
            from tips t join users u on u.id = t.user_id left join locations l on l.id = t.location_id left join tip_claims c on c.tip_id = t.id
           where t.id = $1 and t.agency_id = $2`,
         [tipId, agencyId],
@@ -239,7 +243,7 @@ export class TipsService {
     ).rows[0];
     if (!t) throw new AppError(404, 'not_found', 'Tip not found.');
     const events = await this.db.query(`select kind, actor_kind, payload, at from tip_events where tip_id = $1 order by id`, [tipId]);
-    const rate = (await this.db.query(`select tiers, cap_kobo from bounty_rates where agency_id = $1 and category = $2 and active`, [agencyId, t.category])).rows[0];
+    const rate = (await this.db.query(`select basis, tiers, cap_kobo from bounty_rates where agency_id = $1 and category = $2 and active`, [agencyId, t.category])).rows[0];
     const pool = (
       await this.db.query(
         `select coalesce(b.available_kobo, 0)::bigint as kobo from wallets w left join wallet_balances b on b.wallet_id = w.id where w.owner_type = 'bounty_pool' and w.owner_id = $1`,
@@ -276,10 +280,11 @@ export class TipsService {
             suggestedKobo: Number(t.suggested_kobo),
             approvedKobo: t.approved_kobo == null ? null : Number(t.approved_kobo),
             declineReason: t.decline_reason,
+            recoveredKobo: t.recovered_kobo == null ? null : Number(t.recovered_kobo),
             recordedAt: t.claimed_at,
           }
         : null,
-      rate: rate ? { minKobo: rate.tiers?.min == null ? null : Number(rate.tiers.min), maxKobo: rate.tiers?.max == null ? null : Number(rate.tiers.max), capKobo: rate.cap_kobo == null ? null : Number(rate.cap_kobo) } : null,
+      rate: rate ? { basis: rate.basis, percent: rate.tiers?.percent == null ? null : Number(rate.tiers.percent), minKobo: rate.tiers?.min == null ? null : Number(rate.tiers.min), maxKobo: rate.tiers?.max == null ? null : Number(rate.tiers.max), capKobo: rate.cap_kobo == null ? null : Number(rate.cap_kobo) } : null,
       poolKobo: pool ? Number(pool.kobo) : null,
       holdDays: BOUNTY_HOLD_DAYS,
       actions: availableEvents(tipMachine, t.state, 'agency_admin'),
@@ -291,7 +296,7 @@ export class TipsService {
     p: Principal,
     agencyId: string,
     tipId: string,
-    b: { event: 'ask_more' | 'outcome_recorded' | 'approve' | 'decline' | 'close' | 'mark_false'; comment?: string; outcome?: string; severity?: 'standard' | 'high'; amountKobo?: number; reason?: string },
+    b: { event: 'ask_more' | 'outcome_recorded' | 'approve' | 'decline' | 'close' | 'mark_false'; comment?: string; outcome?: string; severity?: 'standard' | 'high'; amountKobo?: number; recoveredKobo?: number; reason?: string },
   ) {
     await this.agencies.requireStaff(p, agencyId, b.event === 'approve' ? ['agency_admin', 'agency_finance'] : ['agency_admin']);
     const t = (await this.db.query(`select t.*, a.name as agency_name from tips t join agencies a on a.id = t.agency_id where t.id = $1 and t.agency_id = $2`, [tipId, agencyId])).rows[0];
@@ -308,14 +313,24 @@ export class TipsService {
         }
         case 'outcome_recorded': {
           if (!['arrest', 'seizure', 'rescue', 'case_opened'].includes(b.outcome ?? '')) throw new AppError(422, 'outcome_required', 'Choose the result: arrest, seizure, rescue or case opened.');
-          const rate = (await c.query(`select tiers, cap_kobo from bounty_rates where agency_id = $1 and category = $2 and active`, [agencyId, t.category])).rows[0];
-          const suggested = rate?.tiers ? Number(b.severity === 'high' ? rate.tiers.max ?? rate.tiers.min : rate.tiers.min) : 0;
-          await c.query(`insert into tip_claims (tip_id, outcome, severity, suggested_kobo) values ($1, $2, $3, $4)`, [tipId, b.outcome, b.severity ?? 'standard', suggested]);
+          const r = (await c.query(`select basis, tiers, cap_kobo from bounty_rates where agency_id = $1 and category = $2 and active`, [agencyId, t.category])).rows[0];
+          const rate = r ? toRate(r) : null;
+          if (rate?.basis === 'percent_capped' && !b.recoveredKobo) throw new AppError(422, 'recovered_required', 'Enter the value recovered or seized. This rate pays a share of it.');
+          const suggested = suggestBounty(rate, { severity: b.severity ?? 'standard', recoveredKobo: b.recoveredKobo });
+          await c.query(`insert into tip_claims (tip_id, outcome, severity, suggested_kobo, recovered_kobo) values ($1, $2, $3, $4, $5)`, [
+            tipId,
+            b.outcome,
+            b.severity ?? 'standard',
+            suggested,
+            b.recoveredKobo ?? null,
+          ]);
           await this.transition(c, tipId, 'outcome_recorded', 'agency_admin', { outcome: b.outcome });
           await notify(c, [t.user_id], { type: 'tip_result', grp: 'tips', title: 'Your tip led to a result', body: `${t.agency_name} recorded a result. The bounty is being reviewed.`, link });
           break;
         }
         case 'approve': {
+          const status = (await c.query(`select status from agencies where id = $1`, [agencyId])).rows[0].status;
+          if (status === 'offboarding' || status === 'offboarded') throw new AppError(409, 'pool_closed', 'Your bounty pool is being paid back to you, so new bounties cannot be approved.');
           const claim = (await c.query(`select * from tip_claims where tip_id = $1 for update`, [tipId])).rows[0];
           const amount = b.amountKobo ?? claim?.suggested_kobo ?? 0;
           if (!amount || amount <= 0) throw new AppError(422, 'amount_required', 'Enter the bounty amount.');
@@ -385,4 +400,9 @@ export class TipsService {
       return { state: (await c.query(`select state from tips where id = $1`, [tipId])).rows[0].state };
     });
   }
+}
+
+/** A bounty_rates row as the domain's BountyRate. */
+export function toRate(r: { basis: BountyRate['basis']; tiers: BountyRate['tiers'] | null; cap_kobo: string | number | null }): BountyRate {
+  return { basis: r.basis, tiers: r.tiers ?? {}, capKobo: r.cap_kobo == null ? null : Number(r.cap_kobo) };
 }

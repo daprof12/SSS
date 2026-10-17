@@ -418,6 +418,9 @@ export class AgenciesService {
 
   async requestOffboard(p: Principal, agencyId: string, reason: string) {
     await this.life.requireStaff(p, agencyId, ['agency_admin']);
+    // The pool is paid back in one payout, so its balance must be final: claims are decided first.
+    const claims = (await this.db.query(`select count(*)::int as n from tips where agency_id = $1 and state = 'claim_review'`, [agencyId])).rows[0].n;
+    if (claims) throw new AppError(422, 'claims_waiting', `Decide the ${claims === 1 ? 'bounty claim' : `${claims} bounty claims`} waiting before you leave.`);
     return this.db.tx(async (c) => {
       const { agency } = await this.life.transition(c, agencyId, 'request_offboard', 'agency_admin', p.userId, { comment: reason, set: { offboard_reason: reason } });
       // Pay out the bounty pool: one payout for the whole balance, approved by platform staff.
@@ -441,11 +444,17 @@ export class AgenciesService {
 
   private async offboardBlockers(c: Queryable, agencyId: string) {
     const invoices = (await c.query(`select id, number, total_kobo, state from invoices where agency_id = $1 and state in ('issued', 'overdue') order by due_on`, [agencyId])).rows;
-    const payouts = (await c.query(`select id, amount_kobo, state from payouts where agency_id = $1 and state in ('pending', 'awaiting_second_approval')`, [agencyId])).rows;
+    const payouts = (await c.query(`select id, amount_kobo, state, failure_reason from payouts where agency_id = $1 and state in ('pending', 'awaiting_second_approval', 'processing', 'failed')`, [agencyId])).rows;
     const officers = (await c.query(`select count(*)::int as n from officers o join stations s on s.id = o.station_id where s.agency_id = $1 and o.on_duty`, [agencyId])).rows[0].n;
     const blockers = [
       ...invoices.map((i) => ({ code: 'unpaid_invoice', message: `Settle invoice ${i.number} (${formatNaira(i.total_kobo)}).`, ref: i.id })),
-      ...payouts.map((x) => ({ code: 'pending_payout', message: `Payout of ${formatNaira(x.amount_kobo)} is waiting for approval.`, ref: x.id })),
+      ...payouts.map((x) =>
+        x.state === 'processing'
+          ? { code: 'payout_processing', message: `Payout of ${formatNaira(x.amount_kobo)} is on its way to your bank.`, ref: x.id }
+          : x.state === 'failed'
+            ? { code: 'payout_failed', message: `Payout of ${formatNaira(x.amount_kobo)} failed: ${x.failure_reason ?? 'the bank did not accept it.'} Check your bank account.`, ref: x.id }
+            : { code: 'pending_payout', message: `Payout of ${formatNaira(x.amount_kobo)} is waiting for approval.`, ref: x.id },
+      ),
     ];
     return {
       blockers,

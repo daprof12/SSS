@@ -6,10 +6,12 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/core/config';
+import { Db } from '../src/core/db';
 import { createApp } from '../src/main';
 
 let app: INestApplication;
 let http: ReturnType<typeof request>;
+let db: Db;
 let seed: { users: Record<string, string>; agencyId: string; naptipId: string; fermaId: string };
 const t: Record<string, string> = {};
 const as = (who: string) => ({ Authorization: `Bearer ${t[who]}` });
@@ -21,6 +23,7 @@ beforeAll(async () => {
   app = await createApp(loadConfig({ ...process.env, NODE_ENV: 'test' }));
   await app.listen(0);
   http = request(app.getHttpServer());
+  db = app.get(Db);
   seed = (await http.post('/dev/seed').expect(201)).body;
   for (const [k, id] of Object.entries(seed.users)) t[k] = (await http.post('/dev/token').send({ userId: id }).expect(201)).body.token;
 });
@@ -119,5 +122,86 @@ describe('funding the bounty pool', () => {
     expect(s.paidThisMonth).toEqual({ kobo: 40000000, tips: 1 });
     expect(s.history[0]).toMatchObject({ kind: 'paid', amountKobo: -40000000, label: `Bounty for tip ${tip.publicNo}` });
     expect(s.tipsThisMonth).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('percentage-of-value rates', () => {
+  it('pays a share of what was recovered, up to the cap', async () => {
+    const put = (body: Record<string, unknown>) => http.put(`/agencies/${seed.naptipId}/bounty-rates/human_trafficking`).set(as('agencyAdmin')).send(body);
+    expect((await put({ basis: 'percent_capped', percent: 5 }).expect(422)).body.message).toBe('A share of the value needs a cap per tip.');
+    await put({ basis: 'percent_capped', percent: 5, capKobo: 100_000_000 }).expect(200);
+    expect((await summary()).body.rates[0]).toMatchObject({ basis: 'percent_capped', percent: 5, capKobo: 100_000_000 });
+    const cats = (await http.get('/tips/categories').set(as('citizen'))).body;
+    expect(cats.find((c: any) => c.code === 'human_trafficking').bounty.text).toBe('5% of the value recovered, up to ₦1,000,000');
+
+    const tip = (
+      await http
+        .post('/tips')
+        .set(as('citizen'))
+        .send({ category: 'human_trafficking', description: 'A bus moves people across the border at night from the motor park.', clientRef: key(), postcode: 'CD34E' })
+        .expect(201)
+    ).body;
+    const act = (body: Record<string, unknown>) => http.post(`/agencies/${seed.naptipId}/tips/${tip.id}/actions`).set(as('agencyAdmin')).send(body);
+    expect((await act({ event: 'outcome_recorded', outcome: 'seizure' }).expect(422)).body.message).toBe('Enter the value recovered or seized. This rate pays a share of it.');
+    await act({ event: 'outcome_recorded', outcome: 'seizure', recoveredKobo: 400_000_000 }).expect(201);
+    const d = (await http.get(`/agencies/${seed.naptipId}/tips/${tip.id}`).set(as('agencyAdmin'))).body;
+    expect(d.claim).toMatchObject({ suggestedKobo: 20_000_000, recoveredKobo: 400_000_000 });
+    await act({ event: 'decline', reason: 'Seizure was by another unit.' }).expect(201);
+  });
+});
+
+describe('paying the pool back when an agency leaves', () => {
+  it('waits for claims, closes the pool, and pays it out through an approved transfer', async () => {
+    const tip = (
+      await http
+        .post('/tips')
+        .set(as('citizen'))
+        .send({ category: 'human_trafficking', description: 'Children are made to beg at the junction every morning by two men.', clientRef: key(), postcode: 'CD34E' })
+        .expect(201)
+    ).body;
+    await http.post(`/agencies/${seed.naptipId}/tips/${tip.id}/actions`).set(as('agencyAdmin')).send({ event: 'outcome_recorded', outcome: 'rescue', recoveredKobo: 10_000_000 }).expect(201);
+    const leave = () => http.post(`/agencies/${seed.naptipId}/offboard`).set(as('agencyAdmin')).send({ reason: 'Moving to the federal system' });
+    expect((await leave().expect(422)).body.message).toBe('Decide the bounty claim waiting before you leave.');
+    await http.post(`/agencies/${seed.naptipId}/tips/${tip.id}/actions`).set(as('agencyAdmin')).send({ event: 'approve' }).expect(201);
+
+    const pool = (await summary()).body.pool.availableKobo;
+    const r = (await leave().expect(201)).body;
+    const payoutId = r.blockers.find((b: any) => b.code === 'pending_payout').ref;
+    let s = (await summary()).body;
+    expect(s).toMatchObject({ closed: true, payout: { amountKobo: pool, state: 'pending', line: 'Waiting for our team to approve.' } });
+    expect((await http.post(`/agencies/${seed.naptipId}/bounty-pool/fund`).set(as('agencyAdmin')).send({ amountKobo: 2_000_000, method: 'card', idempotencyKey: key() }).expect(409)).body.message).toBe(
+      'Your agency is leaving, so the bounty pool is closed and is being paid back to you.',
+    );
+
+    // Verified account and a second platform approver (the payout is above the threshold).
+    await db.query(`insert into bank_accounts (owner_type, owner_id, bank_code, bank_name, last_four, account_name, name_match, verified_at) values ('agency', $1, '058', 'GTBank', '4321', 'NAPTIP', true, now())`, [seed.naptipId]);
+    const admin2 = (await db.query(`insert into users (phone, display_name) values ('+2348039990001', 'Second Admin') returning id`)).rows[0].id;
+    await db.query(`insert into user_roles (user_id, role, scope_type) values ($1, 'platform_admin', 'platform')`, [admin2]);
+    t.admin2 = (await http.post('/dev/token').send({ userId: admin2 }).expect(201)).body.token;
+
+    expect((await http.post(`/admin/payouts/${payoutId}/approve`).set(as('platformAdmin')).expect(201)).body.state).toBe('awaiting_second_approval');
+    expect((await http.post(`/admin/payouts/${payoutId}/approve`).set(as('admin2')).expect(201)).body.state).toBe('processing');
+    s = (await summary()).body;
+    expect(s.pool.availableKobo).toBe(0);
+    expect(s.payout.line).toBe('On its way to your bank.');
+
+    // The bank refuses it: the money goes back to the pool and the agency is told.
+    await http.post(`/dev/paystack/transfer/${payoutId}?outcome=failed`).expect(201);
+    s = (await summary()).body;
+    expect(s.pool.availableKobo).toBe(pool);
+    expect(s.payout.state).toBe('failed');
+    const blockers = (await http.get(`/agencies/${seed.naptipId}/offboard`).set(as('agencyAdmin'))).body.blockers;
+    expect(blockers[0]).toMatchObject({ code: 'payout_failed' });
+    expect((await http.get('/me/notifications').set(as('agencyAdmin'))).body.items.some((x: any) => x.type === 'payout_failed')).toBe(true);
+
+    // Sent again, and this time it lands.
+    expect((await http.post(`/admin/payouts/${payoutId}/retry`).set(as('platformAdmin')).expect(201)).body.state).toBe('processing');
+    await http.post(`/dev/paystack/transfer/${payoutId}`).expect(201);
+    s = (await summary()).body;
+    expect(s.pool.availableKobo).toBe(0);
+    expect(s.payout).toMatchObject({ state: 'paid', line: 'Sent to your bank.' });
+    const queue = (await http.get('/admin/payouts?state=paid').set(as('platformAdmin')).expect(200)).body;
+    expect(queue.find((x: any) => x.id === payoutId)).toMatchObject({ agency: 'NAPTIP (demo)', amountKobo: pool, approvals: 2 });
+    expect((await http.get(`/agencies/${seed.naptipId}/offboard`).set(as('agencyAdmin'))).body.canComplete).toBe(true);
   });
 });

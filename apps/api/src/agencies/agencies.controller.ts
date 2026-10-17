@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { agencyDirectory, agencyStates, type AgencyKind } from '@erp/domain';
 import { CurrentUser, type Principal } from '../core/auth';
 import { AppError, ZodPipe } from '../core/http';
+import { PayoutsService } from './payouts.service';
 import { AgenciesService } from './agencies.service';
 import { AgencyBillingService } from './billing.service';
 
@@ -218,6 +219,7 @@ export class AdminAgenciesController {
   constructor(
     @Inject(AgenciesService) private readonly agencies: AgenciesService,
     @Inject(AgencyBillingService) private readonly billing: AgencyBillingService,
+    @Inject(PayoutsService) private readonly payoutsSvc: PayoutsService,
   ) {}
 
   /** Agencies → Waiting (default) or any status. */
@@ -265,6 +267,16 @@ export class AdminAgenciesController {
   @Post('payouts/:id/approve')
   approvePayout(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
     return this.billing.approvePayout(p, id);
+  }
+
+  @Get('payouts')
+  payouts(@CurrentUser() p: Principal, @Query('state') state?: string) {
+    return this.payoutsSvc.list(p, state);
+  }
+
+  @Post('payouts/:id/retry')
+  retryPayout(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payoutsSvc.retry(p, id);
   }
 
   /** Scheduled jobs, callable by staff (and by the scheduler) with an explicit day. */

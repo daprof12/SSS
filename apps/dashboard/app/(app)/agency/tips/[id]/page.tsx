@@ -1,11 +1,12 @@
 'use client';
 
-import { formatNaira } from '@erp/domain';
+import { formatNaira, suggestBounty } from '@erp/domain';
 import Link from 'next/link';
 import { use, useCallback, useRef, useState } from 'react';
 import { api, ApiError } from '@erp/web-ui/api';
 import { ErrorBox, focusFirstError, useSubmit } from '@erp/web-ui/CloseReportSheet';
 import { Sheet } from '@erp/web-ui/Sheet';
+import { Evidence } from '@/components/Evidence';
 import { WithAgency, dateTime, plural, useAgencyRecord, useToast } from '@/components/Agency';
 import { OUTCOMES, TipStateChip, outcomeLabel } from '@/components/IssueChips';
 
@@ -20,8 +21,8 @@ interface TipView {
   place: string | null;
   tipper: string;
   createdAt: string;
-  claim: { outcome: string; severity: 'standard' | 'high' | null; suggestedKobo: number; approvedKobo: number | null; declineReason: string | null; recordedAt: string } | null;
-  rate: { minKobo: number | null; maxKobo: number | null; capKobo: number | null } | null;
+  claim: { outcome: string; severity: 'standard' | 'high' | null; suggestedKobo: number; approvedKobo: number | null; declineReason: string | null; recoveredKobo: number | null; recordedAt: string } | null;
+  rate: { basis: 'fixed' | 'tiered' | 'percent_capped'; percent: number | null; minKobo: number | null; maxKobo: number | null; capKobo: number | null } | null;
   poolKobo: number | null;
   holdDays: number;
   actions: Event[];
@@ -109,6 +110,7 @@ function TipDetail({ id }: { id: string }) {
             </div>
           </dl>
           <p className="quote">{v.description}</p>
+          <Evidence ownerType="tip" ownerId={v.id} />
         </section>
 
         <div className="grid" style={{ alignContent: 'start' }}>
@@ -124,6 +126,12 @@ function TipDetail({ id }: { id: string }) {
                   <dt>Severity</dt>
                   <dd>{c.severity === 'high' ? 'High' : 'Standard'}</dd>
                 </div>
+                {c.recoveredKobo != null && (
+                  <div>
+                    <dt>Value recovered</dt>
+                    <dd>{naira(c.recoveredKobo)}</dd>
+                  </div>
+                )}
                 {c.declineReason && (
                   <div>
                     <dt>Declined because</dt>
@@ -310,7 +318,12 @@ function ResultSheet({ path, onClose, onDone, rate }: SheetProps & { rate: TipVi
   const [severity, setSeverity] = useState<'standard' | 'high'>('standard');
   const [tried, setTried] = useState(false);
   const s = useSubmit();
-  const suggested = rate ? (severity === 'high' ? (rate.maxKobo ?? rate.minKobo) : rate.minKobo) : null;
+  const [recovered, setRecovered] = useState('');
+  const byValue = rate?.basis === 'percent_capped';
+  const recoveredKobo = Math.round(Number(recovered.replace(/[,\s₦]/g, '')) * 100) || 0;
+  const suggested = rate
+    ? suggestBounty({ basis: rate.basis, tiers: { min: rate.minKobo, max: rate.maxKobo, percent: rate.percent }, capKobo: rate.capKobo }, { severity, recoveredKobo })
+    : null;
   return (
     <Sheet
       open
@@ -326,9 +339,9 @@ function ResultSheet({ path, onClose, onDone, rate }: SheetProps & { rate: TipVi
           busyLabel="Saving…"
           onConfirm={() => {
             setTried(true);
-            if (!outcome) return focusFirstError();
+            if (!outcome || (byValue && !recoveredKobo)) return focusFirstError();
             void s.run(async () => {
-              await post(path, { event: 'outcome_recorded', outcome, severity });
+              await post(path, { event: 'outcome_recorded', outcome, severity, ...(recoveredKobo ? { recoveredKobo } : {}) });
               onDone('Result recorded. The claim is ready to review.');
             });
           }}
@@ -362,8 +375,21 @@ function ResultSheet({ path, onClose, onDone, rate }: SheetProps & { rate: TipVi
             </button>
           ))}
         </div>
-        <small>{suggested != null ? `Suggested bounty: ${naira(suggested)}, from your rate.` : 'No bounty rate is set for this category.'}</small>
+        {!byValue && <small>{suggested != null ? `Suggested bounty: ${naira(suggested)}, from your rate.` : 'No bounty rate is set for this category.'}</small>}
       </div>
+      {byValue && (
+        <label className="field" data-invalid={tried && !recoveredKobo} style={{ marginTop: 12 }}>
+          <span>Value recovered or seized (₦)</span>
+          <input inputMode="decimal" value={recovered} onChange={(e) => setRecovered(e.target.value)} aria-invalid={tried && !recoveredKobo} />
+          {tried && !recoveredKobo ? (
+            <span className="field-error">Enter the value recovered or seized. This rate pays a share of it.</span>
+          ) : (
+            <small>
+              Your rate pays {rate!.percent}%{rate!.capKobo != null ? `, up to ${naira(rate!.capKobo)}` : ''}.{recoveredKobo ? ` Suggested bounty: ${naira(suggested ?? 0)}.` : ''}
+            </small>
+          )}
+        </label>
+      )}
     </Sheet>
   );
 }

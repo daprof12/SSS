@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   agencyHandles,
+  bountyRangeText,
+  suggestBounty,
   accountDeletionBlockers,
   agencyInvoiceMachine,
   agencyMachine,
@@ -312,5 +314,22 @@ describe('what each agency handles', () => {
     expect(agencyHandles('fire')).toMatchObject({ tips: false, bounties: false, issues: false });
     // A health agency gets virus outbreak tips, but they pay no bounty.
     expect(agencyHandles('health')).toMatchObject({ tips: true, bounties: false });
+  });
+});
+
+describe('bounty rates', () => {
+  const naira = (k: number) => `₦${(k / 100).toLocaleString('en-NG')}`;
+  it('suggests by basis and never above the cap', () => {
+    const tiered = { basis: 'tiered' as const, tiers: { min: 5_000_000, max: 50_000_000 }, capKobo: 30_000_000 };
+    expect(suggestBounty(tiered, { severity: 'standard' })).toBe(5_000_000);
+    expect(suggestBounty(tiered, { severity: 'high' })).toBe(30_000_000);
+    const pct = { basis: 'percent_capped' as const, tiers: { percent: 5 }, capKobo: 100_000_000 };
+    expect(suggestBounty(pct, { severity: 'standard', recoveredKobo: 400_000_000 })).toBe(20_000_000);
+    expect(suggestBounty(pct, { severity: 'standard', recoveredKobo: 10_000_000_000 })).toBe(100_000_000);
+    expect(suggestBounty(null, { severity: 'high' })).toBe(0);
+  });
+  it('describes the range to tippers', () => {
+    expect(bountyRangeText({ basis: 'percent_capped', tiers: { percent: 5 }, capKobo: 100_000_000 }, naira)).toBe('5% of the value recovered, up to ₦1,000,000');
+    expect(bountyRangeText({ basis: 'fixed', tiers: { min: 2_000_000, max: 2_000_000 }, capKobo: null }, naira)).toBe('₦20,000');
   });
 });

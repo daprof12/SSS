@@ -11,8 +11,11 @@ import { AppError } from '../core/http';
 import { agencyStaff, notify } from './shared';
 
 export interface RateInput {
-  basis: 'fixed' | 'tiered';
-  standardKobo: number;
+  basis: 'fixed' | 'tiered' | 'percent_capped';
+  /** fixed/tiered only */
+  standardKobo?: number;
+  /** percent_capped only: share of the value recovered, e.g. 5 for 5%. */
+  percent?: number;
   seriousKobo?: number;
   capKobo?: number | null;
   active: boolean;
@@ -67,6 +70,14 @@ export class BountiesService {
       this.db.query(`select provider_ref, amount_kobo, method, created_at from payments where agency_id = $1 and purpose = 'bounty_pool' and state in ('initiated', 'pending') order by created_at desc limit 5`, [agencyId]),
     ]);
     const available = Number(bal.rows[0]?.available ?? 0);
+    const po = (await this.db.query(`select amount_kobo, state, failure_reason, paid_at from payouts where source_wallet_id = $1 order by created_at desc limit 1`, [wallet])).rows[0];
+    const PAYOUT: Record<string, string> = {
+      pending: 'Waiting for our team to approve.',
+      awaiting_second_approval: 'Waiting for a second approver.',
+      processing: 'On its way to your bank.',
+      paid: 'Sent to your bank.',
+      failed: 'The transfer failed. Check your bank account; our team will send it again.',
+    };
     const pendingClaims = Number(claims.rows[0].kobo);
     const byCat = new Map(rates.rows.map((r) => [r.category, r]));
     const handles = agencyHandles(await this.kind(agencyId));
@@ -77,6 +88,9 @@ export class BountiesService {
         // States doc: "Pool has [Amount], below pending claims of [Amount]."
         low: available < pendingClaims ? `Pool has ${formatNaira(available)}, below pending claims of ${formatNaira(pendingClaims)}.` : available === 0 ? 'Your pool is empty. Add funds so you can approve bounties.' : null,
       },
+      // At offboarding the whole pool is paid back to the agency's bank account.
+      payout: po ? { amountKobo: Number(po.amount_kobo), state: po.state as string, line: PAYOUT[po.state] ?? po.state, reason: po.failure_reason as string | null, paidAt: po.paid_at } : null,
+      closed: ['offboarding', 'offboarded'].includes((await this.db.query(`select status from agencies where id = $1`, [agencyId])).rows[0]?.status),
       claimsWaiting: claims.rows[0].n,
       paidThisMonth: { kobo: Number(paid.rows[0].kobo), tips: paid.rows[0].n },
       tipsThisMonth: tips.rows[0].n,
@@ -92,6 +106,7 @@ export class BountiesService {
           set: !!r,
           active: r?.active ?? false,
           basis: (r?.basis ?? 'tiered') as 'fixed' | 'tiered' | 'percent_capped',
+          percent: r?.tiers?.percent == null ? null : Number(r.tiers.percent),
           standardKobo: min,
           seriousKobo: max,
           capKobo: r?.cap_kobo == null ? null : Number(r.cap_kobo),
@@ -112,17 +127,26 @@ export class BountiesService {
     await this.agencies.requireStaff(p, agencyId, ['agency_admin']);
     await this.agencies.requireHandles(agencyId, 'bounties');
     if (!agencyHandles(await this.kind(agencyId)).bountyCategories.includes(category)) throw new AppError(422, 'validation_failed', 'Your agency does not pay bounties for this category.');
-    const serious = b.basis === 'tiered' ? (b.seriousKobo ?? 0) : b.standardKobo;
     const fields: { field: string; message: string }[] = [];
-    if (b.basis === 'tiered' && serious < b.standardKobo) fields.push({ field: 'seriousKobo', message: 'A serious result should pay at least the standard amount.' });
-    if (b.capKobo != null && b.capKobo < serious) fields.push({ field: 'capKobo', message: 'The cap must be at least the highest bounty.' });
+    let tiers: Record<string, number>;
+    if (b.basis === 'percent_capped') {
+      if (!b.percent || b.percent <= 0 || b.percent > 50) fields.push({ field: 'percent', message: 'Enter a share between 0.1% and 50%.' });
+      if (b.capKobo == null) fields.push({ field: 'capKobo', message: 'A share of the value needs a cap per tip.' });
+      tiers = { percent: b.percent ?? 0 };
+    } else {
+      if (!b.standardKobo) fields.push({ field: 'standardKobo', message: 'Enter an amount.' });
+      const serious = b.basis === 'tiered' ? (b.seriousKobo ?? 0) : (b.standardKobo ?? 0);
+      if (b.basis === 'tiered' && serious < (b.standardKobo ?? 0)) fields.push({ field: 'seriousKobo', message: 'A serious result should pay at least the standard amount.' });
+      if (b.capKobo != null && b.capKobo < serious) fields.push({ field: 'capKobo', message: 'The cap must be at least the highest bounty.' });
+      tiers = { min: b.standardKobo ?? 0, max: serious };
+    }
     if (fields.length) throw new AppError(422, 'validation_failed', fields[0]!.message, { fields });
     const prior = (await this.db.query(`select basis, tiers, cap_kobo, active from bounty_rates where agency_id = $1 and category = $2`, [agencyId, category])).rows[0] ?? null;
     await this.db.tx(async (c) => {
       await c.query(
         `insert into bounty_rates (agency_id, category, basis, tiers, cap_kobo, active) values ($1, $2, $3, $4, $5, $6)
          on conflict (agency_id, category) do update set basis = excluded.basis, tiers = excluded.tiers, cap_kobo = excluded.cap_kobo, active = excluded.active`,
-        [agencyId, category, b.basis, { min: b.standardKobo, max: serious }, b.capKobo ?? null, b.active],
+        [agencyId, category, b.basis, tiers, b.capKobo ?? null, b.active],
       );
       await this.audit.write({ actorId: p.userId, actorRole: 'agency_admin', action: 'bounty.rate_set', entity: 'agency', entityId: agencyId, payload: { category, before: prior, after: b } }, c);
     });
@@ -138,6 +162,8 @@ export class BountiesService {
       if (prior.agency_id !== agencyId) throw new AppError(409, 'idempotency_conflict', 'Try again.');
       return { reference: prior.provider_ref, state: prior.state, replayed: true };
     }
+    const status = (await this.db.query(`select status from agencies where id = $1`, [agencyId])).rows[0]?.status;
+    if (status === 'offboarding' || status === 'offboarded') throw new AppError(409, 'pool_closed', 'Your agency is leaving, so the bounty pool is closed and is being paid back to you.');
     const { minKobo, maxKobo } = POOL_FUND_LIMITS;
     if (b.amountKobo < minKobo || b.amountKobo > maxKobo) {
       const message = `Enter between ${formatNaira(minKobo)} and ${formatNaira(maxKobo)}.`;
