@@ -1095,3 +1095,93 @@ button {
 .center {
   text-align: center;
 }
+
+/* ---------- one-time code ---------- */
+.otp {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--space-2);
+  margin: var(--space-5) 0 var(--space-2);
+}
+.otp-box {
+  width: 100%;
+  min-width: 0;
+  height: 64px;
+  border-radius: 14px;
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface-raised);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  text-align: center;
+  transition: border-color var(--motion-fast-duration) var(--motion-fast-easing);
+}
+.otp-box:focus {
+  border-color: var(--color-signal);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-signal-soft);
+}
+.otp-box[aria-invalid='true'] {
+  border-color: var(--color-emergency);
+}
+/* Wrong code: short horizontal shake (motion spec), off under reduced motion. */
+.shake {
+  animation: shake 300ms var(--motion-fast-easing);
+}
+@keyframes shake {
+  20%,
+  60% {
+    transform: translateX(-6px);
+  }
+  40%,
+  80% {
+    transform: translateX(6px);
+  }
+}
+[data-motion='reduced'] .shake {
+  animation: none;
+}
+
+/* ---------- onboarding ---------- */
+.dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: var(--space-4) 0;
+}
+.dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-divider);
+  transition: width var(--motion-fast-duration) var(--motion-fast-easing), background-color var(--motion-fast-duration);
+}
+.dots i.on {
+  width: 24px;
+  background: var(--color-emergency);
+}
+.tour-art {
+  height: 240px;
+  border-radius: var(--radius-sheet);
+  background: var(--color-surface);
+  display: grid;
+  place-items: center;
+  color: var(--color-emergency);
+  margin-bottom: var(--space-5);
+  animation: page-in var(--motion-sheet-enter-duration) var(--motion-sheet-enter-easing);
+}
+.steps-mini {
+  display: flex;
+  gap: 6px;
+  margin-bottom: var(--space-5);
+}
+.steps-mini i {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-divider);
+}
+.steps-mini i.on {
+  background: var(--color-signal);
+}

@@ -14,6 +14,7 @@ import { Reflector } from '@nestjs/core';
 import { jwtVerify, SignJWT } from 'jose';
 import { mfaRequired, type Role } from '@erp/domain';
 import { CONFIG, type AppConfig } from './config';
+import { Db } from './db';
 
 export interface RoleGrant {
   role: Role;
@@ -61,6 +62,7 @@ export class AuthGuard implements CanActivate {
   constructor(
     @Inject(TokenService) private readonly tokens: TokenService,
     @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(Db) private readonly db: Db,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -76,6 +78,9 @@ export class AuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException('Your session has ended. Sign in again.');
     }
+    // Signed out or revoked from another device ends the session at once, not when the token expires.
+    const live = await this.db.query(`select 1 from sessions where id = $1 and user_id = $2 and revoked_at is null and expires_at > now()`, [principal.sessionId, principal.userId]);
+    if (!live.rowCount) throw new UnauthorizedException('Your session has ended. Sign in again.');
     // Staff must pass two-step login (Public Issues doc §5).
     if (!principal.mfa && principal.roles.some((r) => mfaRequired.has(r.role))) {
       throw new ForbiddenException({ code: 'mfa_required', message: 'Turn on two-step login to continue.' });

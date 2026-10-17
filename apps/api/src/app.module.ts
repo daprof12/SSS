@@ -19,6 +19,8 @@ import { DevController } from './dev/dev.controller';
 import { IncidentRepo } from './incidents/incident.repo';
 import { IncidentsController } from './incidents/incidents.controller';
 import { IncidentsService } from './incidents/incidents.service';
+import { AuthController } from './auth/auth.controller';
+import { AuthService } from './auth/auth.service';
 import { MeController } from './me/me.controller';
 import { OfficersController } from './officers/officers.controller';
 import { OfficersService } from './officers/officers.service';
@@ -44,6 +46,7 @@ export class AppModule {
       module: AppModule,
       controllers: [
         HealthController,
+        AuthController,
         IncidentsController,
         WalletController,
         MeController,
@@ -59,6 +62,7 @@ export class AppModule {
         Bus,
         Audit,
         TokenService,
+        AuthService,
         IncidentRepo,
         IncidentsService,
         WalletService,

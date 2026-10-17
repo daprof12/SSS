@@ -2,6 +2,7 @@
 
 import { freshness, type Freshness } from '@erp/domain';
 import { useEffect, useState } from 'react';
+import { ensureFreshToken } from '@erp/web-ui/api';
 import { streamUrl } from './client';
 
 /**
@@ -19,24 +20,42 @@ export function useIncident<T>(id: string) {
   useEffect(() => {
     setView(null);
     setGone(null);
-    const es = new EventSource(streamUrl(`/incidents/${id}/stream`));
-    es.addEventListener('incident', (e) => {
-      setView(JSON.parse((e as MessageEvent).data));
-      setLastAt(new Date());
-      setConnected(true);
-    });
-    es.addEventListener('heartbeat', () => {
-      setLastAt(new Date());
-      setConnected(true);
-    });
-    es.addEventListener('gone', (e) => {
-      es.close();
-      setGone(JSON.parse((e as MessageEvent).data).message);
-    });
-    es.onerror = () => setConnected(false);
+    let es: EventSource | null = null;
+    let closed = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+
+    // EventSource reconnects with the URL it was opened with, so on an error we
+    // refresh the token ourselves and open a new stream.
+    const open = async () => {
+      await ensureFreshToken();
+      if (closed) return;
+      es = new EventSource(streamUrl(`/incidents/${id}/stream`));
+      es.addEventListener('incident', (e) => {
+        setView(JSON.parse((e as MessageEvent).data));
+        setLastAt(new Date());
+        setConnected(true);
+      });
+      es.addEventListener('heartbeat', () => {
+        setLastAt(new Date());
+        setConnected(true);
+      });
+      es.addEventListener('gone', (e) => {
+        closed = true;
+        es?.close();
+        setGone(JSON.parse((e as MessageEvent).data).message);
+      });
+      es.onerror = () => {
+        setConnected(false);
+        es?.close();
+        if (!closed) retry = setTimeout(() => void open(), 2000);
+      };
+    };
+    void open();
     const tick = setInterval(() => setNow(new Date()), 1000);
     return () => {
-      es.close();
+      closed = true;
+      es?.close();
+      clearTimeout(retry);
       clearInterval(tick);
     };
   }, [id]);

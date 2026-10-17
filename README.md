@@ -120,3 +120,13 @@ One installable app; the signed-in person decides the surface. Sign in with a de
 **Test-only screens:** while Paystack is mocked, `/pay/[ref]` stands in for the hosted checkout and the transfer screen has a "simulate arrival" button. Both are hidden in production builds.
 
 **Not built yet** (rows say "Soon" or open a "Coming next" page): Learn, tips, donations, withdraw, security, discreet mode, language, officer history and field reports, protected calling and messaging, photos and voice notes.
+
+## Sign-in and onboarding
+
+Phone first (C6). `POST /auth/otp/start` sends a 6-digit code by SMS; `POST /auth/otp/verify` signs in, creating a citizen account on first use. Codes are stored only as a keyed hash (`OTP_SECRET`), expire in 5 minutes, allow 5 tries (C3), and can be re-sent after 60 seconds; there are hourly caps per phone and per IP, and the reply is the same for new and existing numbers.
+
+Sessions: a 15-minute access token plus a refresh token that rotates on every use (`POST /auth/refresh`). Every request checks the session is still live, so `POST /auth/sign-out` or revoking a device (`GET /auth/sessions`, `DELETE /auth/sessions/:id`) takes effect at once. The shared client refreshes silently and signs out cleanly when refresh is refused.
+
+The PWA's `/welcome` flow resumes where it stopped: name → 5-card tour (skippable) → location and notification priming → KYC (NIN/BVN + selfie; skippable, AUTH-4) → home building → done. After KYC the name is locked to the ID.
+
+**Staff:** phone OTP is one factor, so officers and other staff stop at "Two-step login" until the authenticator step is built; use `/sign-in/demo` in development. **Not built yet:** authenticator 2FA and recovery codes, PIN, the "SOS without an account" path, and replaying the tour from settings.

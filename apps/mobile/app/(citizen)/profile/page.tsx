@@ -118,7 +118,9 @@ export default function Profile() {
         <button
           className="row"
           type="button"
-          onClick={() => {
+          onClick={async () => {
+            // Revoke on the server first, so this device's tokens stop working at once.
+            await api('/auth/sign-out', { method: 'POST' }).catch(() => {});
             setSession(null);
             router.replace('/sign-in');
           }}

@@ -1,7 +1,6 @@
 // Dev-only endpoints. The module is registered only when config.devTools is
 // true, which loadConfig() refuses in production.
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { MockPostcodeAdapter, POSTCODE, type PostcodeAdapter } from '../adapters/postcode';
 import { MockPaystackAdapter, PAYMENTS, type PaymentsAdapter } from '../adapters/payments';
@@ -39,7 +38,11 @@ export class DevController {
     const roles = (await this.db.query(`select role, scope_type, scope_id from user_roles where user_id = $1`, [b.userId])).rows.map(
       (r): RoleGrant => ({ role: r.role, scopeType: r.scope_type, scopeId: r.scope_id }),
     );
-    return { token: await this.tokens.sign({ userId: b.userId, sessionId: randomUUID(), roles, mfa: b.mfa }, 8 * 3600) };
+    // A real session row, so revocation checks apply to demo sign-ins too.
+    const sid = (
+      await this.db.query(`insert into sessions (user_id, label, platform, mfa_passed, expires_at) values ($1, 'Demo sign-in', 'dev', $2, now() + interval '8 hours') returning id`, [b.userId, b.mfa])
+    ).rows[0].id;
+    return { token: await this.tokens.sign({ userId: b.userId, sessionId: sid, roles, mfa: b.mfa }, 8 * 3600) };
   }
 
   /** Idempotent demo data: one live police agency, one station, two on-duty officers and every role. */

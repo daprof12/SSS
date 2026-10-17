@@ -19,6 +19,8 @@ const Prefs = z
   .partial()
   .refine((o) => Object.keys(o).length > 0, 'Nothing to change.');
 
+const ProfileBody = z.object({ name: z.string().trim().min(2, 'Enter your name.').max(80) });
+const OnboardingBody = z.object({ step: z.enum(['tour', 'permissions', 'kyc_skipped', 'home', 'done']) });
 const HomeBody = z.object({ postcode: z.string().trim().min(3, 'Enter a postcode.').max(12) });
 const NotifTab = z.enum(['all', 'reports', 'money', 'account']).default('all');
 const NgPhone = z.string().regex(/^\+234\d{10}$/, 'Enter a Nigerian phone number.');
@@ -58,7 +60,7 @@ export class MeController {
   async me(@CurrentUser() p: Principal) {
     const u = (
       await this.db.query(
-        `select id, display_name, phone, email, locale, theme, reduce_motion, discreet_mode, mfa_enabled, pin_hash is not null as has_pin from users where id = $1`,
+        `select id, display_name, phone, email, locale, theme, reduce_motion, discreet_mode, mfa_enabled, pin_hash is not null as has_pin, onboarding, onboarded_at from users where id = $1`,
         [p.userId],
       )
     ).rows[0];
@@ -76,7 +78,29 @@ export class MeController {
       security: { mfaEnabled: u.mfa_enabled, mfaRequired: p.roles.some((r) => mfaRequired.has(r.role)), hasPin: u.has_pin },
       kyc: kyc ? { status: kyc.status, idMasked: kyc.id_masked, verifiedAt: kyc.verified_at } : { status: 'not_started' },
       trust: trust ?? { score: 70, band: 'normal' },
+      onboarding: { steps: u.onboarding, done: !!u.onboarded_at, needsName: !u.display_name },
     };
+  }
+
+  /** Onboarding step 1: the name people see (officers see "Verified citizen" unless you are staff). */
+  @Patch('profile')
+  async profile(@CurrentUser() p: Principal, @Body(new ZodPipe(ProfileBody)) b: z.infer<typeof ProfileBody>) {
+    // After KYC the legal name comes from the ID; changing it needs identity re-check (UX Gap §2.1).
+    const kyc = (await this.db.query(`select 1 from kyc_verifications where user_id = $1 and status = 'verified' limit 1`, [p.userId])).rowCount;
+    const cur = (await this.db.query(`select display_name from users where id = $1`, [p.userId])).rows[0];
+    if (kyc && cur?.display_name) throw new AppError(409, 'name_locked', 'Your name comes from your verified ID. Contact support to change it.');
+    await this.db.query(`update users set display_name = $2 where id = $1`, [p.userId, b.name]);
+    return { name: b.name };
+  }
+
+  /** Records onboarding progress so the app resumes where the person stopped. */
+  @Patch('onboarding')
+  async onboarding(@CurrentUser() p: Principal, @Body(new ZodPipe(OnboardingBody)) b: z.infer<typeof OnboardingBody>) {
+    await this.db.query(
+      `update users set onboarding = onboarding || jsonb_build_object($2::text, now()), onboarded_at = case when $2 = 'done' then coalesce(onboarded_at, now()) else onboarded_at end where id = $1`,
+      [p.userId, b.step],
+    );
+    return { ok: true };
   }
 
   @Patch('preferences')

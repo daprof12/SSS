@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { SIGNED_OUT_EVENT } from '@erp/web-ui/api';
 import { applyMotion, applyTheme, type ThemeChoice } from '@erp/web-ui/theme';
 import { api, getSession, type Session } from '@/lib/client';
 import { Icon } from './Icon';
@@ -11,13 +12,20 @@ type Surface = 'citizen' | 'officer';
 
 /** Signs the person in to the right surface, applies their saved appearance, draws the tab bar. */
 // Full-screen flows (reporting, live status, payment, offers) hide the tab bar.
-const NO_BAR = ['/report', '/reports/', '/pay/', '/wallet/fund', '/wallet/confirm', '/officer/offers/', '/officer/incidents/'];
+const NO_BAR = ['/welcome', '/report', '/reports/', '/pay/', '/wallet/fund', '/wallet/confirm', '/officer/offers/', '/officer/incidents/'];
 
 export function AppFrame({ surface, children }: { surface: Surface; children: React.ReactNode }) {
   const router = useRouter();
   const path = usePathname();
   const bar = !NO_BAR.some((p) => path.startsWith(p));
   const [session, setS] = useState<Session | null>(null);
+
+  // A session that can no longer be refreshed sends the person to sign in.
+  useEffect(() => {
+    const out = () => router.replace('/sign-in');
+    window.addEventListener(SIGNED_OUT_EVENT, out);
+    return () => window.removeEventListener(SIGNED_OUT_EVENT, out);
+  }, [router]);
 
   useEffect(() => {
     const s = getSession();
