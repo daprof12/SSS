@@ -1,0 +1,13 @@
+{
+  "name": "@erp/db",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "pg": "^8.23.1",
+    "@types/pg": "^8.11.10",
+    "vitest": "^2.1.8"
+  }
+}

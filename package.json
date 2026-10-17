@@ -1,0 +1,26 @@
+{
+  "name": "erp",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "db"
+  ],
+  "scripts": {
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:reset": "node scripts/migrate.mjs --reset",
+    "build:packages": "npm run build -w @erp/tokens -w @erp/domain",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:api": "npm run start:dev -w @erp/api",
+    "dev:dashboard": "npm run dev -w @erp/dashboard"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "pg": "^8.23.1"
+  }
+}

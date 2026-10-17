@@ -1,0 +1,273 @@
+import { describe, expect, it } from 'vitest';
+import {
+  accountDeletionBlockers,
+  applyIncidentEvent,
+  assessReporterCancel,
+  availableEvents,
+  checkWithdrawal,
+  citizenStatus,
+  fineMachine,
+  formatNaira,
+  freshness,
+  incidentMachine,
+  incidentStates,
+  inviteMachine,
+  jobMachine,
+  kobo,
+  naira,
+  projectIncident,
+  reachableStates,
+  reportDeliveryMachine,
+  subscriptionMachine,
+  tipMachine,
+  withdrawalMachine,
+  ForbiddenView,
+  type IncidentEvent,
+  type IncidentRecord,
+  type IncidentState,
+} from './index';
+
+const machines = [incidentMachine, reportDeliveryMachine, subscriptionMachine, withdrawalMachine, tipMachine, inviteMachine, jobMachine, fineMachine];
+
+describe.each(machines.map((m) => [m.name, m] as const))('%s machine', (_name, m) => {
+  it('reaches every state it declares and every terminal state', () => {
+    const declared = new Set<string>([m.initial, ...m.transitions.flatMap((t) => [...t.from, t.to])]);
+    const reached = reachableStates(m as never) as Set<string>;
+    for (const s of declared) expect(reached.has(s), `${s} unreachable`).toBe(true);
+    for (const t of m.terminal) expect(reached.has(t), `terminal ${t} unreachable`).toBe(true);
+  });
+});
+
+describe('incident machine', () => {
+  const run = (steps: Array<[IncidentEvent, Parameters<typeof applyIncidentEvent>[2]]>) => {
+    let s: IncidentState = 'pending_cancel';
+    for (const [e, a] of steps) {
+      const r = applyIncidentEvent(s, e, a);
+      if (!r.ok) throw new Error(`${e} from ${s}: ${r.message}`);
+      s = r.to;
+    }
+    return s;
+  };
+
+  it('covers every declared state', () => {
+    expect([...reachableStates(incidentMachine)].sort()).toEqual([...incidentStates].sort());
+  });
+
+  it('runs the happy path to resolved', () => {
+    expect(
+      run([
+        ['window_elapsed', 'system'],
+        ['route', 'system'],
+        ['accept', 'officer'],
+        ['start_route', 'officer'],
+        ['arrive', 'officer'],
+        ['begin_close', 'officer'],
+        ['close_valid', 'officer'],
+      ]),
+    ).toBe('resolved');
+  });
+
+  it('escalates, reassigns and transfers without losing the incident', () => {
+    expect(
+      run([
+        ['window_elapsed', 'system'],
+        ['route', 'system'],
+        ['offer_timeout', 'system'],
+        ['reoffer', 'system'],
+        ['accept', 'officer'],
+        ['officer_drop', 'officer'],
+        ['route', 'system'],
+        ['accept', 'officer'],
+        ['transfer', 'station'],
+        ['route', 'system'],
+        ['accept', 'officer'],
+      ]),
+    ).toBe('accepted');
+  });
+
+  it('never lets a reporter accept or close, or an officer cancel for the reporter', () => {
+    expect(applyIncidentEvent('offered', 'accept', 'reporter')).toMatchObject({ ok: false, code: 'actor_not_allowed' });
+    expect(applyIncidentEvent('closing', 'close_unfounded', 'reporter')).toMatchObject({ ok: false });
+    expect(applyIncidentEvent('en_route', 'reporter_cancel', 'officer')).toMatchObject({ ok: false, code: 'actor_not_allowed' });
+  });
+
+  it('refuses moves out of terminal states', () => {
+    expect(applyIncidentEvent('resolved', 'accept', 'officer')).toMatchObject({ ok: false, code: 'terminal_state' });
+  });
+
+  it('cannot mark on scene before accepting (States doc)', () => {
+    expect(applyIncidentEvent('offered', 'arrive', 'officer')).toMatchObject({ ok: false, code: 'invalid_transition' });
+  });
+
+  it('gives buttons per actor and state', () => {
+    expect(availableEvents(incidentMachine, 'offered', 'officer').sort()).toEqual(['accept', 'begin_close']);
+    expect(availableEvents(incidentMachine, 'en_route', 'reporter')).toEqual(['reporter_cancel']);
+  });
+
+  it('flags a cancel after dispatch but never blocks it', () => {
+    expect(assessReporterCancel('received', 300)).toEqual({ free: true, flagged: false });
+    expect(assessReporterCancel('offered', 20)).toEqual({ free: true, flagged: true });
+    expect(assessReporterCancel('en_route', 120)).toEqual({ free: false, flagged: true });
+  });
+});
+
+describe('citizen tracking', () => {
+  it('always has a title and line for every state', () => {
+    for (const s of incidentStates) {
+      const st = citizenStatus(s);
+      expect(st.title.length, s).toBeGreaterThan(0);
+      expect(st.line.length, s).toBeGreaterThan(0);
+    }
+  });
+
+  it('shows the officer and ETA once accepted', () => {
+    const st = citizenStatus('en_route', { officerName: 'Insp. Musa', etaMinutes: 6 });
+    expect(st).toMatchObject({ title: 'On the way', line: 'About 6 min.', holder: 'Insp. Musa', showOfficerCard: true, step: 3 });
+  });
+
+  it('tells joiners how many others reported', () => {
+    expect(citizenStatus('accepted', { joined: true, reportCount: 3 }).line).toMatch(/^You and 2 others reported this\./);
+  });
+
+  it('hides names in discreet mode', () => {
+    const st = citizenStatus('accepted', { officerName: 'Insp. Musa', discreet: true });
+    expect(st.title).toBe('Request in progress');
+    expect(JSON.stringify(st)).not.toContain('Musa');
+  });
+
+  it('reports freshness: live, stale, reconnecting with SMS', () => {
+    const now = new Date('2026-10-17T12:00:30Z');
+    expect(freshness(new Date('2026-10-17T12:00:25Z'), now, true)).toEqual({ kind: 'live' });
+    expect(freshness(new Date('2026-10-17T12:00:00Z'), now, true)).toEqual({ kind: 'stale', secondsAgo: 30 });
+    expect(freshness(new Date('2026-10-17T12:00:00Z'), now, false)).toEqual({ kind: 'reconnecting', smsUpdates: true });
+  });
+});
+
+describe('role-filtered incident views', () => {
+  const record: IncidentRecord = {
+    id: 'inc-1',
+    type: 'robbery',
+    state: 'en_route',
+    agencyId: 'ag-police',
+    stationId: 'st-4',
+    reporter: { userId: 'u-ada', name: 'Ada Obi', phone: '+2348030000000', trustScore: 82, trustBand: 'high' },
+    joinerUserIds: ['u-joiner'],
+    reportCount: 2,
+    building: { postcode: 'AB12C', address: '12 Maple Road', areaLabel: 'Maple area, Ikeja', location: { lat: 6.6, lng: 3.35 } },
+    reporterGps: { lat: 6.6001, lng: 3.3501 },
+    assignedOfficerIds: ['u-musa'],
+    officer: { id: 'u-musa', name: 'Insp. Musa', badgeNo: 'B-77', stationName: 'Station 4', rating: 4.8, location: { lat: 6.61, lng: 3.36 } },
+    etaMinutes: 6,
+    brief: { summary: '2 people, light sedan', confidence: 'medium', fields: {} },
+    clipIds: ['clip-1'],
+    timeline: [
+      { at: 't1', kind: 'received', label: 'Report received', public: true },
+      { at: 't2', kind: 'note', label: 'Note by dispatcher', public: false },
+    ],
+    notes: [{ by: 'u-musa', text: 'Rear door open', at: 't3' }],
+    createdAt: 't0',
+    updatedAt: 't3',
+  };
+  const str = (v: unknown) => JSON.stringify(v);
+
+  it('never sends the reporter phone to anyone', () => {
+    const viewers = [
+      { kind: 'reporter', userId: 'u-ada' },
+      { kind: 'joiner', userId: 'u-joiner' },
+      { kind: 'contact', reporterOptedInLocation: true },
+      { kind: 'officer', userId: 'u-musa' },
+      { kind: 'station', stationId: 'st-4' },
+      { kind: 'agency', agencyId: 'ag-police' },
+      { kind: 'platform_admin' },
+    ] as const;
+    for (const v of viewers) expect(str(projectIncident(record, v)), v.kind).not.toContain('+234803');
+  });
+
+  it('gives joiners and contacts the area, not the building or who reported', () => {
+    for (const v of [{ kind: 'joiner', userId: 'u-joiner' }, { kind: 'contact', reporterOptedInLocation: false }] as const) {
+      const out = str(projectIncident(record, v));
+      expect(out).toContain('Maple area, Ikeja');
+      expect(out).not.toContain('12 Maple Road');
+      expect(out).not.toContain('AB12C');
+      if (v.kind === 'joiner') expect(out).not.toContain('Ada');
+    }
+  });
+
+  it('keeps the AI brief and private notes from citizens', () => {
+    const out = str(projectIncident(record, { kind: 'reporter', userId: 'u-ada' }));
+    expect(out).not.toContain('light sedan');
+    expect(out).not.toContain('Rear door');
+    expect(out).not.toContain('Note by dispatcher');
+  });
+
+  it('labels the brief advisory for responders and hides the reporter name from officers', () => {
+    const v = projectIncident(record, { kind: 'officer', userId: 'u-musa' });
+    expect(v).toMatchObject({ brief: { advisory: true }, reporter: { label: 'Verified citizen', trustBand: 'high' } });
+    expect(str(v)).not.toContain('Ada');
+  });
+
+  it('stops sharing locations once on scene', () => {
+    const onScene = { ...record, state: 'on_scene' as const };
+    expect(projectIncident(onScene, { kind: 'reporter', userId: 'u-ada' })).toMatchObject({ officerLocation: undefined, etaMinutes: undefined });
+    expect(projectIncident(onScene, { kind: 'officer', userId: 'u-musa' })).toMatchObject({ reporterGps: undefined });
+  });
+
+  it('refuses viewers outside the incident', () => {
+    expect(() => projectIncident(record, { kind: 'reporter', userId: 'u-other' })).toThrow(ForbiddenView);
+    expect(() => projectIncident(record, { kind: 'officer', userId: 'u-other' })).toThrow(ForbiddenView);
+    expect(() => projectIncident(record, { kind: 'station', stationId: 'st-9' })).toThrow(ForbiddenView);
+    expect(() => projectIncident(record, { kind: 'agency', agencyId: 'ag-fire' })).toThrow(ForbiddenView);
+  });
+
+  it('shares the reporter location with a contact only when opted in and on the way', () => {
+    expect(projectIncident(record, { kind: 'contact', reporterOptedInLocation: true })).toMatchObject({ reporterLocation: { lat: 6.6001 } });
+    expect(projectIncident(record, { kind: 'contact', reporterOptedInLocation: false })).toMatchObject({ reporterLocation: undefined });
+  });
+});
+
+describe('money', () => {
+  const limits = { minFund: naira(100), maxFundPerTxn: naira(500_000), minWithdraw: naira(1_000), dailyWithdrawLimit: naira(200_000) };
+
+  it('rejects fractional kobo', () => {
+    expect(() => kobo(1.5)).toThrow();
+  });
+
+  it('validates withdrawals with the final copy', () => {
+    const base = { available: naira(50_000), withdrawnToday: naira(0), limits, bank: { nameMatches: true } };
+    expect(checkWithdrawal({ ...base, amount: naira(500) })).toMatchObject({ ok: false, field: 'amount' });
+    expect(checkWithdrawal({ ...base, amount: naira(60_000) })).toEqual({ ok: false, field: 'amount', message: 'You do not have that much available.' });
+    expect(checkWithdrawal({ ...base, amount: naira(10_000), withdrawnToday: naira(195_000) })).toMatchObject({ ok: false, message: expect.stringContaining('today') });
+    expect(checkWithdrawal({ ...base, amount: naira(10_000), bank: { nameMatches: false } })).toMatchObject({ ok: false, field: 'bank' });
+    expect(checkWithdrawal({ ...base, amount: naira(10_000) })).toEqual({ ok: true });
+  });
+
+  it('formats naira', () => {
+    expect(formatNaira(naira(1234.5))).toBe('₦1,234.50');
+    expect(formatNaira(naira(-20), { sign: true })).toBe('-₦20.00');
+  });
+
+  it('blocks account deletion until everything is settled', () => {
+    expect(
+      accountDeletionBlockers({ walletBalance: naira(10), heldBalance: kobo(0), openFines: 1, pendingWithdrawals: 0, activeSubscription: true }),
+    ).toEqual(['wallet_balance', 'open_fines', 'active_subscription']);
+    expect(
+      accountDeletionBlockers({ walletBalance: kobo(0), heldBalance: kobo(0), openFines: 0, pendingWithdrawals: 0, activeSubscription: false }),
+    ).toEqual([]);
+  });
+});
+
+describe('subscription billing starts at install', () => {
+  it('is not active until the technician confirms the install', () => {
+    let s: string = subscriptionMachine.initial;
+    for (const [e, a] of [
+      ['pay_install_fee', 'system'],
+      ['book_visit', 'owner'],
+    ] as const) {
+      const r = availableEvents(subscriptionMachine, s as never, a);
+      expect(r).toContain(e);
+      s = subscriptionMachine.transitions.find((t) => t.event === e && t.from.includes(s as never))!.to;
+    }
+    expect(s).toBe('install_booked');
+    expect(availableEvents(subscriptionMachine, 'install_booked', 'technician')).toEqual(['install_confirmed']);
+  });
+});

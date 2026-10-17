@@ -1,0 +1,65 @@
+import { Controller, Get, Inject, Module, type DynamicModule } from '@nestjs/common';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { KYC, MockKycAdapter } from './adapters/kyc';
+import { MockPaystackAdapter, PAYMENTS } from './adapters/payments';
+import { MockPostcodeAdapter, POSTCODE } from './adapters/postcode';
+import { MockSmsAdapter, SMS } from './adapters/sms';
+import { Audit } from './core/audit';
+import { AuthGuard, Public, TokenService } from './core/auth';
+import { Bus } from './core/bus';
+import { CONFIG, type AppConfig } from './core/config';
+import { Db } from './core/db';
+import { ErrorFilter } from './core/http';
+import { DevController } from './dev/dev.controller';
+import { IncidentRepo } from './incidents/incident.repo';
+import { IncidentsController } from './incidents/incidents.controller';
+import { IncidentsService } from './incidents/incidents.service';
+import { MeController } from './me/me.controller';
+import { PlacesController } from './places/places.controller';
+import { WalletController } from './wallet/wallet.controller';
+import { WalletService } from './wallet/wallet.service';
+
+@Public()
+@Controller('health')
+class HealthController {
+  constructor(@Inject(Db) private readonly db: Db) {}
+  @Get()
+  async health() {
+    await this.db.query('select 1');
+    return { ok: true };
+  }
+}
+
+@Module({})
+export class AppModule {
+  static forRoot(config: AppConfig): DynamicModule {
+    return {
+      module: AppModule,
+      controllers: [
+        HealthController,
+        IncidentsController,
+        WalletController,
+        MeController,
+        PlacesController,
+        ...(config.devTools ? [DevController] : []),
+      ],
+      providers: [
+        { provide: CONFIG, useValue: config },
+        Db,
+        Bus,
+        Audit,
+        TokenService,
+        IncidentRepo,
+        IncidentsService,
+        WalletService,
+        // Mock adapters — swap each for the real provider once its contract is signed.
+        { provide: POSTCODE, useValue: new MockPostcodeAdapter() },
+        { provide: KYC, useValue: new MockKycAdapter() },
+        { provide: PAYMENTS, useValue: new MockPaystackAdapter(config.paystackSecret, config.publicBaseUrl) },
+        { provide: SMS, useValue: new MockSmsAdapter() },
+        { provide: APP_GUARD, useClass: AuthGuard },
+        { provide: APP_FILTER, useClass: ErrorFilter },
+      ],
+    };
+  }
+}
