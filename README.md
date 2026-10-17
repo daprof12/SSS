@@ -51,3 +51,36 @@ Dev‑only endpoints under `/dev` (seed, tokens, simulated Paystack completion, 
 - The SSE stream takes the token as a query parameter because EventSource can't send headers. Replace it with a short‑lived single‑use stream ticket before production, so tokens don't land in access logs.
 - Dev sign‑in issues HS256 tokens; production uses the OIDC provider.
 - Routing escalates within the same station; "next station" overflow, the AI brief, clips and the remaining dashboard pages come next.
+
+## Agency onboarding and subscription (UX Gap Analysis §10)
+
+The 11-stage lifecycle runs on `agencyMachine` and `agencyInvoiceMachine` in `packages/domain/src/agency.ts`; migration `006_agency_lifecycle.sql` adds plan/add-on selection, PO numbers, invoice payments (Paystack or a bank transfer that finance marks), inventory, messaging usage, per-agency price overrides and the single setup checklist (`agency_setup_checklist()`). Prices, VAT, due days and the second-approval threshold are placeholders: fee rows in the migration, the rest in `AGENCY_BILLING` (`apps/api/src/agencies/billing.service.ts`). Every money or approval action writes the audit log.
+
+**Agency side.** The contact person needs two-step login. Agency staff are checked against `user_roles` in the database, so a role granted at registration works without a new token.
+
+| Stage | Endpoint |
+|---|---|
+| 1 Register | `GET /agencies/directory` · `POST /agencies/register` · `GET /me/agencies` |
+| 2–3 Documents, status | `POST /agencies/:id/documents` (metadata + mock upload URL) · `POST /agencies/:id/submit` · `GET /agencies/:id` (timeline, review comment, banner, buttons) |
+| 4 Choose plan | `GET /agencies/:id/plans` · `POST /agencies/:id/plan` → onboarding invoice (fee + first period + VAT) |
+| 5 Pay | `POST /agencies/:id/invoices/:invoiceId/pay` (Paystack, `Idempotency-Key` required) · `POST …/pay-by-invoice` (PO number → proforma + dedicated account, "Waiting for payment") |
+| 6 Set up | `GET /agencies/:id/setup` · `POST /agencies/:id/stations` · `PATCH …/stations/:sid` (head) · `PUT …/stations/:sid/areas` · `POST …/stations/:sid/officers` · `POST /agencies/:id/payout-account` · `POST /agencies/:id/inventory` |
+| 7 Go live | `POST /agencies/:id/go-live` (needs required checklist steps 1–4). Each station goes live once it has a head, an area and an on-duty verified officer. |
+| 8 Invoices | `GET /agencies/:id/invoices` · `GET /agencies/:id/invoices/:invoiceId` |
+| 10 Change plan | `POST /agencies/:id/plan/change` (`confirm: false` previews the new monthly amount; upgrades apply now with a prorated invoice, downgrades at period end) |
+| 11 Offboard | `POST /agencies/:id/offboard` (creates the bounty-pool payout) · `GET /agencies/:id/offboard` (what is left to settle) |
+
+**Platform side** (`platform_admin`).
+
+| Purpose | Endpoint |
+|---|---|
+| Review | `GET /admin/agencies` (waiting by default, or `?status=`) · `GET /admin/agencies/:id` · `POST /admin/agencies/:id/decision` (`approve` · `ask_more` + comment · `reject` + reason) |
+| Fee override | `PUT /admin/agencies/:id/prices/:code` (reason required) |
+| Finance | `GET /admin/invoices` (dunning list, overdue first) · `POST /admin/invoices/:id/mark-paid` (bank reference, part payments allowed) · `POST /admin/invoices/:id/waive` (reason; second, different approver above the threshold) |
+| Payouts | `POST /admin/payouts/:id/approve` (verified account; second approver above the threshold) |
+| Jobs | `POST /admin/billing/generate-invoices` and `POST /admin/billing/mark-overdue` with `{ asOf: 'YYYY-MM-DD' }`. Both are safe to rerun: one invoice per period, each reminder once. |
+| Offboard | `POST /admin/agencies/:id/offboard/approve` (only once nothing is left to settle; pauses stations, takes officers off duty, keeps records) |
+
+**Overdue never stops dispatch.** Routing takes stations of agencies that are `live`, `overdue` or `offboarding` (`dispatchingAgencyStates`). While an agency is overdue, adding stations, inventory or plan upgrades returns `402 billing_hold` ("New stations and equipment are on hold until you pay."). Paying the last overdue invoice restores the agency right away.
+
+**Not built yet:** auto-charging a saved card (agencies pay each invoice), receipt PDFs, credit notes (the machine has `credit`), funding the bounty pool, officer invites (officers are added directly, verified when their KYC is), and records export at offboarding. The Paystack subaccount is mocked. Run the billing jobs from a scheduler once the durable queue exists.

@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { checkFund, formatNaira, kobo, naira, type WalletLimits } from '@erp/domain';
 import { PAYMENTS, newReference, type ChargeEvent, type PayMethod, type PaymentsAdapter } from '../adapters/payments';
+import { AgencyBillingService } from '../agencies/billing.service';
 import { Audit } from '../core/audit';
 import type { Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
@@ -24,6 +25,7 @@ export class WalletService {
     @Inject(Db) private readonly db: Db,
     @Inject(Audit) private readonly audit: Audit,
     @Inject(PAYMENTS) private readonly payments: PaymentsAdapter,
+    @Inject(AgencyBillingService) private readonly agencyBilling: AgencyBillingService,
   ) {}
 
   async walletId(userId: string, c: Queryable = this.db.pool): Promise<string> {
@@ -170,14 +172,20 @@ export class WalletService {
             `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'wallet_funded', 'money', 'in_app', 'Wallet funded', $2, '/wallet')`,
             [pay.user_id, `${formatNaira(amount)} was added to your wallet.`],
           );
+        } else if (pay.purpose === 'agency_invoice') {
+          await this.agencyBilling.onPaystackSuccess(c, pay, amount);
         }
         await this.audit.write({ actorId: null, actorRole: 'system', action: 'payment.succeeded', entity: 'payment', entityId: pay.id, payload: { amount, reference: pay.provider_ref } }, c);
       } else if (event.event === 'charge.failed' && pay.state !== 'succeeded') {
         await c.query(`update payments set state = 'failed', failure_reason = $2 where id = $1`, [pay.id, event.data.gateway_response]);
-        await c.query(
-          `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'wallet_fund_failed', 'money', 'in_app', 'Funding failed', 'Your card was not charged. Try again or use another card.', '/wallet')`,
-          [pay.user_id],
-        );
+        if (pay.purpose === 'agency_invoice') {
+          await this.agencyBilling.onPaystackFailed(c, pay);
+        } else {
+          await c.query(
+            `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'wallet_fund_failed', 'money', 'in_app', 'Funding failed', 'Your card was not charged. Try again or use another card.', '/wallet')`,
+            [pay.user_id],
+          );
+        }
       }
       await c.query(`update webhook_events set processed_at = now() where provider = 'paystack' and event_id = $1`, [String(event.data.id)]);
       return { ok: true as const };

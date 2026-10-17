@@ -1,6 +1,6 @@
 // Dev-only endpoints. The module is registered only when config.devTools is
 // true, which loadConfig() refuses in production.
-import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { MockPostcodeAdapter, POSTCODE, type PostcodeAdapter } from '../adapters/postcode';
@@ -70,7 +70,16 @@ export class DevController {
          on conflict (postcode) do update set fetched_at = now() returning id`,
       );
       let agency = (await c.query(`select id from agencies where name = 'Nigeria Police Force (demo)'`)).rows[0]?.id;
-      agency ??= (await c.query(`insert into agencies (name, kind, status, location_id) values ('Nigeria Police Force (demo)', 'police', 'live', $1) returning id`, [loc.rows[0].id])).rows[0].id;
+      if (!agency) {
+        agency = (
+          await c.query(
+            `insert into agencies (name, kind, status, location_id, contact_user_id, period_start, period_end)
+             values ('Nigeria Police Force (demo)', 'police', 'live', $1, $2, current_date, current_date + interval '1 month') returning id`,
+            [loc.rows[0].id, ids.agencyAdmin],
+          )
+        ).rows[0].id;
+        await c.query(`insert into agency_plan_items (agency_id, code, quantity, starts_on) values ($1, 'agency_base', 1, current_date)`, [agency]);
+      }
       let station = (await c.query(`select id from stations where agency_id = $1`, [agency])).rows[0]?.id;
       station ??= (
         await c.query(
@@ -127,6 +136,13 @@ export class DevController {
     if (!(this.payments instanceof MockPaystackAdapter)) throw new AppError(400, 'not_mock', 'Only with the mock Paystack adapter.');
     const { body, signature } = this.payments.buildWebhook(ref, outcome, amount ? Number(amount) : undefined);
     return this.wallet.handleWebhook(Buffer.from(body), signature);
+  }
+
+  /** Mock object storage: accepts the upload a presigned URL points at and discards it. */
+  @Put('storage/*key')
+  @HttpCode(200)
+  upload() {
+    return { ok: true };
   }
 
   @Get('sms')

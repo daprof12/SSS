@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   applyIncidentEvent,
   assessReporterCancel,
+  dispatchingAgencyStates,
   incidentTimers,
   sideEventAllowedIn,
   type IncidentActor,
@@ -264,14 +265,15 @@ export class IncidentsService implements OnModuleDestroy {
       : (
           await this.db.query(
             `select s.id, s.agency_id from stations s
-               join agencies a on a.id = s.agency_id and a.status = 'live'
+               -- Billing state never stops dispatch: overdue agencies keep receiving reports.
+               join agencies a on a.id = s.agency_id and a.status = any($4::text[])
                join incident_types t on t.code = $1 and a.kind = any(t.default_units)
                left join routing_rules r on r.station_id = s.id and r.incident_type = $1
               where s.status = 'active'
               order by r.priority nulls last, st_distance(coalesce(s.zone::geometry, (select geom::geometry from locations where id = s.location_id))::geography,
                                                           st_setsrid(st_makepoint($3, $2), 4326)::geography)
               limit 1`,
-            [row.type, row.lat, row.lng],
+            [row.type, row.lat, row.lng, dispatchingAgencyStates],
           )
         ).rows[0];
 

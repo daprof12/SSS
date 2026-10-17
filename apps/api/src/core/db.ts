@@ -4,6 +4,8 @@ import { CONFIG, type AppConfig } from './config';
 
 // Return bigint columns (kobo sums) as numbers; amounts stay well inside 2^53.
 pg.types.setTypeParser(20, (v) => Number(v));
+// Keep `date` columns (due dates, billing periods) as 'YYYY-MM-DD', not local-midnight Dates.
+pg.types.setTypeParser(1082, (v) => v);
 
 @Injectable()
 export class Db implements OnModuleDestroy {

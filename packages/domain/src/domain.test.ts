@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   accountDeletionBlockers,
+  agencyInvoiceMachine,
+  agencyMachine,
   applyIncidentEvent,
   assessReporterCancel,
   availableEvents,
@@ -27,7 +29,7 @@ import {
   type IncidentState,
 } from './index';
 
-const machines = [incidentMachine, reportDeliveryMachine, subscriptionMachine, withdrawalMachine, tipMachine, inviteMachine, jobMachine, fineMachine];
+const machines = [incidentMachine, reportDeliveryMachine, subscriptionMachine, withdrawalMachine, tipMachine, inviteMachine, jobMachine, fineMachine, agencyMachine, agencyInvoiceMachine];
 
 describe.each(machines.map((m) => [m.name, m] as const))('%s machine', (_name, m) => {
   it('reaches every state it declares and every terminal state', () => {

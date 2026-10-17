@@ -1,9 +1,14 @@
 import { Controller, Get, Inject, Module, type DynamicModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { AdminAgenciesController, AgenciesController } from './agencies/agencies.controller';
+import { AgenciesService } from './agencies/agencies.service';
+import { AgencyLifecycle } from './agencies/agency.lifecycle';
+import { AgencyBillingService } from './agencies/billing.service';
 import { KYC, MockKycAdapter } from './adapters/kyc';
 import { MockPaystackAdapter, PAYMENTS } from './adapters/payments';
 import { MockPostcodeAdapter, POSTCODE } from './adapters/postcode';
 import { MockSmsAdapter, SMS } from './adapters/sms';
+import { MockStorageAdapter, STORAGE } from './adapters/storage';
 import { Audit } from './core/audit';
 import { AuthGuard, Public, TokenService } from './core/auth';
 import { Bus } from './core/bus';
@@ -41,6 +46,8 @@ export class AppModule {
         WalletController,
         MeController,
         PlacesController,
+        AgenciesController,
+        AdminAgenciesController,
         ...(config.devTools ? [DevController] : []),
       ],
       providers: [
@@ -52,11 +59,15 @@ export class AppModule {
         IncidentRepo,
         IncidentsService,
         WalletService,
+        AgencyLifecycle,
+        AgencyBillingService,
+        AgenciesService,
         // Mock adapters — swap each for the real provider once its contract is signed.
         { provide: POSTCODE, useValue: new MockPostcodeAdapter() },
         { provide: KYC, useValue: new MockKycAdapter() },
         { provide: PAYMENTS, useValue: new MockPaystackAdapter(config.paystackSecret, config.publicBaseUrl) },
         { provide: SMS, useValue: new MockSmsAdapter() },
+        { provide: STORAGE, useValue: new MockStorageAdapter(config.publicBaseUrl) },
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: ErrorFilter },
       ],
