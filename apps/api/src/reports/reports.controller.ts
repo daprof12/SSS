@@ -25,6 +25,8 @@ const IssueBody = z.object({
   description: z.string().max(1000).optional(),
   anonymous: z.boolean().default(false),
   clientRef: z.string().min(8).max(80),
+  /** The citizen picked photos; they upload right after the case is created, so words are optional. */
+  withMedia: z.boolean().default(false),
   ...Where,
 });
 const NearbyQuery = z.object({
@@ -126,6 +128,11 @@ export class ReportsController {
     return this.tips.queue(p, a, tab);
   }
 
+  @Get('agencies/:agencyId/tips/:tipId')
+  agencyTip(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Param('tipId', ParseUUIDPipe) t: string) {
+    return this.tips.agencyDetail(p, a, t);
+  }
+
   @Post('agencies/:agencyId/tips/:tipId/actions')
   tipAct(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Param('tipId', ParseUUIDPipe) t: string, @Body(new ZodPipe(TipAct)) b: z.infer<typeof TipAct>) {
     return this.tips.act(p, a, t, b);
@@ -134,6 +141,11 @@ export class ReportsController {
   @Get('agencies/:agencyId/issues')
   agencyIssues(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string) {
     return this.issues.queue(p, a);
+  }
+
+  @Get('agencies/:agencyId/issues/:caseId')
+  agencyIssue(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Param('caseId', ParseUUIDPipe) k: string) {
+    return this.issues.agencyDetail(p, a, k);
   }
 
   @Post('agencies/:agencyId/issues/:caseId/actions')

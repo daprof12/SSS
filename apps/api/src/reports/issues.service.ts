@@ -1,6 +1,6 @@
 // Public issues (Public Issues doc §1–2; Report Tracking B3): report, merge count, fix, confirm.
 import { Inject, Injectable } from '@nestjs/common';
-import { applyEvent, FIX_CONFIRMATIONS, ISSUE_MERGE_RADIUS_M, issueCategories, issueCategory, issueMachine, issueStatus, type IssueState } from '@erp/domain';
+import { applyEvent, availableEvents, FIX_CONFIRMATIONS, ISSUE_MERGE_RADIUS_M, issueCategories, issueCategory, issueMachine, issueStatus, type IssueState } from '@erp/domain';
 import { POSTCODE, PostcodeUnavailable, type PostcodeAdapter } from '../adapters/postcode';
 import { AgencyLifecycle } from '../agencies/agency.lifecycle';
 import { Audit } from '../core/audit';
@@ -70,12 +70,12 @@ export class IssuesService {
     return c ? { caseId: c.id, publicNo: c.public_no, reports: c.report_count, people: c.people_count, state: c.state } : null;
   }
 
-  async create(p: Principal, b: Where & { category: string; subtype?: string; severity: Severity; description?: string; anonymous: boolean; clientRef: string }) {
+  async create(p: Principal, b: Where & { category: string; subtype?: string; severity: Severity; description?: string; anonymous: boolean; clientRef: string; withMedia?: boolean }) {
     const cat = issueCategory(b.category);
     if (!cat) throw new AppError(422, 'validation_failed', 'Choose a category.', { fields: [{ field: 'category', message: 'Choose a category.' }] });
     const description = b.description?.trim() ?? '';
-    // Board copy. Photos come next; until then a few words are required.
-    if (description.length < 10) throw new AppError(422, 'validation_failed', 'Photo or a few words needed so the team can find it.', { fields: [{ field: 'description', message: 'Photo or a few words needed so the team can find it.' }] });
+    // Board copy: "Photo or a few words needed". A photo follows the create when withMedia is set.
+    if (!b.withMedia && description.length < 10) throw new AppError(422, 'validation_failed', 'Photo or a few words needed so the team can find it.', { fields: [{ field: 'description', message: 'Photo or a few words needed so the team can find it.' }] });
     if (b.subtype && !cat.subtypes.includes(b.subtype)) throw new AppError(422, 'validation_failed', 'Choose what it is.', { fields: [{ field: 'subtype', message: 'Choose what it is.' }] });
 
     const prior = (await this.db.query(`select case_id from issue_reports where client_ref = $1 and user_id = $2`, [b.clientRef, p.userId])).rows[0];
@@ -99,12 +99,12 @@ export class IssuesService {
         const mine = await c.query(`select id from issue_reports where case_id = $1 and user_id = $2`, [existing.id, p.userId]);
         if (mine.rowCount) {
           // One person's repeat reports count once (TRD); keep the new words on the case.
-          await c.query(`insert into issue_events (case_id, kind, actor_kind, payload) values ($1, 'more_detail', 'citizen', $2)`, [existing.id, { text: description }]);
+          if (description) await c.query(`insert into issue_events (case_id, kind, actor_kind, payload) values ($1, 'more_detail', 'citizen', $2)`, [existing.id, { text: description }]);
           return { caseId: existing.id as string, joined: true, already: true };
         }
         await c.query(
           `insert into issue_reports (case_id, user_id, subtype, severity, description, anonymous, client_ref) values ($1, $2, $3, $4, $5, $6, $7)`,
-          [existing.id, p.userId, b.subtype ?? null, b.severity, description, b.anonymous, b.clientRef],
+          [existing.id, p.userId, b.subtype ?? null, b.severity, description || null, b.anonymous, b.clientRef],
         );
         await c.query(
           `update issue_cases set report_count = report_count + 1,
@@ -134,7 +134,7 @@ export class IssuesService {
       ).rows[0];
       await c.query(
         `insert into issue_reports (case_id, user_id, subtype, severity, description, anonymous, client_ref) values ($1, $2, $3, $4, $5, $6, $7)`,
-        [kase.id, p.userId, b.subtype ?? null, b.severity, description, b.anonymous, b.clientRef],
+        [kase.id, p.userId, b.subtype ?? null, b.severity, description || null, b.anonymous, b.clientRef],
       );
       await c.query(`insert into issue_events (case_id, kind, actor_kind, payload) values ($1, 'reported', 'citizen', '{}')`, [kase.id]);
       if (agency) {
@@ -267,6 +267,63 @@ export class IssuesService {
       [agencyId],
     );
     return r.rows.map((k) => ({ ...k, category: issueCategory(k.category)?.label ?? k.category }));
+  }
+
+  /** One case for the agency: facts, what reporters say, reports per day and the history. Reporters stay unnamed. */
+  async agencyDetail(p: Principal, agencyId: string, caseId: string) {
+    await this.agencies.requireStaff(p, agencyId);
+    const k = (
+      await this.db.query(`select k.*, l.postcode, l.address_text, l.area_label from issue_cases k left join locations l on l.id = k.location_id where k.id = $1 and k.agency_id = $2`, [
+        caseId,
+        agencyId,
+      ])
+    ).rows[0];
+    if (!k) throw new AppError(404, 'not_found', 'Report not found.');
+    const reports = (await this.db.query(`select subtype, severity, description, fixed_vote, created_at from issue_reports where case_id = $1 order by created_at`, [caseId])).rows;
+    const events = await this.db.query(`select kind, actor_kind, payload, at from issue_events where case_id = $1 and kind <> 'more_detail' order by id`, [caseId]);
+    const LABEL: Record<string, string> = {
+      reported: 'First reported',
+      joined: 'Someone else reported it',
+      assign: 'You took it on',
+      start: 'Work started',
+      mark_fixed: 'You marked it fixed',
+      not_fixed: 'A reporter says it is not fixed',
+      confirm_fixed: 'Reporters confirmed it is fixed',
+    };
+    const count = (key: 'severity' | 'subtype') => {
+      const m = new Map<string, number>();
+      for (const r of reports) if (r[key]) m.set(r[key], (m.get(r[key]) ?? 0) + 1);
+      return [...m].map(([value, people]) => ({ value, people })).sort((a, b) => b.people - a.people);
+    };
+    const perDay = new Map<string, number>();
+    for (const r of reports) {
+      const d = new Date(r.created_at).toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' }); // Nigeria's calendar day
+      perDay.set(d, (perDay.get(d) ?? 0) + 1);
+    }
+    return {
+      id: k.id,
+      publicNo: k.public_no,
+      category: issueCategory(k.category)?.label ?? k.category,
+      place: k.postcode ? `${k.address_text}, ${k.postcode}` : 'Location from GPS',
+      postcode: k.postcode,
+      area: k.area_label,
+      state: k.state as IssueState,
+      severity: k.severity,
+      reports: k.report_count,
+      people: k.people_count,
+      firstAt: k.first_at,
+      lastAt: k.last_at,
+      targetOn: k.target_on,
+      fixNote: k.fix_note,
+      fixConfirmations: Math.min(FIX_CONFIRMATIONS, k.people_count),
+      votes: { yes: reports.filter((r) => r.fixed_vote === 'yes').length, no: reports.filter((r) => r.fixed_vote === 'no').length },
+      severities: count('severity'),
+      subtypes: count('subtype'),
+      comments: reports.filter((r) => r.description).map((r) => ({ text: r.description as string, at: r.created_at })),
+      perDay: [...perDay].map(([day, n]) => ({ day, reports: n })),
+      actions: availableEvents(issueMachine, k.state, 'agency_admin'),
+      history: events.rows.map((e) => ({ kind: e.kind, label: LABEL[e.kind] ?? e.kind, note: e.payload?.note ?? null, at: e.at })),
+    };
   }
 
   async act(p: Principal, agencyId: string, caseId: string, b: { event: 'assign' | 'start' | 'mark_fixed'; targetOn?: string; note?: string }) {

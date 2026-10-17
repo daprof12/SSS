@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { AgencyProvider, useAgency } from './Agency';
 import { NotificationBell } from './NotificationBell';
 import { ThemeSwitch } from '@erp/web-ui/ThemeSwitch';
 import { api, getSession, setSession, type Session } from '@erp/web-ui/api';
@@ -12,7 +13,14 @@ interface NavItem {
   label: string;
   href: string;
   built?: boolean;
+  /** Other path prefixes that belong to this item (e.g. a tip opened from a notification). */
+  also?: string[];
 }
+
+const AGENCY_BUILT: Record<string, NavItem> = {
+  Bounties: { label: 'Bounties', href: '/agency/bounties', built: true, also: ['/agency/tips'] },
+  'Public issues': { label: 'Public issues', href: '/agency/issues', built: true },
+};
 
 // Sidebar orders from the Public Issues doc: Settings last, Messaging above it.
 const NAV: Record<string, NavItem[]> = {
@@ -27,7 +35,7 @@ const NAV: Record<string, NavItem[]> = {
   ],
   agency: [
     'Overview', 'Stations', 'Officers', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Assets', 'Messaging', 'Settings',
-  ].map((l) => ({ label: l, href: `/soon?page=${encodeURIComponent(l)}` })),
+  ].map((l) => AGENCY_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
   admin: [
     'Overview', 'Live incident map', 'Coverage map', 'Device wall', 'Users', 'Inventory', 'Installation team', 'Subscriptions', 'KYC queue', 'Fines and appeals', 'Donations', 'Learn feed', 'Agencies', 'Audit log', 'AI and LLM', 'CRM messaging', 'Settings',
   ].map((l) => ({ label: l, href: `/soon?page=${encodeURIComponent(l)}` })),
@@ -57,8 +65,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
   if (!ready || !session) return null;
   const surface = session.roleLabel.startsWith('Platform') ? 'admin' : session.roleLabel.startsWith('Agency') ? 'agency' : 'station';
   const items = NAV[surface]!;
+  const current = (i: NavItem) => i.built && [i.href, ...(i.also ?? [])].some((p) => path.startsWith(p));
 
-  return (
+  const shell = (
     <div className="shell">
       <a className="skip-link" href="#main">
         Skip to content
@@ -69,12 +78,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
             ERP
           </div>
           <div>
-            <strong>{surface === 'station' ? 'Station 4 Ikeja' : surface === 'agency' ? 'Police (demo)' : 'Platform admin'}</strong>
+            <strong>{surface === 'station' ? 'Station 4 Ikeja' : surface === 'agency' ? <AgencyName /> : 'Platform admin'}</strong>
             <small>{session.roleLabel}</small>
           </div>
         </div>
         {items.map((i) => (
-          <Link key={i.label} href={i.href} aria-current={i.built && path.startsWith(i.href) ? 'page' : undefined}>
+          <Link key={i.label} href={i.href} aria-current={current(i) ? 'page' : undefined}>
             {i.label}
             {!i.built && <span className="soon">next</span>}
           </Link>
@@ -88,6 +97,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
+  return surface === 'agency' ? <AgencyProvider>{shell}</AgencyProvider> : shell;
+}
+
+function AgencyName() {
+  const { agency } = useAgency();
+  return <>{agency?.name ?? 'Agency'}</>;
 }
 
 function TopBar({ session }: { session: Session }) {

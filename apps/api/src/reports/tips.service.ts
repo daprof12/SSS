@@ -1,7 +1,7 @@
 // Tips → bounty (Rewards doc "Whistleblower bounty"; Report Tracking B2).
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { applyEvent, formatNaira, tipCategories, tipCategory, tipMachine, tipStatus } from '@erp/domain';
+import { applyEvent, availableEvents, formatNaira, tipCategories, tipCategory, tipMachine, tipStatus } from '@erp/domain';
 import { POSTCODE, PostcodeUnavailable, type PostcodeAdapter } from '../adapters/postcode';
 import { AgencyLifecycle } from '../agencies/agency.lifecycle';
 import { Audit } from '../core/audit';
@@ -205,8 +205,8 @@ export class TipsService {
     await this.agencies.requireStaff(p, agencyId);
     const filter = { new: `t.state in ('in_queue', 'more_info')`, claims: `t.state = 'claim_review'`, closed: `t.state not in ('in_queue', 'more_info', 'claim_review')` }[tab];
     const r = await this.db.query(
-      `select t.id, t.public_no, t.category, t.state, t.description, t.anonymous, t.created_at, l.postcode, l.area_label, u.display_name
-         from tips t join users u on u.id = t.user_id left join locations l on l.id = t.location_id
+      `select t.id, t.public_no, t.category, t.state, t.description, t.anonymous, t.created_at, l.postcode, l.area_label, u.display_name, c.outcome, c.suggested_kobo, c.approved_kobo
+         from tips t join users u on u.id = t.user_id left join locations l on l.id = t.location_id left join tip_claims c on c.tip_id = t.id
         where t.agency_id = $1 and ${filter} order by t.created_at desc limit 100`,
       [agencyId],
     );
@@ -219,8 +219,71 @@ export class TipsService {
       description: t.description,
       place: t.postcode ? `${t.postcode}, ${t.area_label}` : null,
       tipper: t.anonymous ? `Anonymous tipper ${t.public_no}` : t.display_name,
+      outcome: t.outcome ?? null,
+      bountyKobo: t.approved_kobo != null ? Number(t.approved_kobo) : t.suggested_kobo != null ? Number(t.suggested_kobo) : null,
       createdAt: t.created_at,
     }));
+  }
+
+  /** One tip for the agency: facts, claim, pool and the full history. Never the tipper's identity unless they agreed. */
+  async agencyDetail(p: Principal, agencyId: string, tipId: string) {
+    await this.agencies.requireStaff(p, agencyId);
+    const t = (
+      await this.db.query(
+        `select t.*, l.postcode, l.area_label, u.display_name, c.outcome, c.severity as claim_severity, c.suggested_kobo, c.approved_kobo, c.decline_reason, c.created_at as claimed_at
+           from tips t join users u on u.id = t.user_id left join locations l on l.id = t.location_id left join tip_claims c on c.tip_id = t.id
+          where t.id = $1 and t.agency_id = $2`,
+        [tipId, agencyId],
+      )
+    ).rows[0];
+    if (!t) throw new AppError(404, 'not_found', 'Tip not found.');
+    const events = await this.db.query(`select kind, actor_kind, payload, at from tip_events where tip_id = $1 order by id`, [tipId]);
+    const rate = (await this.db.query(`select tiers, cap_kobo from bounty_rates where agency_id = $1 and category = $2 and active`, [agencyId, t.category])).rows[0];
+    const pool = (
+      await this.db.query(
+        `select coalesce(b.available_kobo, 0)::bigint as kobo from wallets w left join wallet_balances b on b.wallet_id = w.id where w.owner_type = 'bounty_pool' and w.owner_id = $1`,
+        [agencyId],
+      )
+    ).rows[0];
+    const LABEL: Record<string, string> = {
+      received: 'Tip received',
+      route: 'Sent to your agency',
+      ask_more: 'You asked for more information',
+      info_added: 'Tipper added information',
+      outcome_recorded: 'Result recorded',
+      approve: 'Bounty approved',
+      decline: 'Bounty declined',
+      close: 'Closed without a result',
+      mark_false: 'Marked false',
+      withdraw: 'Tipper withdrew the tip',
+      hold_ends: 'Bounty released to the tipper',
+    };
+    const p0 = (e: { payload: Record<string, unknown> }) => (e.payload.text ?? e.payload.comment ?? e.payload.reason ?? null) as string | null;
+    return {
+      id: t.id,
+      publicNo: t.public_no,
+      category: tipCategory(t.category)?.label ?? t.category,
+      state: t.state,
+      description: t.description,
+      place: t.postcode ? `${t.postcode}, ${t.area_label}` : null,
+      tipper: t.anonymous ? `Anonymous tipper ${t.public_no}` : t.display_name,
+      createdAt: t.created_at,
+      claim: t.outcome
+        ? {
+            outcome: t.outcome,
+            severity: t.claim_severity,
+            suggestedKobo: Number(t.suggested_kobo),
+            approvedKobo: t.approved_kobo == null ? null : Number(t.approved_kobo),
+            declineReason: t.decline_reason,
+            recordedAt: t.claimed_at,
+          }
+        : null,
+      rate: rate ? { minKobo: rate.tiers?.min == null ? null : Number(rate.tiers.min), maxKobo: rate.tiers?.max == null ? null : Number(rate.tiers.max), capKobo: rate.cap_kobo == null ? null : Number(rate.cap_kobo) } : null,
+      poolKobo: pool ? Number(pool.kobo) : null,
+      holdDays: BOUNTY_HOLD_DAYS,
+      actions: availableEvents(tipMachine, t.state, 'agency_admin'),
+      history: events.rows.map((e) => ({ kind: e.kind, label: LABEL[e.kind] ?? e.kind, note: e.kind === 'outcome_recorded' ? null : p0(e), amountKobo: e.payload.amount ?? null, at: e.at })),
+    };
   }
 
   async act(

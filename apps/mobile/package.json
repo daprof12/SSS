@@ -4,7 +4,7 @@
   "private": true,
   "description": "Citizen and officer apps as one installable PWA (Flutter later, per TRD).",
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "next dev -p ${PORT:-3001}",
     "build": "next build",
     "start": "next start -p 3001",
     "typecheck": "tsc --noEmit"

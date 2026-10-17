@@ -92,6 +92,30 @@ describe('tips', () => {
     await http.post(`/tips/${r.id}/withdraw`).set(as('citizen')).expect(409);
   });
 
+  it('gives the agency one tip with its claim, pool and history, never the tipper', async () => {
+    const r = (await tip('citizen').expect(201)).body;
+    await act(r.id, { event: 'ask_more', comment: 'Which street?' }).expect(201);
+    await http.post(`/tips/${r.id}/info`).set(as('citizen')).send({ text: 'Allen Avenue' }).expect(201);
+    await act(r.id, { event: 'outcome_recorded', outcome: 'arrest' }).expect(201);
+    const d = (await http.get(`/agencies/${seed.naptipId}/tips/${r.id}`).set(as('agencyAdmin')).expect(200)).body;
+    expect(d).toMatchObject({
+      state: 'claim_review',
+      tipper: `Anonymous tipper ${r.publicNo}`,
+      claim: { outcome: 'arrest', severity: 'standard', suggestedKobo: 5000000, approvedKobo: null },
+      rate: { capKobo: 50000000 },
+      holdDays: 7,
+      actions: expect.arrayContaining(['ask_more', 'approve', 'decline', 'mark_false']),
+    });
+    expect(d.poolKobo).toBeGreaterThan(0);
+    expect(d.history.map((h: any) => h.kind)).toEqual(['received', 'route', 'ask_more', 'info_added', 'outcome_recorded']);
+    expect(d.history.find((h: any) => h.kind === 'info_added').note).toBe('Allen Avenue');
+    expect(JSON.stringify(d)).not.toContain('Ada');
+    const claims = (await http.get(`/agencies/${seed.naptipId}/tips?tab=claims`).set(as('agencyAdmin')).expect(200)).body;
+    expect(claims.find((x: any) => x.id === r.id)).toMatchObject({ outcome: 'arrest', bountyKobo: 5000000 });
+    await http.get(`/agencies/${seed.fermaId}/tips/${r.id}`).set(as('agencyAdmin')).expect(404);
+    await http.get(`/agencies/${seed.naptipId}/tips/${r.id}`).set(as('citizen')).expect(404);
+  });
+
   it('refuses a bounty to the agency’s own staff and when the pool is short', async () => {
     const own = (await tip('agencyAdmin').expect(201)).body;
     await act(own.id, { event: 'outcome_recorded', outcome: 'arrest' }).expect(201);
@@ -133,6 +157,7 @@ describe('public issues', () => {
 
   it('needs a few words and a place', async () => {
     expect((await issue('citizen', { description: 'hole' }).expect(422)).body.message).toBe('Photo or a few words needed so the team can find it.');
+    expect((await issue('officer', { category: 'waste', subtype: 'Illegal dumping', description: undefined, withMedia: true }).expect(201)).body.publicNo).toMatch(/^P-\d{6}$/);
     expect((await issue('citizen', { postcode: undefined }).expect(422)).body.message).toBe('Add where it is: your location or a postcode.');
   });
 
@@ -147,6 +172,16 @@ describe('public issues', () => {
     expect((await http.get('/issues/nearby?category=road&postcode=GH78J').set(as('officer'))).body).toMatchObject({ caseId, reports: 2, people: 2 });
     expect((await http.get(`/issues/${caseId}`).set(as('citizen'))).body.severity).toBe('blocking');
     await http.get(`/issues/${caseId}`).set(as('officer')).expect(404);
+  });
+
+  it('gives the agency one case with what reporters say and its history', async () => {
+    const d = (await http.get(`/agencies/${seed.fermaId}/issues/${caseId}`).set(as('agencyAdmin')).expect(200)).body;
+    expect(d).toMatchObject({ state: 'open', reports: 2, people: 2, severity: 'blocking', actions: ['assign'], fixConfirmations: 2 });
+    expect(d.severities).toEqual(expect.arrayContaining([{ value: 'dangerous', people: 1 }, { value: 'blocking', people: 1 }]));
+    expect(d.comments[0].text).toBe('Deep pothole by the bus stop');
+    expect(d.history.map((h: any) => h.kind)).toEqual(['reported', 'joined']);
+    expect(JSON.stringify(d)).not.toContain('Ada');
+    await http.get(`/agencies/${seed.naptipId}/issues/${caseId}`).set(as('agencyAdmin')).expect(404);
   });
 
   it('runs assign → work → fixed, reopens on a "no", closes on enough "yes"', async () => {
