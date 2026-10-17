@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { ThemeSwitch } from '@/components/ThemeSwitch';
 import { api, ApiError } from '@/lib/api';
 import { applyMotion, applyTheme, onThemeChange, type ThemeChoice } from '@/lib/theme';
 
@@ -167,13 +168,7 @@ export default function Profile() {
               <strong>Theme</strong>
               <span>System follows your device. Emergency colours stay the same in every mode.</span>
             </div>
-            <div className="segmented" role="group" aria-label="Theme">
-              {(['system', 'light', 'dark'] as const).map((t) => (
-                <button key={t} type="button" aria-pressed={p.theme === t} onClick={() => save({ theme: t }, 'Theme saved.')}>
-                  {t[0]!.toUpperCase() + t.slice(1)}
-                </button>
-              ))}
-            </div>
+            <ThemeSwitch value={p.theme} onChange={(t) => save({ theme: t }, 'Theme saved.')} />
           </div>
           <div className="row">
             <div className="label">

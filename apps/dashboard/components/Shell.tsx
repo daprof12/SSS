@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { ThemeSwitch } from './ThemeSwitch';
 import { api, getSession, setSession, type Session } from '@/lib/api';
 import { applyMotion, applyTheme, onThemeChange, readTheme, type ThemeChoice } from '@/lib/theme';
 
@@ -105,13 +106,7 @@ function TopBar({ session }: { session: Session }) {
     <header className="topbar">
       <input className="search" type="search" placeholder="Search postcode, report or officer" aria-label="Search" />
       <div className="spacer" />
-      <div className="segmented" role="group" aria-label="Theme">
-        {(['system', 'light', 'dark'] as const).map((t) => (
-          <button key={t} type="button" aria-pressed={theme === t} onClick={() => choose(t)}>
-            {t[0]!.toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
+      <ThemeSwitch compact value={theme} onChange={choose} />
       <button className="icon-btn" type="button" aria-label="Notifications, 1 unread">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
           <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />

@@ -196,6 +196,24 @@ h1 {
   cursor: pointer;
   transition: background-color var(--motion-fast-duration) var(--motion-fast-easing), color var(--motion-fast-duration) var(--motion-fast-easing);
 }
+.segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.segmented.icons button {
+  width: 36px;
+  min-height: 34px;
+  padding: 0;
+  justify-content: center;
+}
+.segmented button svg {
+  flex: none;
+  transition: transform var(--motion-fast-duration) var(--motion-fast-easing);
+}
+.segmented button[aria-pressed='true'] svg {
+  transform: rotate(-12deg) scale(1.05);
+}
 .segmented button[aria-pressed='true'] {
   background: var(--color-surface-raised);
   color: var(--color-text-primary);
@@ -770,9 +788,6 @@ input[type='text'] {
   .topbar {
     padding: var(--space-3) var(--space-4);
   }
-  .topbar .segmented {
-    display: none;
-  }
   .grid.two {
     grid-template-columns: 1fr;
   }
@@ -802,6 +817,9 @@ input[type='text'] {
   }
 }
 
+[data-motion='reduced'] .segmented button svg {
+  transform: none !important;
+}
 [data-motion='reduced'] .sheet,
 [data-motion='reduced'] .scrim {
   animation: fade-in var(--motion-fast-duration) linear;
