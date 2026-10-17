@@ -487,6 +487,34 @@ export class IncidentsService implements OnModuleDestroy {
     return { ok: true };
   }
 
+  /** Station hand-picks an officer (S-1 Assign unit). The officer still has to accept. */
+  async assign(p: Principal, id: string, officerId: string) {
+    const { row } = await this.pickActor(p, id, 'assign', ['station']);
+    const officer = (
+      await this.db.query(
+        `select o.user_id, o.on_duty, o.badge_status,
+                exists (select 1 from incident_units u where u.officer_id = o.user_id and u.state in ('accepted', 'en_route', 'on_scene')) as busy
+           from officers o where o.user_id = $1 and o.station_id = $2`,
+        [officerId, row.station_id],
+      )
+    ).rows[0];
+    if (!officer) throw new AppError(422, 'officer_not_found', 'Choose an officer from your station.');
+    if (officer.badge_status !== 'verified') throw new AppError(422, 'badge_not_verified', 'This officer cannot take reports until their badge is verified.');
+    if (!officer.on_duty) throw new AppError(422, 'off_duty', 'This officer is off duty.');
+    if (officer.busy) throw new AppError(422, 'officer_busy', 'This officer is already on a report.');
+
+    const windowS = (await this.db.query(`select accept_window_seconds from stations where id = $1`, [row.station_id])).rows[0].accept_window_seconds;
+    const to = await this.transition(id, 'assign', 'station', p.userId, async (c) => {
+      await c.query(
+        `insert into incident_units (incident_id, station_id, officer_id, role, offer_expires_at) values ($1, $2, $3, 'primary', now() + make_interval(secs => $4))`,
+        [id, row.station_id, officerId, windowS],
+      );
+      return { officerId };
+    });
+    this.schedule(`offer:${id}:${officerId}`, windowS * 1000, () => this.offerTimeout(id, officerId, []));
+    return to;
+  }
+
   // ---------------------------------------------------------------- emergency contacts (B1, decided: area only)
 
   private async notifyContacts(id: string) {

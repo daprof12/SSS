@@ -29,6 +29,7 @@ const ActBody = z.object({
   etaMinutes: z.number().int().min(0).max(240).optional(),
 });
 const DeclineBody = z.object({ reason: z.string() });
+const AssignBody = z.object({ officerId: z.string().uuid() });
 const SideBody = z.object({
   kind: z.enum(['add_info', 'note', 'reinforce', 'officer_panic', 'panic_cleared']),
   text: z.string().trim().max(500).optional(),
@@ -67,8 +68,7 @@ export class IncidentsController {
   /** Station queue: open incidents for every station the caller heads or dispatches for. */
   @Get('me/queue')
   async queue(@CurrentUser() p: Principal) {
-    const stations = p.roles.filter((r) => (r.role === 'head' || r.role === 'dispatcher') && r.scopeId).map((r) => r.scopeId);
-    if (!stations.length) throw new AppError(403, 'not_station_staff', 'This page is for station staff.');
+    const stations = this.staffStations(p);
     const r = await this.db.query(
       `select i.id, i.type, i.state, i.report_count, i.created_at, i.updated_at, l.postcode, l.area_label,
               (select ou.display_name from incident_units u join users ou on ou.id = u.officer_id
@@ -115,8 +115,12 @@ export class IncidentsController {
           const data = await this.render(p, id);
           if (!closed) sub.next({ type: 'incident', data });
         } catch (e) {
-          // Access can end mid-stream (offer expired, transfer): close cleanly.
-          if (!closed) sub.error(e);
+          // Access can end mid-stream (offer expired, transfer, deleted). Send a final
+          // "gone" event and complete, so the client stops reconnecting instead of spinning.
+          if (closed) return;
+          const message = e instanceof AppError ? (e.getResponse() as { message?: string }).message : undefined;
+          sub.next({ type: 'gone', data: { message: message ?? 'This report is no longer available to you.' } });
+          sub.complete();
         }
       };
       void push();
@@ -139,6 +143,58 @@ export class IncidentsController {
   async act(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(ActBody)) b: z.infer<typeof ActBody>) {
     const state = await this.incidents.act(p, id, b.event, b);
     return { state };
+  }
+
+  @Post('incidents/:id/assign')
+  async assign(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(AssignBody)) b: z.infer<typeof AssignBody>) {
+    return { state: await this.incidents.assign(p, id, b.officerId) };
+  }
+
+  /** Officers at my station with what each is doing now — feeds the Assign sheet. */
+  @Get('me/station/officers')
+  async stationOfficers(@CurrentUser() p: Principal, @Query('near') near?: string) {
+    const stations = this.staffStations(p);
+    const inc = near ? (await this.db.query(`select geom from incidents where id = $1 and station_id = any($2::uuid[])`, [near, stations])).rows[0] : null;
+    const r = await this.db.query(
+      `select o.user_id as id, u.display_name as name, o.badge_no, o.rank, o.on_duty, o.badge_status,
+              (select i.type || ', ' || coalesce(l.postcode, 'GPS') from incident_units x join incidents i on i.id = x.incident_id
+                 left join locations l on l.id = i.location_id
+                where x.officer_id = o.user_id and x.state in ('accepted', 'en_route', 'on_scene') limit 1) as current_task,
+              case when $2::geography is not null and o.last_location is not null then round(st_distance(o.last_location, $2::geography))::int end as distance_m
+         from officers o join users u on u.id = o.user_id
+        where o.station_id = any($1::uuid[])
+        order by o.on_duty desc, distance_m nulls last, u.display_name`,
+      [stations, inc?.geom ?? null],
+    );
+    return r.rows.map((o) => ({
+      id: o.id,
+      name: o.name,
+      badgeNo: o.badge_no,
+      rank: o.rank,
+      onDuty: o.on_duty,
+      badgeVerified: o.badge_status === 'verified',
+      currentTask: o.current_task,
+      distanceM: o.distance_m,
+      available: o.on_duty && o.badge_status === 'verified' && !o.current_task,
+    }));
+  }
+
+  /** Stations a report can be transferred to: other active stations of live agencies. */
+  @Get('me/station/transfer-targets')
+  async transferTargets(@CurrentUser() p: Principal) {
+    const stations = this.staffStations(p);
+    const r = await this.db.query(
+      `select s.id, s.name, a.name as agency, a.kind from stations s join agencies a on a.id = s.agency_id
+        where s.status = 'active' and a.status = 'live' and not (s.id = any($1::uuid[])) order by a.name, s.name`,
+      [stations],
+    );
+    return r.rows;
+  }
+
+  private staffStations(p: Principal): string[] {
+    const s = p.roles.filter((r) => (r.role === 'head' || r.role === 'dispatcher') && r.scopeId).map((r) => r.scopeId!);
+    if (!s.length) throw new AppError(403, 'not_station_staff', 'This page is for station staff.');
+    return s;
   }
 
   @Post('incidents/:id/decline')

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { streamUrl } from '@/lib/api';
 import { StateChip } from '@/components/StateChip';
+import { StationActions } from '@/components/StationActions';
 
 interface StationView {
   id: string;
@@ -21,14 +22,6 @@ interface StationView {
   serverTime: string;
 }
 
-const ACTION_LABEL: Record<string, string> = {
-  assign: 'Assign unit',
-  transfer: 'Transfer',
-  begin_close: 'Close report',
-  officer_drop: 'Reassign',
-  merge_into: 'Merge',
-};
-
 /** One incident, live over SSE, with the freshness line from §A3. */
 export default function IncidentDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -37,6 +30,13 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
   const [lastAt, setLastAt] = useState<Date | null>(null);
   const [now, setNow] = useState(new Date());
   const [ended, setEnded] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
     const es = new EventSource(streamUrl(`/incidents/${id}/stream`));
@@ -46,6 +46,11 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
       setConnected(true);
     });
     es.addEventListener('heartbeat', () => setLastAt(new Date()));
+    es.addEventListener('gone', (e) => {
+      es.close();
+      setConnected(false);
+      setEnded(JSON.parse((e as MessageEvent).data).message);
+    });
     es.onopen = () => setConnected(true);
     es.onerror = () => {
       setConnected(false);
@@ -60,7 +65,7 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
 
   const f: Freshness | null = lastAt ? freshness(lastAt, now, connected) : null;
 
-  if (ended && !v) {
+  if (ended) {
     return (
       <div className="card empty">
         <strong>{ended}</strong>
@@ -124,14 +129,7 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
             </div>
             {v.etaMinutes != null && <span className="chip info">ETA {v.etaMinutes} min</span>}
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-            {v.actions.length === 0 && <span style={{ color: 'var(--color-text-secondary)', fontSize: 14 }}>No station actions at this stage.</span>}
-            {v.actions.map((a) => (
-              <button key={a} className={`btn ${a === 'assign' ? 'signal' : ''}`} type="button" disabled title="Action sheets come next">
-                {ACTION_LABEL[a] ?? a}
-              </button>
-            ))}
-          </div>
+          <StationActions incidentId={v.id} state={v.state} actions={v.actions} onDone={setToast} />
         </section>
 
         <section className="card" aria-labelledby="tl">
@@ -149,6 +147,11 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
           </ol>
         </section>
       </div>
+      {toast && (
+        <div className="toast" role="status" aria-live="polite">
+          {toast}
+        </div>
+      )}
     </>
   );
 }

@@ -221,6 +221,53 @@ describe('emergency report tracking (Report Tracking and Data Flow, Part A)', ()
   });
 });
 
+describe('station actions (Gap Analysis S-1)', () => {
+  let id: string;
+
+  it('keeps a report with the station when nobody is free, then lets the head assign one', async () => {
+    await db.query(`update officers set on_duty = false`);
+    const r = await http.post('/incidents').set(as('citizen')).send({ type: 'robbery', postcode: 'GH78J', clientRef: 'dev-ada-0010' }).expect(201);
+    id = r.body.id;
+    const waiting = await waitFor(() => view('head', id).catch(() => ({})), (v: any) => v.state === 'received' && v.view === 'station');
+    expect(waiting.actions).toContain('assign');
+
+    const list = (await http.get(`/me/station/officers?near=${id}`).set(as('head')).expect(200)).body;
+    expect(list.every((o: any) => o.available === false)).toBe(true);
+    const off = await http.post(`/incidents/${id}/assign`).set(as('head')).send({ officerId: users.officer2 }).expect(422);
+    expect(off.body.message).toBe('This officer is off duty.');
+
+    await db.query(`update officers set on_duty = true where user_id = $1`, [users.officer2]);
+    const free = (await http.get(`/me/station/officers?near=${id}`).set(as('head')).expect(200)).body;
+    expect(free.find((o: any) => o.id === users.officer2)).toMatchObject({ available: true, distanceM: expect.any(Number) });
+
+    expect((await http.post(`/incidents/${id}/assign`).set(as('head')).send({ officerId: users.officer2 }).expect(201)).body).toEqual({ state: 'offered' });
+    expect((await view('officer2', id)).view).toBe('officer');
+    expect((await view('citizen', id)).timeline.map((e: any) => e.label)).toContain('Sent to a team');
+  });
+
+  it('refuses assign from non-station staff and for officers of another station', async () => {
+    await http.post(`/incidents/${id}/assign`).set(as('citizen')).send({ officerId: users.officer2 }).expect(403);
+    await http.get('/me/station/officers').set(as('officer')).expect(403);
+  });
+
+  it('lists other stations and transfers with a reason', async () => {
+    expect((await http.get('/me/station/transfer-targets').set(as('head')).expect(200)).body).toEqual([]);
+    const ag = (await db.query(`insert into agencies (name, kind, status, period_start, period_end) values ('Fire Service (test)', 'fire', 'live', current_date, current_date + 30) returning id`)).rows[0].id;
+    const st = (await db.query(`insert into stations (agency_id, name, status) values ($1, 'Fire Station 2', 'active') returning id`, [ag])).rows[0].id;
+    const targets = (await http.get('/me/station/transfer-targets').set(as('head')).expect(200)).body;
+    expect(targets).toEqual([expect.objectContaining({ id: st, name: 'Fire Station 2', agency: 'Fire Service (test)' })]);
+
+    await http.post(`/incidents/${id}/actions`).set(as('head')).send({ event: 'transfer', targetStationId: st }).expect(422);
+    await http.post(`/incidents/${id}/actions`).set(as('head')).send({ event: 'transfer', targetStationId: st, reason: 'Needs another service' }).expect(201);
+    // The head no longer holds it; the reporter sees who has it now.
+    await http.get(`/incidents/${id}`).set(as('head')).expect(404);
+    const v = await view('citizen', id);
+    expect(['transferred', 'offered', 'received']).toContain(v.state);
+    expect(v.timeline.map((e: any) => e.label)).toContain('Passed to another unit');
+    await db.query(`update officers set on_duty = true`);
+  });
+});
+
 describe('fund wallet (UX Gap Analysis §9)', () => {
   it('requires an idempotency key and validates the amount', async () => {
     await http.post('/me/wallet/fund').set(as('citizen')).send({ amountKobo: 500000, method: 'card' }).expect(400);

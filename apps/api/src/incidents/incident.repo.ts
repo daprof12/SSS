@@ -20,6 +20,13 @@ export interface IncidentRow {
 
 const ACTIVE_UNIT = `('offered', 'accepted', 'en_route', 'on_scene')`;
 
+/** Staff-facing wording for log events written without a label. */
+const INTERNAL_LABELS: Record<string, string> = {
+  no_responder: 'No free officer at the station',
+  no_station: 'No station covers this area',
+  declined: 'Officer declined the offer',
+};
+
 @Injectable()
 export class IncidentRepo {
   constructor(@Inject(Db) private readonly db: Db) {}
@@ -80,7 +87,7 @@ export class IncidentRepo {
     const timeline: TimelineEntry[] = events.rows.map((e) => ({
       at: e.at.toISOString(),
       kind: e.kind,
-      label: e.payload?.label ?? e.kind,
+      label: e.payload?.label ?? INTERNAL_LABELS[e.kind] ?? e.kind.replace(/_/g, ' '),
       public: e.public,
     }));
 
