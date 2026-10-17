@@ -30,6 +30,12 @@ const ActBody = z.object({
 });
 const DeclineBody = z.object({ reason: z.string() });
 const AssignBody = z.object({ officerId: z.string().uuid() });
+const RATING_TAGS = ['fast', 'polite', 'clear', 'professional', 'slow', 'rude', 'unclear'] as const;
+const RatingBody = z.object({
+  stars: z.number().int().min(1, 'Choose 1 to 5 stars.').max(5, 'Choose 1 to 5 stars.'),
+  tags: z.array(z.enum(RATING_TAGS)).max(7).default([]),
+  comment: z.string().max(1000, 'Keep it under 1000 characters.').optional(),
+});
 const SideBody = z.object({
   kind: z.enum(['add_info', 'note', 'reinforce', 'officer_panic', 'panic_cleared']),
   text: z.string().trim().max(500).optional(),
@@ -195,6 +201,11 @@ export class IncidentsController {
     const s = p.roles.filter((r) => (r.role === 'head' || r.role === 'dispatcher') && r.scopeId).map((r) => r.scopeId!);
     if (!s.length) throw new AppError(403, 'not_station_staff', 'This page is for station staff.');
     return s;
+  }
+
+  @Post('incidents/:id/rating')
+  rate(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(RatingBody)) b: z.infer<typeof RatingBody>) {
+    return this.incidents.rate(p, id, b);
   }
 
   @Post('incidents/:id/decline')

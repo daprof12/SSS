@@ -65,7 +65,7 @@ export class IncidentRepo {
     const i = q.rows[0];
     if (!i) return null;
 
-    const [units, joiners, events, rating] = await Promise.all([
+    const [units, joiners, events, rating, pastTeam] = await Promise.all([
       this.db.query(
         `select iu.officer_id, iu.state, ou.display_name, o.badge_no, s.name as station_name,
                 st_y(o.last_location::geometry) as o_lat, st_x(o.last_location::geometry) as o_lng,
@@ -81,6 +81,11 @@ export class IncidentRepo {
       this.db.query(`select distinct reporter_id from incident_reports where incident_id = $1 and role = 'joined' and reporter_id is not null`, [id]),
       this.db.query(`select id, kind, to_state, payload, public, actor_id, at from incident_events where incident_id = $1 order by id`, [id]),
       this.db.query(`select stars, comment from ratings where incident_id = $1 and reporter_id = $2`, [id, i.reporter_id]),
+      // Officer History: whoever accepted a report can open it after it closes (to see the outcome and rating).
+      // While it is live, only the current team can.
+      ['resolved', 'unfounded', 'cancelled'].includes(i.state)
+        ? this.db.query(`select distinct officer_id from incident_units where incident_id = $1 and accepted_at is not null`, [id])
+        : Promise.resolve({ rows: [] as Array<{ officer_id: string }> }),
     ]);
 
     const lead = units.rows.find((u) => u.state !== 'offered');
@@ -106,7 +111,7 @@ export class IncidentRepo {
       reportCount: i.report_count,
       building,
       reporterGps: { lat: i.lat, lng: i.lng },
-      assignedOfficerIds: units.rows.map((u) => u.officer_id).filter(Boolean),
+      assignedOfficerIds: [...new Set([...units.rows.map((u) => u.officer_id), ...pastTeam.rows.map((u) => u.officer_id)])].filter(Boolean),
       officer: lead && {
         id: lead.officer_id,
         name: lead.display_name,

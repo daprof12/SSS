@@ -84,3 +84,18 @@ The 11-stage lifecycle runs on `agencyMachine` and `agencyInvoiceMachine` in `pa
 **Overdue never stops dispatch.** Routing takes stations of agencies that are `live`, `overdue` or `offboarding` (`dispatchingAgencyStates`). While an agency is overdue, adding stations, inventory or plan upgrades returns `402 billing_hold` ("New stations and equipment are on hold until you pay."). Paying the last overdue invoice restores the agency right away.
 
 **Not built yet:** auto-charging a saved card (agencies pay each invoice), receipt PDFs, credit notes (the machine has `credit`), funding the bounty pool, officer invites (officers are added directly, verified when their KYC is), and records export at offboarding. The Paystack subaccount is mocked. Run the billing jobs from a scheduler once the durable queue exists.
+
+## Phase 1 dispatch backend
+
+| Area | Endpoint | Notes |
+|---|---|---|
+| Officer duty | `PATCH /me/officer/duty` | On duty needs a verified badge and location; off duty is blocked during an active incident, and open offers are re-routed straight away |
+| Officer location | `POST /me/officer/location` | Recomputes the citizen's ETA while en route (30 km/h urban estimate until a routing provider is connected); logs moves of 5+ minutes |
+| Officer Home | `GET /me/officer/home` | Duty banner, today's totals, Offers / Active / Team / Done tabs with the States doc empty messages |
+| Station | `POST /incidents/:id/assign`, `GET /me/station/officers`, `GET /me/station/transfer-targets` | Feed the dashboard action sheets |
+| Rating | `POST /incidents/:id/rating` | After close, once per reporter or joiner; 1–5 stars, fixed tags, comment ≤ 1000; the officer is told |
+| Notifications | `GET /me/notifications?tab=all\|reports\|money\|account`, `POST /me/notifications/:id/read`, `POST /me/notifications/read-all` | In-app copies for 30 days. Written in the same transaction as each state change; discreet reports get neutral wording |
+
+**Overflow:** if nobody at the nearest station is free, the report moves to the routing rule's fallback station, else the nearest eligible one not yet tried, and the first station's head is told. If every station is out, it goes back to the station covering the area and the heads of every station tried get "Nobody accepted".
+
+**Not built yet:** push, SMS and WhatsApp delivery (only in-app rows are written), and rewards paid from ratings.

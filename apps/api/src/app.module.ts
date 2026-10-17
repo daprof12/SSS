@@ -20,6 +20,8 @@ import { IncidentRepo } from './incidents/incident.repo';
 import { IncidentsController } from './incidents/incidents.controller';
 import { IncidentsService } from './incidents/incidents.service';
 import { MeController } from './me/me.controller';
+import { OfficersController } from './officers/officers.controller';
+import { OfficersService } from './officers/officers.service';
 import { PlacesController } from './places/places.controller';
 import { WalletController } from './wallet/wallet.controller';
 import { WalletService } from './wallet/wallet.service';
@@ -46,6 +48,7 @@ export class AppModule {
         WalletController,
         MeController,
         PlacesController,
+        OfficersController,
         AgenciesController,
         AdminAgenciesController,
         ...(config.devTools ? [DevController] : []),
@@ -59,6 +62,7 @@ export class AppModule {
         IncidentRepo,
         IncidentsService,
         WalletService,
+        OfficersService,
         AgencyLifecycle,
         AgencyBillingService,
         AgenciesService,

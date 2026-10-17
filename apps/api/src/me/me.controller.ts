@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { accountDeletionBlockers, kobo, mfaRequired } from '@erp/domain';
 import { KYC, type KycAdapter } from '../adapters/kyc';
@@ -18,6 +18,7 @@ const Prefs = z
   .partial()
   .refine((o) => Object.keys(o).length > 0, 'Nothing to change.');
 
+const NotifTab = z.enum(['all', 'reports', 'money', 'account']).default('all');
 const NgPhone = z.string().regex(/^\+234\d{10}$/, 'Enter a Nigerian phone number.');
 const Contact = z.object({
   name: z.string().trim().min(1).max(80),
@@ -130,6 +131,44 @@ export class MeController {
   @HttpCode(204)
   async removeContact(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
     await this.db.query(`delete from emergency_contacts where id = $1 and user_id = $2`, [id, p.userId]);
+  }
+
+  /** Notification centre: tabs, unread dot, mark all read (States doc). In-app copies kept 30 days. */
+  @Get('notifications')
+  async notifications(@CurrentUser() p: Principal, @Query('tab', new ZodPipe(NotifTab)) tab: z.infer<typeof NotifTab>) {
+    const groups: Record<z.infer<typeof NotifTab>, string[] | null> = {
+      all: null,
+      reports: ['safety', 'reports', 'dispatch', 'team'],
+      money: ['money'],
+      account: ['account', 'tips', 'learn', 'marketing'],
+    };
+    const g = groups[tab];
+    const [items, unread] = await Promise.all([
+      this.db.query(
+        `select id, type, grp, title, body, deep_link, sent_at, read_at from notifications
+          where user_id = $1 and channel = 'in_app' and sent_at > now() - interval '30 days' and ($2::text[] is null or grp = any($2::text[]))
+          order by sent_at desc limit 100`,
+        [p.userId, g],
+      ),
+      this.db.query(`select count(*)::int as n from notifications where user_id = $1 and channel = 'in_app' and read_at is null and sent_at > now() - interval '30 days'`, [p.userId]),
+    ]);
+    return {
+      unread: unread.rows[0].n,
+      items: items.rows.map((n) => ({ id: n.id, type: n.type, group: n.grp, title: n.title, body: n.body, link: n.deep_link, at: n.sent_at, unread: !n.read_at })),
+      empty: 'Nothing new.',
+    };
+  }
+
+  @Post('notifications/:id/read')
+  @HttpCode(204)
+  async markRead(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    await this.db.query(`update notifications set read_at = coalesce(read_at, now()) where id = $1 and user_id = $2`, [id, p.userId]);
+  }
+
+  @Post('notifications/read-all')
+  @HttpCode(204)
+  async markAllRead(@CurrentUser() p: Principal) {
+    await this.db.query(`update notifications set read_at = now() where user_id = $1 and read_at is null`, [p.userId]);
   }
 
   /** Decided 2026-10-17: deletion is blocked until settled; the screen lists each blocker. */

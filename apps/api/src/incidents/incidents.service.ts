@@ -160,6 +160,7 @@ export class IncidentsService implements OnModuleDestroy {
       );
       const label = PUBLIC_LABELS[event];
       await this.logEvent(c, incidentId, actorId, actor, event, r.from, r.to, { ...payload, label: label ?? event }, Boolean(label));
+      await this.noticesFor(c, incidentId, event, row);
       return r.to;
     });
     this.publish(incidentId, event);
@@ -249,6 +250,10 @@ export class IncidentsService implements OnModuleDestroy {
       );
       await c.query(`update incidents set report_count = report_count + 1 where id = $1`, [target]);
       await this.logEvent(c, target, null, 'system', 'report_joined', null, null, { label: PUBLIC_LABELS.report_joined }, true);
+      await c.query(
+        `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'joined_report', 'reports', 'in_app', $2, $3, $4)`,
+        [row.reporter_id, row.discreet ? 'Update' : 'Already being handled', row.discreet ? 'Your request is in progress.' : 'Others reported this too. One response is on its way for everyone.', `/reports/${target}`],
+      );
       return { into: target };
     }, { merged_into: target, merge_reason: 'same_building' });
     this.publish(target, 'report_joined');
@@ -256,7 +261,7 @@ export class IncidentsService implements OnModuleDestroy {
   }
 
   /** Picks a station and the nearest on-duty, verified, free officer. */
-  async route(id: string, exclude: string[] = []) {
+  async route(id: string, exclude: string[] = []): Promise<void> {
     const row = await this.repo.row(id);
     if (!row || !['received', 'escalated', 'reassigning', 'transferred'].includes(row.state)) return;
 
@@ -300,7 +305,34 @@ export class IncidentsService implements OnModuleDestroy {
 
     if (!officer) {
       await this.db.query(`update incidents set station_id = $2, agency_id = coalesce(agency_id, (select agency_id from stations where id = $2)) where id = $1`, [id, station.id]);
-      await this.db.query(`insert into incident_events (incident_id, actor_kind, kind, payload) values ($1, 'system', 'no_responder', $2)`, [id, { stationId: station.id }]);
+      // Roster doc: if nobody at this station can take it, the report overflows to the next station.
+      const next = await this.nextStation(id, row.type, station.id, row.lat, row.lng);
+      if (next) {
+        await this.db.tx(async (c) => {
+          await c.query(`update incidents set station_id = $2, agency_id = (select agency_id from stations where id = $2) where id = $1`, [id, next.id]);
+          await this.logEvent(c, id, null, 'system', 'overflow', null, null, { from: station.id, to: next.id, label: 'Passed to the next station' }, true);
+          await this.notifyStationHeads(c, station.id, 'no_one_on_duty', 'No one is free', `No one is free at your station. A ${row.type} report went to ${next.name}.`, id);
+        });
+        this.publish(id, 'overflow');
+        return this.route(id, exclude);
+      }
+      await this.db.tx(async (c) => {
+        // Every station is out: hand it back to the station that covers the area (the first one
+        // tried) so it shows in that queue, and alert the heads of every station tried.
+        const tried = await c.query(
+          `select payload->>'from' as s, min(id) as first from incident_events where incident_id = $1 and kind = 'overflow' group by 1 order by first`,
+          [id],
+        );
+        const home = tried.rows[0]?.s ?? station.id;
+        if (home !== station.id) {
+          await c.query(`update incidents set station_id = $2, agency_id = (select agency_id from stations where id = $2) where id = $1`, [id, home]);
+        }
+        await this.logEvent(c, id, null, 'system', 'no_responder', null, null, { stationId: home }, false);
+        const pc = (await c.query(`select l.postcode from incidents i left join locations l on l.id = i.location_id where i.id = $1`, [id])).rows[0]?.postcode ?? 'GPS';
+        for (const st of new Set([home, station.id, ...tried.rows.map((r) => r.s as string)])) {
+          await this.notifyStationHeads(c, st, 'nobody_accepted', 'Nobody accepted', `A ${row.type} report at ${pc} has no responder. Assign a unit or transfer it.`, id);
+        }
+      });
       this.publish(id, 'no_responder');
       return;
     }
@@ -471,6 +503,112 @@ export class IncidentsService implements OnModuleDestroy {
     throw new AppError(400, 'unsupported_event', 'That action is not available here.');
   }
 
+  /** Next station: the routing rule's fallback first, else the nearest eligible station not yet tried. */
+  private async nextStation(id: string, type: string, current: string, lat: number, lng: number): Promise<{ id: string; name: string } | null> {
+    const tried = (
+      await this.db.query(
+        `select station_id::text as s from incident_units where incident_id = $1
+          union select payload->>'from' from incident_events where incident_id = $1 and kind = 'overflow'
+          union select $2::text`,
+        [id, current],
+      )
+    ).rows.map((r) => r.s);
+    const r = await this.db.query(
+      `select s.id, s.name from stations s
+         join agencies a on a.id = s.agency_id and a.status = any($6::text[])
+         join incident_types t on t.code = $1 and a.kind = any(t.default_units)
+         left join routing_rules rr on rr.station_id = $2 and rr.incident_type = $1 and rr.next_station_id = s.id
+        where s.status = 'active' and not (s.id::text = any($3::text[]))
+        order by (rr.id is null), st_distance(coalesce(s.zone::geometry, (select geom::geometry from locations where id = s.location_id))::geography,
+                                              st_setsrid(st_makepoint($5, $4), 4326)::geography) nulls last
+        limit 1`,
+      [type, current, tried, lat, lng, dispatchingAgencyStates],
+    );
+    return r.rows[0] ?? null;
+  }
+
+  private async notifyStationHeads(c: Queryable, stationId: string, type: string, title: string, body: string, incidentId: string) {
+    await c.query(
+      `insert into notifications (user_id, type, grp, channel, title, body, deep_link)
+       select ur.user_id, $2, 'dispatch', 'in_app', $3, $4, $5 from user_roles ur
+        where ur.scope_type = 'station' and ur.scope_id = $1 and ur.role in ('head', 'dispatcher')`,
+      [stationId, type, title, body, `/incidents/${incidentId}`],
+    );
+  }
+
+  /** Notification catalogue (States and Notifications (1)), written in the same transaction as the change. */
+  private async noticesFor(c: Queryable, incidentId: string, event: string, row: IncidentRow) {
+    const info = (
+      await c.query(
+        `select i.type, i.eta_minutes, l.postcode,
+                (select ou.display_name from incident_units u join users ou on ou.id = u.officer_id
+                  where u.incident_id = i.id and u.state in ('accepted', 'en_route', 'on_scene', 'dropped') order by u.accepted_at desc nulls last limit 1) as officer,
+                (select s.name from stations s where s.id = i.station_id) as station
+           from incidents i left join locations l on l.id = i.location_id where i.id = $1`,
+        [incidentId],
+      )
+    ).rows[0];
+    const link = `/reports/${incidentId}`;
+    const toCitizens = async (type: string, title: string, body: string) => {
+      // Discreet mode: neutral words, no names (Design Brief).
+      const [t, b] = row.discreet ? ['Update', 'Your request is in progress.'] : [title, body];
+      await c.query(
+        `insert into notifications (user_id, type, grp, channel, title, body, deep_link)
+         select distinct ir.reporter_id, $2, 'reports', 'in_app', $3, $4, $5 from incident_reports ir
+          where ir.incident_id = $1 and ir.reporter_id is not null`,
+        [incidentId, type, t, b, link],
+      );
+    };
+    switch (event) {
+      case 'window_elapsed':
+        return toCitizens('report_received', 'Report received', 'We got your report. Finding the nearest team.');
+      case 'accept':
+        return toCitizens('team_accepted', 'Help accepted', `${info.officer ?? 'An officer'} from ${info.station ?? 'the station'} is on the way.${info.eta_minutes ? ` About ${info.eta_minutes} minutes.` : ''}`);
+      case 'officer_drop':
+        return toCitizens('officer_cancelled', 'Changing teams', `${info.officer ?? 'The officer'} cannot come. We are sending another team.`);
+      case 'arrive':
+        return toCitizens('team_arrived', 'Help has arrived', 'Help has arrived.');
+      case 'close_valid':
+        return toCitizens('report_closed', 'Report closed', 'Your report is closed. Please rate the response.');
+      case 'route':
+      case 'reoffer':
+      case 'assign': {
+        const u = (await c.query(`select officer_id, extract(epoch from (offer_expires_at - now()))::int as s from incident_units where incident_id = $1 and state = 'offered' order by offered_at desc limit 1`, [incidentId])).rows[0];
+        if (!u) return;
+        await c.query(
+          `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'new_offer', 'dispatch', 'in_app', 'New offer', $2, $3)`,
+          [u.officer_id, `${cap(info.type)} at ${info.postcode ?? 'GPS location'}. Accept within ${Math.max(0, u.s)} seconds.`, `/offers/${incidentId}`],
+        );
+        return;
+      }
+    }
+  }
+
+  /** Post-incident rating (SRS TRUST-4). Reporter and joiners each rate once. */
+  async rate(p: Principal, id: string, b: { stars: number; tags: string[]; comment?: string }) {
+    const row = await this.repo.row(id);
+    if (!row) throw new AppError(404, 'not_found', 'This report could not be found.');
+    const isReporter = (await this.db.query(`select 1 from incident_reports where incident_id = $1 and reporter_id = $2 limit 1`, [id, p.userId])).rowCount;
+    if (!isReporter) throw new AppError(404, 'not_found', 'This report could not be found.');
+    if (row.state !== 'resolved') throw new AppError(409, 'not_closed', 'You can rate the response once the report is closed.');
+    await this.db.tx(async (c) => {
+      const ins = await c.query(
+        `insert into ratings (incident_id, reporter_id, stars, tags, comment) values ($1, $2, $3, $4, $5) on conflict do nothing returning stars`,
+        [id, p.userId, b.stars, b.tags, b.comment?.trim() || null],
+      );
+      if (!ins.rowCount) throw new AppError(409, 'already_rated', 'You already rated this response. Thank you.');
+      const pc = (await c.query(`select l.postcode, i.type from incidents i left join locations l on l.id = i.location_id where i.id = $1`, [id])).rows[0];
+      await c.query(
+        `insert into notifications (user_id, type, grp, channel, title, body, deep_link)
+         select distinct u.officer_id, 'rating_received', 'team', 'in_app', 'Rating received', $2, $3
+           from incident_units u where u.incident_id = $1 and u.accepted_at is not null`,
+        [id, `You got ${b.stars} ${b.stars === 1 ? 'star' : 'stars'} for ${cap(pc.type)} at ${pc.postcode ?? 'GPS location'}.`, `/history/${id}`],
+      );
+    });
+    this.publish(id, 'rated');
+    return { ok: true, message: 'Thank you. Your rating helps teams improve.' };
+  }
+
   async decline(p: Principal, id: string, reason: string) {
     if (!['busy', 'too_far', 'off_duty', 'other'].includes(reason)) {
       throw new AppError(422, 'reason_required', 'A reason is required: busy, too far, off duty, other.');
@@ -548,6 +686,7 @@ export class IncidentsService implements OnModuleDestroy {
   }
 }
 
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 function humanTransitionError(event: IncidentEvent, state: IncidentState, fallback: string): string {
