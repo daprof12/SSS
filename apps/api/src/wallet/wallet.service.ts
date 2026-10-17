@@ -166,7 +166,7 @@ export class WalletService {
           await c.query(
             `insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values
                ($1, 'fund', $3, $4, $5, $6), ($2, 'fund', -$3::bigint, $4, $5, $6)`,
-            [userWallet, platform, amount, pay.provider_ref, journal, `Wallet funded by ${mapChannel(event.data.channel)}`],
+            [userWallet, platform, amount, pay.provider_ref, journal, `Funded by ${{ card: 'card', bank_transfer: 'bank transfer', ussd: 'USSD' }[mapChannel(event.data.channel)]}`],
           );
           await c.query(
             `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'wallet_funded', 'money', 'in_app', 'Wallet funded', $2, '/wallet')`,

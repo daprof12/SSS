@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ThemeSwitch } from '@/components/ThemeSwitch';
-import { api, ApiError } from '@/lib/api';
-import { applyMotion, applyTheme, onThemeChange, type ThemeChoice } from '@/lib/theme';
+import { ThemeSwitch } from '@erp/web-ui/ThemeSwitch';
+import { api, ApiError } from '@erp/web-ui/api';
+import { applyMotion, applyTheme, onThemeChange, type ThemeChoice } from '@erp/web-ui/theme';
 
 interface Me {
   id: string;

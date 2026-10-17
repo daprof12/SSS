@@ -1,16 +1,26 @@
-// Thin client for the ERP API. The token lives in sessionStorage for the dev
-// sign-in only; production uses the OIDC provider's session (TRD).
+// Thin client for the ERP API, shared by the dashboard and the PWA. The token
+// lives in browser storage for the dev sign-in only; production uses the OIDC
+// provider's session (TRD). The dashboard keeps it per tab (sessionStorage); the
+// installed PWA keeps it across launches (localStorage).
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 export interface Session {
   token: string;
   name: string;
   roleLabel: string;
+  /** PWA only: which app surface this account uses. */
+  surface?: 'citizen' | 'officer';
 }
+
+let storeKind: 'session' | 'local' = 'session';
+export function configureSessionStore(kind: 'session' | 'local') {
+  storeKind = kind;
+}
+const store = () => (storeKind === 'local' ? localStorage : sessionStorage);
 
 export function getSession(): Session | null {
   try {
-    const raw = sessionStorage.getItem('erp-session');
+    const raw = store().getItem('erp-session');
     return raw ? (JSON.parse(raw) as Session) : null;
   } catch {
     return null;
@@ -19,8 +29,8 @@ export function getSession(): Session | null {
 
 export function setSession(s: Session | null) {
   try {
-    if (s) sessionStorage.setItem('erp-session', JSON.stringify(s));
-    else sessionStorage.removeItem('erp-session');
+    if (s) store().setItem('erp-session', JSON.stringify(s));
+    else store().removeItem('erp-session');
   } catch {}
 }
 

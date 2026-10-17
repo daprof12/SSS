@@ -1,0 +1,19 @@
+{
+  "name": "ERP — Emergency Response",
+  "short_name": "ERP",
+  "description": "Report an emergency in two taps and follow help to your door.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "categories": ["utilities", "lifestyle"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Report an emergency", "short_name": "SOS", "url": "/report", "icons": [{ "src": "/icon.svg", "sizes": "any" }] }
+  ]
+}

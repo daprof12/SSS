@@ -84,7 +84,8 @@ export function projectIncident(r: IncidentRecord, v: Viewer) {
       return {
         ...base,
         view: 'reporter' as const,
-        building: { postcode: r.building.postcode, address: r.building.address },
+        // Their own building, with coordinates for the live map.
+        building: { postcode: r.building.postcode, address: r.building.address, location: r.building.location },
         officer: officerCard,
         officerLocation: sharing ? r.officer?.location : undefined,
         etaMinutes: sharing ? r.etaMinutes : undefined,

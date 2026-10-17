@@ -421,6 +421,18 @@ export class IncidentsService implements OnModuleDestroy {
     await this.logEvent(this.db.pool, id, p.userId, actor, kind, null, null, { ...payload, label }, kind === 'reinforce');
     if (kind === 'officer_panic') {
       await this.audit.write({ actorId: p.userId, actorRole: 'officer', action: 'incident.officer_panic', entity: 'incident', entityId: id });
+      // B1: station head, dispatchers and every other on-duty officer at the station are told at once.
+      await this.db.tx(async (c) => {
+        const who = (await c.query(`select u.display_name, l.postcode from users u, incidents i left join locations l on l.id = i.location_id where u.id = $1 and i.id = $2`, [p.userId, id])).rows[0];
+        const body = `${who?.display_name ?? 'An officer'} needs help at ${who?.postcode ?? 'their location'}.`;
+        if (row.station_id) await this.notifyStationHeads(c, row.station_id, 'officer_panic', 'Officer needs help', body, id);
+        await c.query(
+          `insert into notifications (user_id, type, grp, channel, title, body, deep_link)
+           select o.user_id, 'officer_panic', 'dispatch', 'in_app', 'Officer needs help', $3, $4
+             from officers o where o.station_id = $1 and o.on_duty and o.user_id <> $2`,
+          [row.station_id, p.userId, body, `/incidents/${id}`],
+        );
+      });
     }
     this.publish(id, kind);
     return { ok: true };

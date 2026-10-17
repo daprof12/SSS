@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { accountDeletionBlockers, kobo, mfaRequired } from '@erp/domain';
 import { KYC, type KycAdapter } from '../adapters/kyc';
+import { POSTCODE, PostcodeUnavailable, type PostcodeAdapter } from '../adapters/postcode';
 import { Audit } from '../core/audit';
 import { CurrentUser, type Principal } from '../core/auth';
 import { Db } from '../core/db';
@@ -18,6 +19,7 @@ const Prefs = z
   .partial()
   .refine((o) => Object.keys(o).length > 0, 'Nothing to change.');
 
+const HomeBody = z.object({ postcode: z.string().trim().min(3, 'Enter a postcode.').max(12) });
 const NotifTab = z.enum(['all', 'reports', 'money', 'account']).default('all');
 const NgPhone = z.string().regex(/^\+234\d{10}$/, 'Enter a Nigerian phone number.');
 const Contact = z.object({
@@ -49,6 +51,7 @@ export class MeController {
     @Inject(Audit) private readonly audit: Audit,
     @Inject(WalletService) private readonly wallet: WalletService,
     @Inject(KYC) private readonly kyc: KycAdapter,
+    @Inject(POSTCODE) private readonly postcode: PostcodeAdapter,
   ) {}
 
   @Get()
@@ -131,6 +134,43 @@ export class MeController {
   @HttpCode(204)
   async removeContact(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
     await this.db.query(`delete from emergency_contacts where id = $1 and user_id = $2`, [id, p.userId]);
+  }
+
+  /** Saved places (REP-3): the home building shown on the Home location line. */
+  @Get('places')
+  async places(@CurrentUser() p: Principal) {
+    const r = await this.db.query(
+      `select sp.id, sp.label, sp.is_home, sp.verified, l.postcode, l.address_text, l.area_label,
+              st_y(l.geom::geometry) as lat, st_x(l.geom::geometry) as lng
+         from saved_places sp join locations l on l.id = sp.location_id where sp.user_id = $1 order by sp.is_home desc, sp.created_at`,
+      [p.userId],
+    );
+    return r.rows.map((x) => ({ id: x.id, label: x.label, isHome: x.is_home, verified: x.verified, postcode: x.postcode, address: x.address_text, area: x.area_label, lat: x.lat, lng: x.lng }));
+  }
+
+  @Put('places/home')
+  async setHome(@CurrentUser() p: Principal, @Body(new ZodPipe(HomeBody)) b: z.infer<typeof HomeBody>) {
+    let building;
+    try {
+      building = await this.postcode.lookup(b.postcode);
+    } catch (e) {
+      if (e instanceof PostcodeUnavailable) throw new AppError(503, 'postcode_unavailable', 'Postcode lookup is not available. Try again soon.');
+      throw e;
+    }
+    if (!building) throw new AppError(404, 'postcode_not_found', 'We could not find that building. Check the postcode or pick it from the list.');
+    await this.db.tx(async (c) => {
+      const loc = await c.query(
+        `insert into locations (postcode, building_name, address_text, state_id, lga_id, district_id, area_id, area_label, geom)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, st_setsrid(st_makepoint($10, $9), 4326)::geography)
+         on conflict (postcode) do update set fetched_at = now() returning id`,
+        [building.postcode, building.name ?? null, building.address, building.stateId, building.lgaId, building.districtId, building.areaId, building.areaLabel, building.lat, building.lng],
+      );
+      await c.query(`delete from saved_places where user_id = $1 and is_home`, [p.userId]);
+      // Verified once the address check confirms it (KYC address step); unverified until then.
+      await c.query(`insert into saved_places (user_id, label, location_id, is_home, verified) values ($1, 'Home', $2, true, false)`, [p.userId, loc.rows[0].id]);
+    });
+    await this.audit.write({ actorId: p.userId, action: 'place.set_home', entity: 'user', entityId: p.userId, payload: { postcode: building.postcode } });
+    return { postcode: building.postcode, address: building.address, area: building.areaLabel };
   }
 
   /** Notification centre: tabs, unread dot, mark all read (States doc). In-app copies kept 30 days. */

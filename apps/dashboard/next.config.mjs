@@ -4,6 +4,7 @@ import { PHASE_DEVELOPMENT_SERVER } from 'next/constants.js';
 export default function config(phase) {
   return {
     reactStrictMode: true,
+    transpilePackages: ['@erp/web-ui'],
     poweredByHeader: false,
     // `next dev` and `next build` get separate output folders, so running a build
     // while the dev server is up can't corrupt the dev cache ("Cannot find module './976.js'").

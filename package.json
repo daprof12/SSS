@@ -15,7 +15,8 @@
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:api": "npm run start:dev -w @erp/api",
-    "dev:dashboard": "npm run dev -w @erp/dashboard"
+    "dev:dashboard": "npm run dev -w @erp/dashboard",
+    "dev:mobile": "npm run dev -w @erp/mobile"
   },
   "engines": {
     "node": ">=20"

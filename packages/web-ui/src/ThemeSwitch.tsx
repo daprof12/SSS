@@ -1,6 +1,6 @@
 'use client';
 
-import type { ThemeChoice } from '@/lib/theme';
+import type { ThemeChoice } from './theme';
 
 const LABEL: Record<ThemeChoice, string> = { system: 'System', light: 'Light', dark: 'Dark' };
 

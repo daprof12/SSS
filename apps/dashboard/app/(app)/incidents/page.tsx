@@ -2,8 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { api, ApiError } from '@/lib/api';
-import { StateChip } from '@/components/StateChip';
+import { api, ApiError } from '@erp/web-ui/api';
+import { StateChip } from '@erp/web-ui/StateChip';
 
 interface QueueRow {
   id: string;

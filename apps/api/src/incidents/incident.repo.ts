@@ -22,9 +22,16 @@ const ACTIVE_UNIT = `('offered', 'accepted', 'en_route', 'on_scene')`;
 
 /** Staff-facing wording for log events written without a label. */
 const INTERNAL_LABELS: Record<string, string> = {
+  confirm: 'Sending',
   no_responder: 'No free officer at the station',
   no_station: 'No station covers this area',
   declined: 'Officer declined the offer',
+  begin_close: 'Closing started',
+  merge_into: 'Merged into another report',
+  eta_changed: 'Arrival time changed',
+  panic_cleared: 'Officer marked safe',
+  overflow: 'Passed to the next station',
+  note: 'Note added',
 };
 
 @Injectable()
@@ -88,11 +95,26 @@ export class IncidentRepo {
         : Promise.resolve({ rows: [] as Array<{ officer_id: string }> }),
     ]);
 
-    const lead = units.rows.find((u) => u.state !== 'offered');
+    // A closed report still shows who responded (the last officer who accepted it).
+    const lead =
+      units.rows.find((u) => u.state !== 'offered') ??
+      (['resolved', 'unfounded', 'closing'].includes(i.state)
+        ? (
+            await this.db.query(
+              `select iu.officer_id, ou.display_name, o.badge_no, s.name as station_name, null::float8 as o_lat, null::float8 as o_lng,
+                      (select round(avg(r.stars)::numeric, 1) from ratings r join incident_units x on x.incident_id = r.incident_id where x.officer_id = iu.officer_id) as rating
+                 from incident_units iu join stations s on s.id = iu.station_id
+                 left join officers o on o.user_id = iu.officer_id left join users ou on ou.id = iu.officer_id
+                where iu.incident_id = $1 and iu.accepted_at is not null order by iu.accepted_at desc limit 1`,
+              [id],
+            )
+          ).rows[0]
+        : undefined);
     const timeline: TimelineEntry[] = events.rows.map((e) => ({
       at: e.at.toISOString(),
       kind: e.kind,
-      label: e.payload?.label ?? INTERNAL_LABELS[e.kind] ?? e.kind.replace(/_/g, ' '),
+      // Events logged without a readable label fall back to staff wording, never a raw code.
+      label: (e.payload?.label && e.payload.label !== e.kind ? e.payload.label : null) ?? INTERNAL_LABELS[e.kind] ?? e.kind.replace(/_/g, ' '),
       public: e.public,
     }));
 

@@ -4,9 +4,9 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { NotificationBell } from './NotificationBell';
-import { ThemeSwitch } from './ThemeSwitch';
-import { api, getSession, setSession, type Session } from '@/lib/api';
-import { applyMotion, applyTheme, onThemeChange, readTheme, type ThemeChoice } from '@/lib/theme';
+import { ThemeSwitch } from '@erp/web-ui/ThemeSwitch';
+import { api, getSession, setSession, type Session } from '@erp/web-ui/api';
+import { applyMotion, applyTheme, onThemeChange, readTheme, type ThemeChoice } from '@erp/web-ui/theme';
 
 interface NavItem {
   label: string;

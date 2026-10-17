@@ -126,6 +126,23 @@ export class DevController {
           ('community', 'community', 'Community', 9000000, 30000000, 'month', '{"camera":6,"street_light":3}')
          on conflict do nothing`,
       );
+      // Saved homes for the two demo citizens, so Home shows a confirmed building.
+      for (const [k, pc, addr, area, lat, lng] of [
+        ['citizen', 'AB12C', '12 Maple Road', 'Maple area, Ikeja', 6.6018, 3.3515],
+        ['neighbour', 'AB12C', '12 Maple Road', 'Maple area, Ikeja', 6.6018, 3.3515],
+      ] as const) {
+        const l = await c.query(
+          `insert into locations (postcode, address_text, state_id, lga_id, district_id, area_id, area_label, geom)
+           values ($1, $2, 'LA', 'LA-IKJ', 'LA-IKJ-01', 'LA-IKJ-01-MPL', $3, st_setsrid(st_makepoint($5, $4), 4326)::geography)
+           on conflict (postcode) do update set fetched_at = now() returning id`,
+          [pc, addr, area, lat, lng],
+        );
+        await c.query(
+          `insert into saved_places (user_id, label, location_id, is_home, verified) select $1, 'Home', $2, true, true
+           where not exists (select 1 from saved_places where user_id = $1 and is_home)`,
+          [ids[k], l.rows[0].id],
+        );
+      }
       return { users: ids, agencyId: agency, stationId: station };
     });
   }
@@ -134,6 +151,9 @@ export class DevController {
   @Post('paystack/complete/:reference')
   async complete(@Param('reference') ref: string, @Query('outcome') outcome: 'success' | 'failed' = 'success', @Query('amount') amount?: string) {
     if (!(this.payments instanceof MockPaystackAdapter)) throw new AppError(400, 'not_mock', 'Only with the mock Paystack adapter.');
+    const pay = (await this.db.query(`select amount_kobo, method, purpose, user_id from payments where provider_ref = $1`, [ref])).rows[0];
+    if (!pay) throw new AppError(404, 'not_found', 'Payment not found.');
+    this.payments.restore({ reference: ref, amountKobo: pay.amount_kobo, method: pay.method ?? 'card', email: '', metadata: { purpose: pay.purpose, userId: pay.user_id } });
     const { body, signature } = this.payments.buildWebhook(ref, outcome, amount ? Number(amount) : undefined);
     return this.wallet.handleWebhook(Buffer.from(body), signature);
   }

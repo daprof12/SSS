@@ -3,8 +3,8 @@
 import { freshness, type Freshness } from '@erp/domain';
 import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
-import { streamUrl } from '@/lib/api';
-import { StateChip } from '@/components/StateChip';
+import { streamUrl } from '@erp/web-ui/api';
+import { StateChip } from '@erp/web-ui/StateChip';
 import { StationActions } from '@/components/StationActions';
 
 interface StationView {

@@ -39,7 +39,11 @@ export function signPaystack(secret: string, rawBody: string | Buffer): string {
 
 export class MockPaystackAdapter implements PaymentsAdapter {
   private readonly pending = new Map<string, InitInput>();
-  private eventId = 1_000_000;
+  // Unique across restarts, like Paystack's own event ids (a restart must never replay an id).
+  private eventSeq = 0;
+  private nextEventId() {
+    return Date.now() * 1000 + (++this.eventSeq % 1000);
+  }
 
   constructor(private readonly secret: string, private readonly baseUrl: string) {}
 
@@ -58,6 +62,11 @@ export class MockPaystackAdapter implements PaymentsAdapter {
     return got.length === expected.length && timingSafeEqual(got, expected);
   }
 
+  /** Dev only: re-register a payment started before an API restart (the map is in memory). */
+  restore(input: InitInput) {
+    if (!this.pending.has(input.reference)) this.pending.set(input.reference, input);
+  }
+
   /** Dev only: what Paystack would POST to our webhook after the customer pays. */
   buildWebhook(reference: string, outcome: 'success' | 'failed', amountOverride?: number): { body: string; signature: string } {
     const init = this.pending.get(reference);
@@ -65,7 +74,7 @@ export class MockPaystackAdapter implements PaymentsAdapter {
     const event: ChargeEvent = {
       event: outcome === 'success' ? 'charge.success' : 'charge.failed',
       data: {
-        id: ++this.eventId,
+        id: this.nextEventId(),
         reference,
         amount: amountOverride ?? init.amountKobo,
         status: outcome,

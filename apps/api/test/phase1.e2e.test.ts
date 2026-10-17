@@ -123,6 +123,23 @@ describe('officer duty and location', () => {
   });
 });
 
+describe('officer panic (B1)', () => {
+  it('tells the station head and the other on-duty officers at once', async () => {
+    const id = await report('citizen', { type: 'robbery', postcode: 'AB12C' });
+    const who = await offeredTo(id);
+    const other = who === 'officer' ? 'officer2' : 'officer';
+    await http.post(`/incidents/${id}/actions`).set(as(who)).send({ event: 'accept' }).expect(201);
+    await http.post(`/incidents/${id}/events`).set(as(who)).send({ kind: 'officer_panic' }).expect(201);
+    const name = who === 'officer' ? 'Insp. Musa Bello' : 'Sgt. Bola Ade';
+    for (const to of ['head', other]) {
+      const n = (await http.get('/me/notifications').set(as(to))).body.items.find((x: any) => x.type === 'officer_panic');
+      expect(n, to).toMatchObject({ title: 'Officer needs help', body: `${name} needs help at AB12C.` });
+    }
+    // The reporter is never told (A4).
+    expect((await http.get('/me/notifications').set(as('citizen'))).body.items.some((x: any) => x.type === 'officer_panic')).toBe(false);
+  });
+});
+
 describe('rating the response (SRS TRUST-4)', () => {
   it('opens only after close, once per reporter, and tells the officer', async () => {
     const id = await report('citizen', { type: 'robbery', postcode: 'AB12C' });

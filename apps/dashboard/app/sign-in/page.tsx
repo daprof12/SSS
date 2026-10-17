@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { api, setSession } from '@/lib/api';
+import { api, setSession } from '@erp/web-ui/api';
 
 // Dev sign-in against the seeded demo accounts. Production replaces this page
 // with the OIDC provider (phone OTP first, then 2FA — C6 decision).

@@ -1,0 +1,26 @@
+{
+  "name": "@erp/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Citizen and officer apps as one installable PWA (Flutter later, per TRD).",
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@erp/domain": "*",
+    "@erp/tokens": "*",
+    "@erp/web-ui": "*",
+    "next": "^15.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.6.3"
+  }
+}

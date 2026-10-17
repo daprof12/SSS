@@ -12,7 +12,8 @@ npm run db:up          # PostgreSQL 16 + PostGIS on localhost:54329
 npm run db:migrate
 npm run build:packages # tokens + domain
 npm run dev:api        # http://localhost:4000
-npm run dev:dashboard  # http://localhost:3000 → Sign in with a demo account
+npm run dev:dashboard  # http://localhost:3000 → station, agency, admin
+npm run dev:mobile     # http://localhost:3001 → citizen and officer app (PWA)
 npm test               # all suites (the API suite resets the local database)
 ```
 
@@ -24,7 +25,9 @@ npm test               # all suites (the API suite resets the local database)
 | `packages/domain` | Pure TypeScript: state machines for incident, report delivery, subscription, withdrawal, tip, invite, technician job and fine; citizen tracking copy for every state; role‑filtered incident views; money rules. |
 | `db/migrations` | Schema: identity, places, agencies, incidents, money, devices. The database itself enforces append‑only logs, a hash‑chained audit log, balanced ledger journals, and safety notifications that can't be switched off. |
 | `apps/api` | NestJS: auth guard (staff need 2FA), incident lifecycle with timers, live SSE stream per role, fund‑wallet flow with signed webhooks, KYC, emergency contacts, places, deletion check. |
-| `apps/dashboard` | Next.js: rail + top bar, theme switch saved to the account, My profile, live incident queue and detail. |
+| `apps/dashboard` | Next.js: rail + top bar, theme switch saved to the account, My profile, live incident queue and detail, station action sheets. |
+| `apps/mobile` | Next.js PWA for citizens and officers (Flutter later, per TRD). Installable, offline page, offline report queue with SMS fallback. |
+| `packages/web-ui` | Shared React pieces used as source by both web apps: API client, theme, Sheet, ThemeSwitch, StateChip, CloseReportSheet. |
 
 ## Decisions applied
 
@@ -99,3 +102,21 @@ The 11-stage lifecycle runs on `agencyMachine` and `agencyInvoiceMachine` in `pa
 **Overflow:** if nobody at the nearest station is free, the report moves to the routing rule's fallback station, else the nearest eligible one not yet tried, and the first station's head is told. If every station is out, it goes back to the station covering the area and the heads of every station tried get "Nobody accepted".
 
 **Not built yet:** push, SMS and WhatsApp delivery (only in-app rows are written), and rewards paid from ratings.
+
+## Citizen and officer app (PWA)
+
+One installable app; the signed-in person decides the surface. Sign in with a demo citizen or officer at `/sign-in`.
+
+| Citizen | Officer |
+|---|---|
+| Home: SOS, quick types, live-report bar, home building line | Home: duty toggle (real GPS, dev fallback), today's totals, Offers / Active / Team / Done |
+| Report: type → confirm → 5 s cancel ring synced with the server window | Offer: full screen, countdown ring (amber at 10 s, red at 5 s), Accept or Decline with a reason |
+| Live status over SSE: map, status from the domain copy, six steps, freshness line, officer card, add info, cancel with reason | Incident: next action first (on my way → on scene → close), notes, request help, hold-to-send panic, location pings that move the citizen's ETA |
+| Rate the response, then after-care | Wallet (no Fund — officers pay nothing), Profile |
+| Activity, notifications, wallet with fund flow, emergency contacts, home place, appearance | Notifications |
+
+**Offline:** a report made without a connection is saved with its client reference and sent when the phone reconnects (the server de-duplicates on the reference). The screen offers "Send by SMS now" and "Call 112". The service worker is registered in production builds only; it caches pages network-first and never caches the API. The SMS short code is a placeholder (`NEXT_PUBLIC_SMS_NUMBER`).
+
+**Test-only screens:** while Paystack is mocked, `/pay/[ref]` stands in for the hosted checkout and the transfer screen has a "simulate arrival" button. Both are hidden in production builds.
+
+**Not built yet** (rows say "Soon" or open a "Coming next" page): Learn, tips, donations, withdraw, security, discreet mode, language, officer history and field reports, protected calling and messaging, photos and voice notes.
