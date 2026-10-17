@@ -130,3 +130,13 @@ Sessions: a 15-minute access token plus a refresh token that rotates on every us
 The PWA's `/welcome` flow resumes where it stopped: name → 5-card tour (skippable) → location and notification priming → KYC (NIN/BVN + selfie; skippable, AUTH-4) → home building → done. After KYC the name is locked to the ID.
 
 **Staff:** phone OTP is one factor, so officers and other staff stop at "Two-step login" until the authenticator step is built; use `/sign-in/demo` in development. **Not built yet:** authenticator 2FA and recovery codes, PIN, the "SOS without an account" path, and replaying the tour from settings.
+
+## Tips and public issues
+
+**Report a tip** (Rewards doc; Report Tracking B2): pick a category (13, each with its receiving agency), keep your name from the agency (on by default), see the agency's bounty range, describe it, optionally add a place, send. Urgent wording or an emergency category points to SOS. The tip detail shows Received → Sent to agency → Verified result → Bounty paid, the agency's questions, "Add more information" and "Withdraw this tip".
+Agency side (`/agencies/:id/tips`, `…/tips/:tipId/actions`): the queue shows "Anonymous tipper T-…" unless the tipper agreed; ask for more, record a result (suggested bounty from the rate), approve (cap, staff conflict and pool checks; paid from the bounty pool into the tipper's wallet, held 7 days), decline with a reason, close, or mark false (trust −10, appealable).
+
+**Public issues** (Public Issues doc §1–2; B3): pick one of 8 categories, place (GPS first, home or postcode), what it is, how bad, a few words, optional anonymity. Before sending, the form shows how many people already reported it within 100 m; reports there join the same case, and one person counts once. The case shows the count, Sent → Taken on → Work started → Fix reported → Fixed, and asks reporters "Is it fixed?": enough "yes" closes it, one "no" reopens it and every reporter answers again next round.
+Agency side (`/agencies/:id/issues`, `…/issues/:caseId/actions`): assign with a target date, start, mark fixed with a note. Reporters are told at each step.
+
+Both are linked from Home ("Not an emergency?"), the SOS type picker, Activity, Profile, and the officer's Report tab. Photo and video upload, the agency dashboard pages for these queues, the PDF brief and "send to a superior" link, and the 7-day silence rule that closes a fix are not built yet.

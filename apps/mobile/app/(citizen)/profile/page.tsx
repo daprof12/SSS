@@ -93,7 +93,7 @@ export default function Profile() {
       <div className="list">
         <Row href="/wallet" icon="wallet" label="Wallet" end={wallet} />
         <Row icon="heart" label="Donations" soon />
-        <Row icon="tip" label="My tips and bounties" soon />
+        <Row href="/tips" icon="tip" label="My tips and bounties" />
         <Row icon="activity" label="Payments and receipts" soon />
       </div>
 
@@ -101,6 +101,7 @@ export default function Profile() {
       <div className="list">
         <Row href="/profile/contacts" icon="contacts" label="Emergency contacts" end={contacts == null ? '' : `${contacts} of 3`} />
         <Row href="/profile/home" icon="home" label="Home and saved places" />
+        <Row href="/issues" icon="road" label="My public issues" />
         <Row icon="lock" label="Security" soon />
         <Row icon="eye" label="Discreet mode" soon />
         <Row icon="activity" label="Fines and appeals" soon />

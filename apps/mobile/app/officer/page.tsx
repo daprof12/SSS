@@ -171,7 +171,7 @@ export default function OfficerHome() {
         );
       })}
 
-      <Link href="/officer/report" className="banner info" style={{ display: 'block', textDecoration: 'none', marginTop: 12 }}>
+      <Link href="/officer/tips/new" className="banner info" style={{ display: 'block', textDecoration: 'none', marginTop: 12 }}>
         <strong>See something that is not an emergency?</strong>
         Report a tip. The first reporter can earn a bounty.
       </Link>

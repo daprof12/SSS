@@ -1,5 +1,5 @@
-import { NotBuilt } from '@/components/AppFrame';
+import { TipsList } from '@/components/reports/TipsList';
 
 export default function Page() {
-  return <NotBuilt title="Report a tip" note="Non-emergency tips that can earn a bounty. If someone is in danger, use SOS instead." />;
+  return <TipsList base="/tips" back="/profile" />;
 }

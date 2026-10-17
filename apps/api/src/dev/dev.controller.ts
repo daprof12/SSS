@@ -146,7 +146,43 @@ export class DevController {
           [ids[k], l.rows[0].id],
         );
       }
-      return { users: ids, agencyId: agency, stationId: station };
+      // Demo receiving agencies for tips (NAPTIP, with a funded bounty pool) and public issues (FERMA, roads).
+      const demoAgency = async (name: string, kind: string) => {
+        const id =
+          (await c.query(`select id from agencies where name = $1`, [name])).rows[0]?.id ??
+          (
+            await c.query(
+              `insert into agencies (name, kind, status, contact_user_id, period_start, period_end) values ($1, $2, 'live', $3, current_date, current_date + interval '1 month') returning id`,
+              [name, kind, ids.agencyAdmin],
+            )
+          ).rows[0].id;
+        await c.query(
+          `insert into user_roles (user_id, role, scope_type, scope_id) select $1, 'agency_admin', 'agency', $2
+           where not exists (select 1 from user_roles where user_id = $1 and role = 'agency_admin' and scope_id = $2)`,
+          [ids.agencyAdmin, id],
+        );
+        return id as string;
+      };
+      const naptip = await demoAgency('NAPTIP (demo)', 'naptip');
+      const ferma = await demoAgency('FERMA (demo)', 'roads');
+      await c.query(
+        `insert into bounty_rates (agency_id, category, basis, tiers, cap_kobo) values ($1, 'human_trafficking', 'tiered', '{"min": 5000000, "max": 50000000}', 50000000)
+         on conflict (agency_id, category) do nothing`,
+        [naptip],
+      );
+      const pool = (
+        await c.query(`insert into wallets (owner_type, owner_id) values ('bounty_pool', $1) on conflict (owner_type, owner_id) do update set owner_type = excluded.owner_type returning id`, [naptip])
+      ).rows[0].id;
+      const funded = (await c.query(`select coalesce(sum(amount_kobo), 0)::bigint as k from wallet_ledger where wallet_id = $1`, [pool])).rows[0].k;
+      if (Number(funded) === 0) {
+        const platform = (await c.query(`select id from wallets where owner_type = 'platform' and owner_id is null`)).rows[0].id;
+        const j = (await c.query(`select gen_random_uuid() as j`)).rows[0].j;
+        await c.query(
+          `insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values ($1, 'fund', 200000000, $3, $4, 'Demo pool funding'), ($2, 'fund', -200000000, $3, $4, 'Demo pool funding')`,
+          [pool, platform, `seed-pool-${naptip}`, j],
+        );
+      }
+      return { users: ids, agencyId: agency, stationId: station, naptipId: naptip, fermaId: ferma };
     });
   }
 

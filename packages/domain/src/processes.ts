@@ -60,15 +60,17 @@ export const withdrawalMachine = defineMachine<
 
 // B2 — tip and bounty claim.
 export const tipMachine = defineMachine<
-  'sent' | 'in_queue' | 'more_info' | 'claim_review' | 'approved_held' | 'available' | 'declined' | 'closed_no_result' | 'found_false',
-  'route' | 'ask_more' | 'info_added' | 'outcome_recorded' | 'approve' | 'decline' | 'hold_ends' | 'close' | 'mark_false',
+  'sent' | 'in_queue' | 'more_info' | 'claim_review' | 'approved_held' | 'available' | 'declined' | 'closed_no_result' | 'found_false' | 'withdrawn',
+  'route' | 'ask_more' | 'info_added' | 'outcome_recorded' | 'approve' | 'decline' | 'hold_ends' | 'close' | 'mark_false' | 'withdraw',
   'agency_admin' | 'tipper' | Sys
 >({
   name: 'tip',
   initial: 'sent',
-  terminal: ['available', 'declined', 'closed_no_result', 'found_false'],
+  terminal: ['available', 'declined', 'closed_no_result', 'found_false', 'withdrawn'],
   transitions: [
     { event: 'route', from: ['sent'], to: 'in_queue', actors: ['system'] },
+    // Board "Tip detail": the tipper can withdraw until the agency records a result.
+    { event: 'withdraw', from: ['sent', 'in_queue', 'more_info'], to: 'withdrawn', actors: ['tipper'] },
     { event: 'ask_more', from: ['in_queue', 'claim_review'], to: 'more_info', actors: ['agency_admin'] },
     { event: 'info_added', from: ['more_info'], to: 'in_queue', actors: ['tipper'] },
     { event: 'outcome_recorded', from: ['in_queue'], to: 'claim_review', actors: ['agency_admin'] },

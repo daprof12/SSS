@@ -9,6 +9,12 @@ import {
   checkWithdrawal,
   citizenStatus,
   fineMachine,
+  issueMachine,
+  issueStatus,
+  tipStatus,
+  soundsUrgent,
+  tipCategories,
+  issueCategories,
   formatNaira,
   freshness,
   incidentMachine,
@@ -29,7 +35,7 @@ import {
   type IncidentState,
 } from './index';
 
-const machines = [incidentMachine, reportDeliveryMachine, subscriptionMachine, withdrawalMachine, tipMachine, inviteMachine, jobMachine, fineMachine, agencyMachine, agencyInvoiceMachine];
+const machines = [issueMachine, incidentMachine, reportDeliveryMachine, subscriptionMachine, withdrawalMachine, tipMachine, inviteMachine, jobMachine, fineMachine, agencyMachine, agencyInvoiceMachine];
 
 describe.each(machines.map((m) => [m.name, m] as const))('%s machine', (_name, m) => {
   it('reaches every state it declares and every terminal state', () => {
@@ -271,5 +277,28 @@ describe('subscription billing starts at install', () => {
     }
     expect(s).toBe('install_booked');
     expect(availableEvents(subscriptionMachine, 'install_booked', 'technician')).toEqual(['install_confirmed']);
+  });
+});
+
+describe('tips and public issues', () => {
+  it('lets the tipper withdraw only before a result', () => {
+    expect(availableEvents(tipMachine, 'in_queue', 'tipper')).toContain('withdraw');
+    expect(availableEvents(tipMachine, 'claim_review', 'tipper')).not.toContain('withdraw');
+  });
+
+  it('has an agency for every category except triage', () => {
+    for (const c of tipCategories) if (c.code !== 'other') expect(c.agencyKinds.length, c.code).toBeGreaterThan(0);
+    for (const c of issueCategories) expect(c.subtypes.length, c.code).toBeGreaterThan(1);
+  });
+
+  it('spots urgent words without flagging everyday ones', () => {
+    expect(soundsUrgent('They are kidnapped right now')).toBe(true);
+    expect(soundsUrgent('A pharmacy on Allen sells expired syrup')).toBe(false);
+  });
+
+  it('asks reporters to confirm a fix, and lets them reopen it', () => {
+    expect(availableEvents(issueMachine, 'awaiting_check', 'citizen').sort()).toEqual(['confirm_fixed', 'not_fixed']);
+    expect(issueStatus('awaiting_check', 'FERMA').title).toBe('Is it fixed?');
+    expect(tipStatus('in_queue', 'NAPTIP').chip).toBe('With NAPTIP');
   });
 });

@@ -20,6 +20,8 @@ const when = (iso: string) => new Date(iso).toLocaleString([], { day: 'numeric',
 /** Map API deep links to app routes for each surface. */
 export function routeFor(link: string | null, surface: 'citizen' | 'officer' | undefined): string | null {
   if (!link) return null;
+  const t = /^\/(tips|issues)\/([0-9a-f-]{36})/.exec(link);
+  if (t) return surface === 'officer' ? `/officer/${t[1]}/${t[2]}` : `/${t[1]}/${t[2]}`;
   const m = /^\/(reports|offers|history|incidents)\/([0-9a-f-]{36})/.exec(link);
   if (!m) return link.startsWith('/wallet') ? (surface === 'officer' ? '/officer/wallet' : '/wallet') : null;
   if (surface === 'officer') return m[1] === 'offers' ? `/officer/offers/${m[2]}` : `/officer/incidents/${m[2]}`;

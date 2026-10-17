@@ -48,6 +48,14 @@ export default function Activity() {
           </button>
         ))}
       </div>
+      <div className="btn-row" style={{ marginBottom: 12 }}>
+        <Link href="/tips" className="btn small">
+          <Icon name="tip" size={18} /> My tips
+        </Link>
+        <Link href="/issues" className="btn small">
+          <Icon name="road" size={18} /> Public issues
+        </Link>
+      </div>
       {err && (
         <div className="banner critical" role="alert">
           <strong>Could not load your reports</strong>

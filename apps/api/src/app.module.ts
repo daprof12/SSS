@@ -25,6 +25,9 @@ import { MeController } from './me/me.controller';
 import { OfficersController } from './officers/officers.controller';
 import { OfficersService } from './officers/officers.service';
 import { PlacesController } from './places/places.controller';
+import { IssuesService } from './reports/issues.service';
+import { ReportsController } from './reports/reports.controller';
+import { TipsService } from './reports/tips.service';
 import { WalletController } from './wallet/wallet.controller';
 import { WalletService } from './wallet/wallet.service';
 
@@ -52,6 +55,7 @@ export class AppModule {
         MeController,
         PlacesController,
         OfficersController,
+        ReportsController,
         AgenciesController,
         AdminAgenciesController,
         ...(config.devTools ? [DevController] : []),
@@ -67,6 +71,8 @@ export class AppModule {
         IncidentsService,
         WalletService,
         OfficersService,
+        TipsService,
+        IssuesService,
         AgencyLifecycle,
         AgencyBillingService,
         AgenciesService,

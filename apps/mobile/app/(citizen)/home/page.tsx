@@ -128,6 +128,30 @@ export default function Home() {
         </Link>
       </div>
 
+      <p className="section-label">Not an emergency?</p>
+      <div className="list">
+        <Link href="/tips/new" className="row">
+          <span className="icon">
+            <Icon name="tip" />
+          </span>
+          <span className="grow">
+            <strong>Report a tip</strong>
+            <span className="sub">Crime or hazard. A result can earn a bounty.</span>
+          </span>
+          <Icon name="chevron" size={18} />
+        </Link>
+        <Link href="/issues/new" className="row">
+          <span className="icon">
+            <Icon name="road" />
+          </span>
+          <span className="grow">
+            <strong>Report a problem in your area</strong>
+            <span className="sub">Bad road, broken light, waste. Follow it until fixed.</span>
+          </span>
+          <Icon name="chevron" size={18} />
+        </Link>
+      </div>
+
       {me?.trust.band === 'low' && (
         <div className="banner warning" style={{ marginTop: 16 }}>
           <strong>Your trust score is low</strong>

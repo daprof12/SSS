@@ -575,7 +575,7 @@ export class IncidentsService implements OnModuleDestroy {
       case 'window_elapsed':
         return toCitizens('report_received', 'Report received', 'We got your report. Finding the nearest team.');
       case 'accept':
-        return toCitizens('team_accepted', 'Help accepted', `${info.officer ?? 'An officer'} from ${info.station ?? 'the station'} is on the way.${info.eta_minutes ? ` About ${info.eta_minutes} minutes.` : ''}`);
+        return toCitizens('team_accepted', 'Help accepted', `${info.officer ?? 'An officer'} from ${info.station ?? 'the station'} is on the way.${info.eta_minutes ? ` About ${info.eta_minutes} ${info.eta_minutes === 1 ? 'minute' : 'minutes'}.` : ''}`);
       case 'officer_drop':
         return toCitizens('officer_cancelled', 'Changing teams', `${info.officer ?? 'The officer'} cannot come. We are sending another team.`);
       case 'arrive':

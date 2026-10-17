@@ -114,6 +114,24 @@ const PATHS: Record<string, React.ReactNode> = {
   ),
   out: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
   tip: <path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z" />,
+  road: <path d="M4 20 8 4M20 20 16 4M12 5v2M12 11v2M12 17v2M3 20h18" />,
+  traffic: (
+    <>
+      <rect x="8" y="2" width="8" height="20" rx="3" />
+      <circle cx="12" cy="7" r="1.5" />
+      <circle cx="12" cy="12" r="1.5" />
+      <circle cx="12" cy="17" r="1.5" />
+    </>
+  ),
+  camera: (
+    <>
+      <rect x="2" y="6" width="14" height="12" rx="2" />
+      <path d="m16 10 6-3v10l-6-3z" />
+    </>
+  ),
+  environment: <path d="M11 20A7 7 0 0 1 4 13c0-5 4-9 16-9 0 12-4 16-9 16zM4 20c4-4 7-6 11-8" />,
+  money: <path d="M12 2v20M17 6.5C17 4.6 14.8 3.5 12 3.5S7 4.7 7 7s2.2 3 5 3.5 5 1.4 5 3.9-2.2 3.6-5 3.6-5-1.1-5-3" />,
+  flag: <path d="M4 22V4M4 4h13l-2 4 2 4H4" />,
 };
 
 export function Icon({ name, size = 24, filled, label }: { name: string; size?: number; filled?: boolean; label?: string }) {
