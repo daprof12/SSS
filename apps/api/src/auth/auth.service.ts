@@ -54,7 +54,7 @@ export class AuthService {
     const phone = normalisePhone(rawPhone);
     if (!phone) throw new AppError(422, 'validation_failed', 'Enter a Nigerian phone number.', { fields: [{ field: 'phone', message: 'Enter a Nigerian phone number.' }] });
 
-    const last = (await this.db.query(`select created_at from otp_challenges where phone = $1 order by created_at desc limit 1`, [phone])).rows[0];
+    const last = (await this.db.query(`select created_at from otp_challenges where phone = $1 and purpose = 'sign_in' order by created_at desc limit 1`, [phone])).rows[0];
     if (last) {
       const wait = OTP.resendSeconds - Math.floor((Date.now() - new Date(last.created_at).getTime()) / 1000);
       if (wait > 0) throw new AppError(429, 'resend_cooldown', `Wait ${wait} seconds before asking for a new code.`, { retryInSeconds: wait });
@@ -84,7 +84,7 @@ export class AuthService {
     if (!phone) throw new AppError(422, 'validation_failed', 'Enter a Nigerian phone number.');
     if (!/^\d{6}$/.test(code)) throw new AppError(422, 'validation_failed', 'Enter the 6-digit code.', { fields: [{ field: 'code', message: 'Enter the 6-digit code.' }] });
 
-    const ch = (await this.db.query(`select * from otp_challenges where phone = $1 and consumed_at is null order by created_at desc limit 1`, [phone])).rows[0];
+    const ch = (await this.db.query(`select * from otp_challenges where phone = $1 and purpose = 'sign_in' and consumed_at is null order by created_at desc limit 1`, [phone])).rows[0];
     if (!ch || new Date(ch.expires_at) < new Date()) throw new AppError(400, 'code_expired', 'Code expired. Send a new one.');
     if (ch.attempts >= ch.max_attempts) throw new AppError(429, 'code_locked', 'Too many tries. Send a new code.');
 
@@ -164,6 +164,46 @@ export class AuthService {
       const accessToken = await this.tokens.sign({ userId: s.user_id, sessionId: s.id, roles, mfa: this.mfaFor(roles, s.mfa_enabled, s.mfa_passed) }, ACCESS_TTL_S);
       return { accessToken, refreshToken: next, expiresInSeconds: ACCESS_TTL_S };
     });
+  }
+
+  // ---------------------------------------------------------------- codes for a signed-in person
+
+  /** Sends a 6-digit code to the account's own phone for a sensitive change (e.g. PIN reset). */
+  async sendAccountCode(userId: string, purpose: 'pin_reset', body: (code: string) => string, ip?: string) {
+    const u = (await this.db.query(`select phone from users where id = $1`, [userId])).rows[0];
+    if (!u?.phone) throw new AppError(409, 'no_phone', 'Add a phone number to your account first.');
+    const last = (await this.db.query(`select created_at from otp_challenges where phone = $1 and purpose = $2 order by created_at desc limit 1`, [u.phone, purpose])).rows[0];
+    if (last) {
+      const wait = OTP.resendSeconds - Math.floor((Date.now() - new Date(last.created_at).getTime()) / 1000);
+      if (wait > 0) throw new AppError(429, 'resend_cooldown', `Wait ${wait} seconds before asking for a new code.`, { retryInSeconds: wait });
+    }
+    const n = (await this.db.query(`select count(*)::int as n from otp_challenges where phone = $1 and purpose = $2 and created_at > now() - interval '1 hour'`, [u.phone, purpose])).rows[0].n;
+    if (n >= OTP.perPhonePerHour) throw new AppError(429, 'too_many_codes', 'Too many codes asked for. Try again in an hour.');
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    await this.db.query(
+      `insert into otp_challenges (phone, purpose, code_hash, max_attempts, expires_at, ip) values ($1, $2, $3, $4, now() + make_interval(secs => $5), $6)`,
+      [u.phone, purpose, this.codeHash(u.phone, code), OTP.maxAttempts, OTP.ttlSeconds, ip ?? null],
+    );
+    await this.sms.send({ to: u.phone, urgent: true, body: body(code) });
+    return { sent: true, phone: mask(u.phone), expiresInSeconds: OTP.ttlSeconds, resendInSeconds: OTP.resendSeconds };
+  }
+
+  /** Checks and uses up a code sent by sendAccountCode. Wrong tries count even if the caller rolls back. */
+  async useAccountCode(userId: string, purpose: 'pin_reset', code: string, c: Queryable) {
+    if (!/^\d{6}$/.test(code)) throw new AppError(422, 'validation_failed', 'Enter the 6-digit code.', { fields: [{ field: 'code', message: 'Enter the 6-digit code.' }] });
+    const u = (await this.db.query(`select phone from users where id = $1`, [userId])).rows[0];
+    const ch = (await this.db.query(`select * from otp_challenges where phone = $1 and purpose = $2 and consumed_at is null order by created_at desc limit 1`, [u.phone, purpose])).rows[0];
+    if (!ch || new Date(ch.expires_at) < new Date()) throw new AppError(400, 'code_expired', 'Code expired. Send a new one.');
+    if (ch.attempts >= ch.max_attempts) throw new AppError(429, 'code_locked', 'Too many tries. Send a new code.');
+    const ok = timingSafeEqual(Buffer.from(this.codeHash(u.phone, code), 'hex'), Buffer.from(ch.code_hash, 'hex'));
+    if (!ok) {
+      const r = await this.db.query(`update otp_challenges set attempts = attempts + 1 where id = $1 returning attempts, max_attempts`, [ch.id]);
+      const left = r.rows[0].max_attempts - r.rows[0].attempts;
+      const message = left > 0 ? `That code is not right. ${left} ${left === 1 ? 'try' : 'tries'} left.` : 'Too many tries. Send a new code.';
+      throw new AppError(400, 'code_wrong', message, { fields: [{ field: 'code', message }] });
+    }
+    const used = await c.query(`update otp_challenges set consumed_at = now() where id = $1 and consumed_at is null and attempts < max_attempts returning id`, [ch.id]);
+    if (!used.rowCount) throw new AppError(400, 'code_expired', 'Code expired. Send a new one.');
   }
 
   async signOut(userId: string, sessionId: string) {

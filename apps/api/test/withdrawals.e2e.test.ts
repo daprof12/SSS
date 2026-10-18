@@ -58,6 +58,12 @@ describe('bank account', () => {
     expect(b).toMatchObject({ bankName: 'GTBank', lastFour: '6789', nameMatches: true, message: 'GTBank, ending 6789 saved.' });
     // An officer's rank is not part of their verified name.
     expect((await http.post('/me/bank-account/resolve').set(as('officer')).send({ bankCode: '011', accountNumber: '2023456789' }).expect(201)).body).toMatchObject({ matches: true, verifiedName: 'Musa Bello' });
+    // Changing an account tells the owner at once.
+    await http.put('/me/bank-account').set(as('officer')).send({ bankCode: '011', accountNumber: '2023456789' }).expect(200);
+    await http.put('/me/bank-account').set(as('officer')).send({ bankCode: '057', accountNumber: '3023456789' }).expect(200);
+    expect((await http.get('/me/notifications').set(as('officer'))).body.items.find((x: any) => x.type === 'bank_changed').body).toBe(
+      'Withdrawals now go to Zenith Bank, ending 6789. If this was not you, contact support now.',
+    );
   });
 });
 
@@ -109,5 +115,34 @@ describe('withdrawing', () => {
     for (let i = 0; i < 4; i++) await withdraw('citizen', 100_000, '0000').expect(422);
     expect((await withdraw('citizen', 100_000, '0000').expect(423)).body.message).toBe('Too many wrong tries. Your PIN is locked for 30 minutes.');
     expect((await withdraw('citizen', 100_000, '5930').expect(423)).body.message).toMatch(/^Too many wrong tries\. Try again at \d\d:\d\d\.$/);
+  });
+
+  it('resets a forgotten PIN with an SMS code, even while locked, and then holds withdrawals for 24 hours', async () => {
+    const start = (await http.post('/me/pin/reset/start').set(as('citizen')).expect(201)).body;
+    expect(start).toMatchObject({ sent: true, expiresInSeconds: 300 });
+    expect((await http.post('/me/pin/reset/start').set(as('citizen')).expect(429)).body.message).toMatch(/^Wait \d+ seconds before asking for a new code\.$/);
+    const sms = (await http.get('/dev/sms')).body.filter((m: any) => m.to === '+2348030000001').pop();
+    expect(sms.body).toMatch(/^Your ERP code to reset your withdrawal PIN is \d{6}\./);
+    const code = /(\d{6})/.exec(sms.body)![1]!;
+
+    // A reset code is never a sign-in code.
+    await http.post('/auth/otp/verify').send({ phone: '+2348030000001', code }).expect(400);
+
+    expect((await http.post('/me/pin/reset').set(as('citizen')).send({ code, pin: '0000' }).expect(422)).body.message).toBe('Avoid the same digit four times.');
+    const wrong = code === '000000' ? '111111' : '000000';
+    expect((await http.post('/me/pin/reset').set(as('citizen')).send({ code: wrong, pin: '7302' }).expect(400)).body.message).toBe('That code is not right. 4 tries left.');
+    expect((await http.post('/me/pin/reset').set(as('citizen')).send({ code, pin: '7302' }).expect(201)).body.message).toBe(
+      'PIN reset. Withdrawals in the next 24 hours wait before they are sent, to keep your money safe.',
+    );
+    await http.post('/me/pin/reset').set(as('citizen')).send({ code, pin: '7302' }).expect(400); // one use only
+    expect((await http.get('/me/pin').set(as('citizen'))).body).toMatchObject({ set: true, lockedUntil: null, resetHoldUntil: expect.any(String) });
+
+    // The account has been paid before, but a fresh reset still holds money for a day.
+    const q = (await http.post('/me/withdrawals/quote').set(as('citizen')).send({ amountKobo: 200_000 }).expect(201)).body;
+    expect(q).toMatchObject({ heldFirst: true, holdReason: 'pin_reset' });
+    expect(q.confirm).toMatch(/Your PIN was reset recently, so it is sent on /);
+    const w = (await withdraw('citizen', 200_000, '7302').expect(201)).body;
+    expect(w.state).toBe('held_first');
+    expect((await http.get('/me/notifications').set(as('citizen'))).body.items.find((x: any) => x.type === 'pin_reset').title).toBe('Withdrawal PIN reset');
   });
 });

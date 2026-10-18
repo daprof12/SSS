@@ -331,4 +331,10 @@ Wallet → Withdraw, and Wallet → Bank account (`apps/api/src/wallet/withdrawa
 - The mock bank lookup returns the verified name for any number, someone else's name for numbers ending 0000, and "not found" for numbers ending 9999.
 - `POST /dev/paystack/withdrawal/:id?outcome=success|failed` stands in for the transfer webhook.
 
-**Not built yet:** a real Paystack adapter (resolve, recipients, transfers), PIN reset by OTP when forgotten, and an admin view of withdrawals.
+**Forgot PIN** (migration 016). "Forgot PIN?" on any PIN pad sends a 6-digit code by SMS to the account's own phone:
+- **Code rules:** the same limits as sign-in codes: 5 minutes, 5 tries, a 60-second resend and an hourly cap.
+- **New PIN:** entered twice. A weak PIN is refused before the code is used.
+- **Lock:** the reset works while the PIN is locked, and clears the lock.
+- **24-hour hold:** withdrawals in the next 24 hours are held as "Scheduled", which protects against a stolen SIM, and the owner gets a notice. Codes have a purpose, and sign-in only accepts sign-in codes.
+
+**Not built yet:** a real Paystack adapter (resolve, recipients, transfers), and an admin view of withdrawals.

@@ -24,6 +24,7 @@ interface Quote {
   netKobo: number;
   bank: { name: string; lastFour: string };
   heldFirst: boolean;
+  holdReason: 'first_to_account' | 'pin_reset' | null;
   confirm: string;
 }
 interface Wd {
@@ -41,7 +42,7 @@ const toKobo = (v: string) => Math.round(Number(v.replace(/[^\d.]/g, '')) * 100)
 // ---------------------------------------------------------------- PIN pad
 
 /** Four dots and a number pad. Shakes on a wrong PIN; the parent clears it. */
-export function PinPad({ title, sub, error, busy, onDone }: { title: string; sub?: string; error?: string | null; busy?: boolean; onDone: (pin: string) => void }) {
+export function PinPad({ title, sub, error, busy, onDone, onForgot }: { title: string; sub?: string; error?: string | null; busy?: boolean; onDone: (pin: string) => void; onForgot?: () => void }) {
   const [pin, setPin] = useState('');
   const [shake, setShake] = useState(0);
   useEffect(() => {
@@ -92,7 +93,149 @@ export function PinPad({ title, sub, error, busy, onDone }: { title: string; sub
           ),
         )}
       </div>
+      {onForgot && (
+        <button type="button" className="link-btn" style={{ marginTop: 8 }} onClick={onForgot}>
+          Forgot PIN?
+        </button>
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- forgot PIN
+
+/** Code by SMS to the account's phone → new PIN twice. Withdrawals then wait 24 hours. */
+export function ResetPin({ onDone, onCancel }: { onDone: (message: string) => void; onCancel: () => void }) {
+  const [step, setStep] = useState<'send' | 'code' | 'pin' | 'again'>('send');
+  const [phone, setPhone] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [first, setFirst] = useState<string | null>(null);
+  const [wait, setWait] = useState(0);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (wait <= 0) return;
+    const t = setTimeout(() => setWait((w) => w - 1), 1000);
+    return () => clearTimeout(t);
+  }, [wait]);
+
+  const send = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const r = await api<{ phone: string; resendInSeconds: number }>('/me/pin/reset/start', { method: 'POST' });
+      setPhone(r.phone);
+      setWait(r.resendInSeconds);
+      setStep('code');
+    } catch (e) {
+      const m = e instanceof ApiError ? e.message : 'Could not send the code.';
+      // A code may already be on its way: let them type it.
+      if (e instanceof ApiError && e.code === 'resend_cooldown') {
+        setWait(Number((e.extra as { retryInSeconds?: number } | undefined)?.retryInSeconds ?? 60));
+        setStep('code');
+      }
+      setErr(m);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const finish = async (pin: string) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api<{ message: string }>('/me/pin/reset', { method: 'POST', body: JSON.stringify({ code, pin }) });
+      haptic([10, 40, 10]);
+      onDone(r.message);
+    } catch (e) {
+      const m = e instanceof ApiError ? e.message : 'Could not reset the PIN.';
+      // A wrong or expired code goes back to the code step; a weak PIN back to the first PIN.
+      if (e instanceof ApiError && (e.code === 'code_wrong' || e.code === 'code_expired' || e.code === 'code_locked')) setStep('code');
+      else setStep('pin');
+      setFirst(null);
+      setErr(m);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (step === 'send')
+    return (
+      <div className="reset-pin">
+        <h2>Reset your PIN</h2>
+        <p className="muted">We send a 6-digit code by SMS to the phone number on your account. After a reset, withdrawals wait 24 hours before they are sent, to keep your money safe.</p>
+        {err && (
+          <span className="field-error" role="alert">
+            {err}
+          </span>
+        )}
+        <button className="btn block primary" type="button" disabled={busy} onClick={() => void send()}>
+          {busy ? 'Sending…' : 'Send code'}
+        </button>
+        <button className="link-btn center" type="button" style={{ display: 'block', margin: '12px auto 0' }} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    );
+  if (step === 'code')
+    return (
+      <div className="reset-pin">
+        <h2>Enter the code</h2>
+        <p className="muted">{phone ? `Sent to ${phone}. It expires in 5 minutes.` : 'Check your SMS messages.'}</p>
+        <label className="field" data-invalid={!!err}>
+          <span>6-digit code</span>
+          <input
+            className="input code-input"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            maxLength={6}
+            value={code}
+            onChange={(e) => {
+              setErr(null);
+              setCode(e.target.value.replace(/\D/g, ''));
+            }}
+            aria-invalid={!!err}
+          />
+          {err && <span className="field-error">{err}</span>}
+        </label>
+        <button className="btn block primary" type="button" disabled={code.length !== 6} onClick={() => (setErr(null), setStep('pin'))}>
+          Continue
+        </button>
+        <button className="link-btn center" type="button" disabled={wait > 0 || busy} style={{ display: 'block', margin: '12px auto 0' }} onClick={() => void send()}>
+          {wait > 0 ? `Send a new code in ${wait}s` : 'Send a new code'}
+        </button>
+      </div>
+    );
+  if (step === 'pin')
+    return (
+      <PinPad
+        title="Choose a new PIN"
+        sub="4 digits, not 1234 or 1111."
+        error={err}
+        onDone={(pin) => {
+          setErr(null);
+          if (/^(\d)\1+$/.test(pin)) return setErr('Avoid the same digit four times.');
+          if ('0123456789'.includes(pin) || '9876543210'.includes(pin)) return setErr('Avoid digits in a row, like 1234.');
+          setFirst(pin);
+          setStep('again');
+        }}
+      />
+    );
+  return (
+    <PinPad
+      title="Enter the new PIN again"
+      error={err}
+      busy={busy}
+      onDone={(pin) => {
+        if (pin !== first) {
+          setFirst(null);
+          setStep('pin');
+          return setErr('The PINs did not match. Start again.');
+        }
+        void finish(pin);
+      }}
+    />
   );
 }
 
@@ -108,6 +251,7 @@ export function BankForm({ current, hasPin, onSaved, onCancel }: { current: Bank
   const [askPin, setAskPin] = useState(false);
   const [pinErr, setPinErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resetting, setResetting] = useState(false);
   useEffect(() => {
     api<{ code: string; name: string }[]>('/banks').then(setBanks).catch(() => {});
   }, []);
@@ -147,7 +291,17 @@ export function BankForm({ current, hasPin, onSaved, onCancel }: { current: Bank
     }
   };
 
-  if (askPin) return <PinPad title="Enter your PIN" sub="To change where your money goes." error={pinErr} busy={busy} onDone={(pin) => void save(pin)} />;
+  if (resetting)
+    return (
+      <ResetPin
+        onCancel={() => setResetting(false)}
+        onDone={() => {
+          setResetting(false);
+          setPinErr(null);
+        }}
+      />
+    );
+  if (askPin) return <PinPad title="Enter your PIN" sub="To change where your money goes." error={pinErr} busy={busy} onDone={(pin) => void save(pin)} onForgot={() => setResetting(true)} />;
   return (
     <>
       {current && (
@@ -242,7 +396,7 @@ function PinSetup({ onDone }: { onDone: () => void }) {
 
 // ---------------------------------------------------------------- the flow
 
-type Step = 'loading' | 'bank' | 'pin' | 'amount' | 'confirm' | 'done';
+type Step = 'loading' | 'bank' | 'pin' | 'amount' | 'confirm' | 'reset' | 'done';
 
 export function WithdrawFlow({ base, mode = 'withdraw' }: { base: string; mode?: 'withdraw' | 'bank' }) {
   const router = useRouter();
@@ -258,6 +412,7 @@ export function WithdrawFlow({ base, mode = 'withdraw' }: { base: string; mode?:
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ state: string; message: string } | null>(null);
   const [kycNeeded, setKycNeeded] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const idem = useRef(uid());
 
   const load = async () => {
@@ -329,7 +484,7 @@ export function WithdrawFlow({ base, mode = 'withdraw' }: { base: string; mode?:
     }
   };
 
-  const title = mode === 'bank' ? 'Bank account' : step === 'pin' ? 'Withdrawal PIN' : step === 'bank' ? 'Add a bank account' : 'Withdraw';
+  const title = mode === 'bank' ? 'Bank account' : step === 'pin' ? 'Withdrawal PIN' : step === 'reset' ? 'Forgot PIN' : step === 'bank' ? 'Add a bank account' : 'Withdraw';
   const back = step === 'confirm' ? undefined : base;
 
   if (kycNeeded)
@@ -382,6 +537,12 @@ export function WithdrawFlow({ base, mode = 'withdraw' }: { base: string; mode?:
 
       {step === 'amount' && wallet && (
         <>
+          {notice && (
+            <div className="banner info" role="status">
+              <strong>PIN reset</strong>
+              {notice}
+            </div>
+          )}
           <div className="card">
             <span className="muted">Available to withdraw</span>
             <div className="big-number">{naira(wallet.availableKobo)}</div>
@@ -461,8 +622,20 @@ export function WithdrawFlow({ base, mode = 'withdraw' }: { base: string; mode?:
               </div>
             </dl>
           </div>
-          <PinPad title={`Enter your PIN to withdraw ${naira(quote.amountKobo)}`} error={pinErr} busy={busy} onDone={(pin) => void withdraw(pin)} />
+          <PinPad title={`Enter your PIN to withdraw ${naira(quote.amountKobo)}`} error={pinErr} busy={busy} onDone={(pin) => void withdraw(pin)} onForgot={() => setStep('reset')} />
         </>
+      )}
+
+      {step === 'reset' && (
+        <ResetPin
+          onCancel={() => setStep(quote ? 'confirm' : 'amount')}
+          onDone={(m) => {
+            setNotice(m);
+            setPinErr(null);
+            setQuote(null);
+            setStep('amount');
+          }}
+        />
       )}
 
       {step === 'done' && result && (
@@ -475,7 +648,7 @@ export function WithdrawFlow({ base, mode = 'withdraw' }: { base: string; mode?:
             {result.state === 'processing' && quote
               ? `${naira(quote.netKobo)} is on its way to ${quote.bank.name}. It arrives within 24 hours.`
               : result.state === 'held_first' && quote
-                ? `${naira(quote.netKobo)} goes to ${quote.bank.name}, ending ${quote.bank.lastFour}. ${result.message} Your first withdrawal to a new account waits 24 hours, to keep your money safe. We will tell you when it arrives.`
+                ? `${naira(quote.netKobo)} goes to ${quote.bank.name}, ending ${quote.bank.lastFour}. ${result.message} ${quote.holdReason === 'pin_reset' ? 'Withdrawals wait 24 hours after a PIN reset' : 'Your first withdrawal to a new account waits 24 hours'}, to keep your money safe. We will tell you when it arrives.`
                 : result.message}
           </p>
           <Link href={base} className="btn block primary">

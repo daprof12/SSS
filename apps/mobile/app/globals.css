@@ -2605,3 +2605,15 @@ button {
 [data-motion='reduced'] .pin-dots.shake {
   animation: none;
 }
+.reset-pin {
+  padding-top: var(--space-2);
+}
+.reset-pin h2 {
+  margin: 0 0 8px;
+}
+.code-input {
+  font-size: 28px;
+  letter-spacing: 0.4em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

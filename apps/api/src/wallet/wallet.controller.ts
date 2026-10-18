@@ -14,6 +14,7 @@ const FundBody = z.object({
 const pin = z.string().regex(/^\d{4}$/, 'Use 4 digits.');
 const BankBody = z.object({ bankCode: z.string().max(10), accountNumber: z.string().trim().max(10), pin: pin.optional() });
 const PinBody = z.object({ pin, currentPin: pin.optional() });
+const ResetBody = z.object({ code: z.string().trim().max(6), pin });
 const QuoteBody = z.object({ amountKobo: z.number().int().positive('Enter an amount.') });
 const WithdrawBody = z.object({ amountKobo: z.number().int().positive('Enter an amount.'), pin });
 const Tab = z.enum(['all', 'money_in', 'money_out', 'rewards', 'bounties', 'payments', 'withdrawals']).default('all');
@@ -54,6 +55,16 @@ export class WalletController {
   @Put('me/pin')
   setPin(@CurrentUser() p: Principal, @Body(new ZodPipe(PinBody)) b: z.infer<typeof PinBody>) {
     return this.withdrawals.setPin(p, b);
+  }
+
+  @Post('me/pin/reset/start')
+  startReset(@CurrentUser() p: Principal, @Req() req: Request) {
+    return this.withdrawals.startPinReset(p, req.ip);
+  }
+
+  @Post('me/pin/reset')
+  reset(@CurrentUser() p: Principal, @Body(new ZodPipe(ResetBody)) b: z.infer<typeof ResetBody>) {
+    return this.withdrawals.resetPin(p, b);
   }
 
   @Post('me/withdrawals/quote')

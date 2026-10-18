@@ -17,6 +17,7 @@ import {
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { PAYMENTS, type PaymentsAdapter, type TransferEvent } from '../adapters/payments';
+import { AuthService } from '../auth/auth.service';
 import { Audit } from '../core/audit';
 import type { Principal } from '../core/auth';
 import { CONFIG, type AppConfig } from '../core/config';
@@ -37,6 +38,7 @@ export class WithdrawalsService {
     @Inject(Audit) private readonly audit: Audit,
     @Inject(PAYMENTS) private readonly payments: PaymentsAdapter,
     @Inject(CONFIG) private readonly config: AppConfig,
+    @Inject(AuthService) private readonly auth: AuthService,
   ) {}
 
   // ---------------------------------------------------------------- identity, PIN
@@ -60,8 +62,9 @@ export class WithdrawalsService {
   }
 
   async pinStatus(p: Principal) {
-    const u = (await this.db.query(`select pin_hash is not null as set, pin_locked_until from users where id = $1`, [p.userId])).rows[0];
-    return { set: u.set as boolean, lockedUntil: u.pin_locked_until && new Date(u.pin_locked_until) > new Date() ? u.pin_locked_until : null, length: WITHDRAWAL_RULES.pinLength };
+    const u = (await this.db.query(`select pin_hash is not null as set, pin_locked_until, pin_reset_at from users where id = $1`, [p.userId])).rows[0];
+    const resetHold = u.pin_reset_at && Date.now() - +new Date(u.pin_reset_at) < WITHDRAWAL_RULES.firstHoldHours * 3600_000 ? new Date(+new Date(u.pin_reset_at) + WITHDRAWAL_RULES.firstHoldHours * 3600_000) : null;
+    return { set: u.set as boolean, resetHoldUntil: resetHold, lockedUntil: u.pin_locked_until && new Date(u.pin_locked_until) > new Date() ? u.pin_locked_until : null, length: WITHDRAWAL_RULES.pinLength };
   }
 
   async setPin(p: Principal, b: { pin: string; currentPin?: string }) {
@@ -75,6 +78,36 @@ export class WithdrawalsService {
     await this.db.query(`update users set pin_hash = $2, pin_failed = 0, pin_locked_until = null where id = $1`, [p.userId, this.hashPin(b.pin)]);
     await this.audit.write({ actorId: p.userId, action: u.pin_hash ? 'wallet.pin_changed' : 'wallet.pin_set', entity: 'user', entityId: p.userId });
     return { set: true, message: u.pin_hash ? 'PIN changed.' : 'PIN set. You will use it for every withdrawal.' };
+  }
+
+  /** Forgot PIN, step 1: a code by SMS to the account's own phone. Works while the PIN is locked. */
+  async startPinReset(p: Principal, ip?: string) {
+    return this.auth.sendAccountCode(
+      p.userId,
+      'pin_reset',
+      (code) => `Your ERP code to reset your withdrawal PIN is ${code}. It expires in 5 minutes. If you did not ask for this, ignore it and your PIN stays the same.`,
+      ip,
+    );
+  }
+
+  /** Forgot PIN, step 2: the code and a new PIN. Withdrawals then wait 24 hours. */
+  async resetPin(p: Principal, b: { code: string; pin: string }) {
+    // Check the new PIN first, so a weak choice does not use up the code.
+    const bad = checkPin(b.pin);
+    if (bad) throw new AppError(422, 'validation_failed', bad, { fields: [{ field: 'pin', message: bad }] });
+    await this.db.tx(async (c) => {
+      await this.auth.useAccountCode(p.userId, 'pin_reset', b.code, c);
+      await c.query(`update users set pin_hash = $2, pin_failed = 0, pin_locked_until = null, pin_reset_at = now() where id = $1`, [p.userId, this.hashPin(b.pin)]);
+      await this.audit.write({ actorId: p.userId, action: 'wallet.pin_reset', entity: 'user', entityId: p.userId, payload: { method: 'sms_code' } }, c);
+      await notify(c, [p.userId], {
+        type: 'pin_reset',
+        grp: 'account',
+        title: 'Withdrawal PIN reset',
+        body: `Your PIN was reset. To keep your money safe, withdrawals in the next ${WITHDRAWAL_RULES.firstHoldHours} hours are sent after a wait. If this was not you, contact support now.`,
+        link: '/wallet',
+      });
+    });
+    return { set: true, message: `PIN reset. Withdrawals in the next ${WITHDRAWAL_RULES.firstHoldHours} hours wait before they are sent, to keep your money safe.` };
   }
 
   /** Wrong tries are counted outside any transaction so a rollback cannot erase them. */
@@ -142,7 +175,7 @@ export class WithdrawalsService {
       await this.audit.write({ actorId: p.userId, action: old.rowCount ? 'wallet.bank_changed' : 'wallet.bank_added', entity: 'user', entityId: p.userId, payload: { bankCode: b.bankCode, lastFour: b.accountNumber.slice(-4) } }, c);
       // A security notice: if someone else changed it, the owner finds out at once.
       if (old.rowCount) {
-        await notify(c, [p.userId], { type: 'bank_changed', grp: 'security', title: 'Bank account changed', body: `Withdrawals now go to ${bankName(b.bankCode)}, ending ${b.accountNumber.slice(-4)}. If this was not you, contact support now.`, link: '/wallet' });
+        await notify(c, [p.userId], { type: 'bank_changed', grp: 'account', title: 'Bank account changed', body: `Withdrawals now go to ${bankName(b.bankCode)}, ending ${b.accountNumber.slice(-4)}. If this was not you, contact support now.`, link: '/wallet' });
       }
     });
     return { ...(await this.bankAccount(p)), message: `${bankName(b.bankCode)}, ending ${b.accountNumber.slice(-4)} saved.` };
@@ -168,6 +201,23 @@ export class WithdrawalsService {
     return { walletId: w?.id as string | undefined, available: Number(w?.available ?? 0), today: Number(today), bank };
   }
 
+  /**
+   * Why and until when a withdrawal must wait: the first one to an account, or any within
+   * 24 hours of a PIN reset (a stolen SIM must not be enough to empty a wallet).
+   */
+  private hold(bank: { first_paid_at: Date | null }, pinResetAt: Date | null): { until: Date; reason: 'first_to_account' | 'pin_reset' } | null {
+    const h = WITHDRAWAL_RULES.firstHoldHours * 3600_000;
+    const afterReset = pinResetAt && Date.now() - +new Date(pinResetAt) < h ? new Date(+new Date(pinResetAt) + h) : null;
+    const first = !bank.first_paid_at ? new Date(Date.now() + h) : null;
+    if (afterReset && (!first || afterReset >= first)) return { until: afterReset, reason: 'pin_reset' };
+    if (first) return { until: first, reason: 'first_to_account' };
+    return null;
+  }
+
+  private async pinResetAt(userId: string, c: Queryable = this.db.pool): Promise<Date | null> {
+    return (await c.query(`select pin_reset_at from users where id = $1`, [userId])).rows[0]?.pin_reset_at ?? null;
+  }
+
   /** Everything the confirm sheet says: "Withdraw [Amount] to [Bank] ending [0000]? It arrives within [n] hours." */
   async quote(p: Principal, amountKobo: number) {
     await this.verified(p.userId);
@@ -175,14 +225,21 @@ export class WithdrawalsService {
     const check = checkWithdrawal({ amount: kobo(amountKobo), available: kobo(f.available), withdrawnToday: kobo(f.today), limits: WALLET_LIMITS, bank: f.bank ? { nameMatches: f.bank.name_match } : undefined });
     if (!check.ok) throw new AppError(422, 'validation_failed', check.message, { fields: [{ field: check.field, message: check.message }] });
     const fee = transferFee(amountKobo);
-    const held = !f.bank.first_paid_at;
+    const hold = this.hold(f.bank, await this.pinResetAt(p.userId));
+    const held = !!hold;
+    const wait = !hold
+      ? `It arrives within ${WITHDRAWAL_RULES.arrivesWithinHours} hours.`
+      : hold.reason === 'pin_reset'
+        ? `Your PIN was reset recently, so it is sent on ${when(hold.until)}, then arrives within ${WITHDRAWAL_RULES.arrivesWithinHours} hours.`
+        : `Your first withdrawal to this account is sent after ${WITHDRAWAL_RULES.firstHoldHours} hours, then arrives within ${WITHDRAWAL_RULES.arrivesWithinHours} hours.`;
     return {
       amountKobo,
       feeKobo: fee,
       netKobo: amountKobo - fee,
       bank: { name: f.bank.bank_name as string, lastFour: f.bank.last_four as string },
       heldFirst: held,
-      confirm: `Withdraw ${formatNaira(amountKobo)} to ${f.bank.bank_name}, ending ${f.bank.last_four}? ${held ? `Your first withdrawal to this account is sent after ${WITHDRAWAL_RULES.firstHoldHours} hours, then arrives within ${WITHDRAWAL_RULES.arrivesWithinHours} hours.` : `It arrives within ${WITHDRAWAL_RULES.arrivesWithinHours} hours.`}`,
+      holdReason: hold?.reason ?? null,
+      confirm: `Withdraw ${formatNaira(amountKobo)} to ${f.bank.bank_name}, ending ${f.bank.last_four}? ${wait}`,
       availableKobo: f.available,
       leftTodayKobo: Math.max(0, WALLET_LIMITS.dailyWithdrawLimit - f.today),
     };
@@ -203,14 +260,15 @@ export class WithdrawalsService {
       const check = checkWithdrawal({ amount: kobo(b.amountKobo), available: kobo(f.available), withdrawnToday: kobo(f.today), limits: WALLET_LIMITS, bank: f.bank ? { nameMatches: f.bank.name_match } : undefined });
       if (!check.ok) throw new AppError(422, 'validation_failed', check.message, { fields: [{ field: check.field, message: check.message }] });
       const fee = transferFee(b.amountKobo);
-      const held = !f.bank.first_paid_at;
+      const hold = this.hold(f.bank, await this.pinResetAt(p.userId, c));
+      const held = !!hold;
       const id = randomUUID();
       const r = applyEvent(withdrawalMachine, 'requested', held ? 'hold_first' : 'submit', 'system');
       if (!r.ok) throw new AppError(409, r.code, 'Could not start the withdrawal.');
       await c.query(
         `insert into withdrawals (id, wallet_id, bank_account_id, amount_kobo, fee_kobo, state, idempotency_key, user_id, release_at, held_reason)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, case when $9 then now() + make_interval(hours => $10) end, $11)`,
-        [id, f.walletId, f.bank.id, b.amountKobo, fee, r.to, b.idempotencyKey, p.userId, held, WITHDRAWAL_RULES.firstHoldHours, held ? 'first_to_account' : null],
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [id, f.walletId, f.bank.id, b.amountKobo, fee, r.to, b.idempotencyKey, p.userId, hold?.until ?? null, hold?.reason ?? null],
       );
       // The money leaves the available balance now; a failure puts it back.
       const platform = (await c.query(`select id from wallets where owner_type = 'platform' and owner_id is null`)).rows[0].id;
@@ -219,13 +277,13 @@ export class WithdrawalsService {
         `insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values ($1, 'withdrawal', -$3::bigint, $4, $5, $6), ($2, 'withdrawal', $3, $4, $5, $6)`,
         [f.walletId, platform, b.amountKobo, ref(id), journal, `Withdrawal to ${f.bank.bank_name}, ending ${f.bank.last_four}`],
       );
-      const release = held ? new Date(Date.now() + WITHDRAWAL_RULES.firstHoldHours * 3600_000) : null;
+      const release = hold?.until ?? null;
       await notify(c, [p.userId], {
         type: held ? 'withdrawal_held' : 'withdrawal_started',
         grp: 'money',
         title: held ? 'Withdrawal scheduled' : 'Withdrawal on its way',
         body: held
-          ? `${formatNaira(b.amountKobo)} will be sent to ${f.bank.bank_name} on ${when(release!)}. First withdrawals to an account wait ${WITHDRAWAL_RULES.firstHoldHours} hours to keep your money safe.`
+          ? `${formatNaira(b.amountKobo)} will be sent to ${f.bank.bank_name} on ${when(release!)}. ${hold!.reason === 'pin_reset' ? 'Withdrawals wait 24 hours after a PIN reset' : `First withdrawals to an account wait ${WITHDRAWAL_RULES.firstHoldHours} hours`} to keep your money safe.`
           : `${formatNaira(b.amountKobo)} is on its way to ${f.bank.bank_name}.`,
         link: '/wallet',
       });
