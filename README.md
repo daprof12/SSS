@@ -214,6 +214,6 @@ On the sheet, a platform admin can:
 - **Release:** back to the approval queue, with earlier approvals cleared.
 - **Retry:** for a failed transfer ("Retry or edit the bank details").
 
-The recipient bears the transfer fee (`transferFee` in `@erp/domain`: ₦10 / ₦25 / ₦50 by amount), so the bank receives gross minus fee. The Donations tab is a placeholder until donations exist.
+The recipient bears the transfer fee (decided 2026-10-18; `transferFee` in `@erp/domain`: ₦10 / ₦25 / ₦50 by amount), so the bank receives gross minus fee. The Donations tab is a placeholder until donations exist.
 
 **Not built yet:** the platform fee of [%] on each bounty (still to be decided), and the "Bounty and wallet oversight" tabs (Pools, Claims, Disputes, Ledger, and the Paystack mismatch check).
