@@ -1,5 +1,6 @@
 // Dev-only endpoints. The module is registered only when config.devTools is
 // true, which loadConfig() refuses in production.
+import { seedLearn } from './learn-seed';
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { MockPostcodeAdapter, POSTCODE, type PostcodeAdapter } from '../adapters/postcode';
@@ -182,6 +183,7 @@ export class DevController {
           [pool, platform, `seed-pool-${naptip}`, j],
         );
       }
+      await seedLearn(c, ids.platformAdmin!, { police: agency, ferma, naptip });
       return { users: ids, agencyId: agency, stationId: station, naptipId: naptip, fermaId: ferma };
     });
   }

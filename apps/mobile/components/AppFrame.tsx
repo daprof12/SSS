@@ -12,7 +12,7 @@ type Surface = 'citizen' | 'officer';
 
 /** Signs the person in to the right surface, applies their saved appearance, draws the tab bar. */
 // Full-screen flows (reporting, live status, payment, offers) hide the tab bar.
-const NO_BAR = ['/welcome', '/tips/', '/issues/', '/officer/tips/', '/officer/issues/', '/report', '/reports/', '/pay/', '/wallet/fund', '/wallet/confirm', '/officer/offers/', '/officer/incidents/'];
+const NO_BAR = ['/welcome', '/learn/interests', '/tips/', '/issues/', '/officer/tips/', '/officer/issues/', '/report', '/reports/', '/pay/', '/wallet/fund', '/wallet/confirm', '/officer/offers/', '/officer/incidents/'];
 
 export function AppFrame({ surface, children }: { surface: Surface; children: React.ReactNode }) {
   const router = useRouter();
@@ -66,7 +66,7 @@ function CitizenBar() {
     <div className="tabbar">
       <nav aria-label="Main">
         <Tab href="/home" icon="home" label="Home" />
-        <Tab href="/learn" icon="learn" label="Learn" />
+        <Tab href="/learn" icon="learn" label="Learn" match="/learn" />
         <Link href="/report" className="center" aria-label="SOS, report an emergency">
           SOS
         </Link>

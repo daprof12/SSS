@@ -78,6 +78,29 @@ const PATHS: Record<string, React.ReactNode> = {
     </>
   ),
   stop: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </>
+  ),
+  filter: <path d="M4 6h16M7 12h10M10 18h4" />,
+  bookmark: <path d="M6 4h12v16l-6-4-6 4z" />,
+  share: <path d="M21 3 3 10.5l7 2.5 2.5 7z M10 13l11-10" />,
+  more: (
+    <>
+      <circle cx="6" cy="12" r="1.2" />
+      <circle cx="12" cy="12" r="1.2" />
+      <circle cx="18" cy="12" r="1.2" />
+    </>
+  ),
+  article: <path d="M6 4h9l3 3v13H6zM9 10h6M9 14h6M9 18h4" />,
+  quiz: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01" />
+    </>
+  ),
   play: <path d="M8 5v14l11-7z" />,
   pause: <path d="M8 5v14M16 5v14" />,
   photo: (

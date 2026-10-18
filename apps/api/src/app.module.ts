@@ -31,6 +31,8 @@ import { ReportsController } from './reports/reports.controller';
 import { TipsService } from './reports/tips.service';
 import { JobsController } from './jobs/jobs.controller';
 import { JobsService } from './jobs/jobs.service';
+import { LearnController } from './learn/learn.controller';
+import { LearnService } from './learn/learn.service';
 import { MediaController } from './media/media.controller';
 import { MediaService } from './media/media.service';
 import { AdminBountyFeeController, BountiesController } from './reports/bounties.controller';
@@ -68,6 +70,7 @@ export class AppModule {
         AgenciesController,
         AdminAgenciesController,
         MediaController,
+        LearnController,
         BriefController,
         BountiesController,
         AdminBountyFeeController,
@@ -92,6 +95,7 @@ export class AppModule {
         PayoutsService,
         AgenciesService,
         MediaService,
+        LearnService,
         BriefService,
         BountiesService,
         JobsService,

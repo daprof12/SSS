@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   agencyHandles,
+  checkLearnPost,
+  learnPostMachine,
+  rankForYou,
   bountyFee,
   checkFeeSettings,
   effectiveFeeBps,
@@ -361,5 +364,25 @@ describe('platform fee on bounties', () => {
     expect(checkFeeSettings(s)).toEqual({ ok: true });
     expect(checkFeeSettings({ ...s, suggestedBps: 3000 })).toMatchObject({ ok: false, field: 'suggestedBps' });
     expect(checkFeeSettings({ ...s, minBps: 2500 })).toMatchObject({ ok: false, field: 'maxBps' });
+  });
+});
+
+describe('learn', () => {
+  it('ranks For you by interests and watching, and hides muted topics', () => {
+    const me = { interests: ['first_aid'], languages: ['en'], watchedTopics: { fire_safety: 2 }, mutedTopics: ['scams_fraud'], now: Date.UTC(2026, 9, 18) };
+    const post = (topic: string, extra = {}) => ({ topic, language: 'en', publishedAt: Date.UTC(2026, 9, 17), seen: false, liked: false, ...extra });
+    expect(rankForYou(post('fire_safety'), me).reason).toBe('Shown because you watch Fire safety');
+    expect(rankForYou(post('first_aid'), me).reason).toBe('Because you picked First aid');
+    expect(rankForYou(post('scams_fraud'), me).score).toBe(-Infinity);
+    expect(rankForYou(post('fire_safety', { seen: true }), me).score).toBeLessThan(rankForYou(post('road_safety'), me).score);
+    expect(rankForYou(post('first_aid', { language: 'ha' }), me).score).toBeLessThan(rankForYou(post('first_aid'), me).score);
+  });
+
+  it('checks a post is complete before review', () => {
+    const base = { title: 'What to do first in a house fire', caption: 'Get low, get out, call from outside.', topic: 'fire_safety', hasMedia: false };
+    expect(checkLearnPost({ ...base, format: 'video' })).toMatchObject({ field: 'media' });
+    expect(checkLearnPost({ ...base, format: 'quiz', quiz: [{ q: 'Where do you call from?', options: ['Inside', 'Outside'], answer: 1, why: 'Smoke kills.' }] })).toBeNull();
+    expect(checkLearnPost({ ...base, format: 'quiz', quiz: [{ q: 'Where?', options: ['Inside'], answer: 0, why: '' }] })).toMatchObject({ field: 'quiz' });
+    expect(availableEvents(learnPostMachine, 'in_review', 'platform_admin').sort()).toEqual(['approve', 'remove', 'send_back']);
   });
 });

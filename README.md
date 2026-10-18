@@ -119,7 +119,7 @@ One installable app; the signed-in person decides the surface. Sign in with a de
 
 **Test-only screens:** while Paystack is mocked, `/pay/[ref]` stands in for the hosted checkout and the transfer screen has a "simulate arrival" button. Both are hidden in production builds.
 
-**Not built yet** (rows say "Soon" or open a "Coming next" page): Learn, donations, withdraw, security, discreet mode, language, officer history and field reports, and protected calling and messaging.
+**Not built yet** (rows say "Soon" or open a "Coming next" page): Donations, withdraw, security, discreet mode, language, officer history and field reports, and protected calling and messaging.
 
 ## Sign-in and onboarding
 
@@ -247,3 +247,35 @@ The same picker opens wherever a place is set, and no screen asks anyone to type
 - Home and places, and the onboarding "Where do you live?" step. These open as "Pick your home" without "Use this spot", since a home must be a building.
 
 The new-tip form now takes photos, video and voice notes too; they upload after the tip is created. My tips and My public issues go back to Activity.
+
+## Learn
+
+The citizen Learn tab follows the six Learn boards. Admins publish through Admin → Learn feed (migration 013, `apps/api/src/learn`).
+
+**For you** is a full-screen swipe feed, one lesson per screen:
+- **Formats:** videos, articles shown as an excerpt with "Read the article", and quizzes answered on the card.
+- **Lesson cards:** source, title, caption and why it was shown ("Because you picked Fire safety", "Shown because you watch Fire safety"). The side rail has like with a count, save, share and more ("Not interested" mutes that topic).
+- **Ranking:** interests and watch history pull a lesson up; languages, freshness and already-seen lessons push it down.
+- **Seen and progress:** a lesson counts as seen after 1.5 s on screen, and progress is reported every 10 s. The feed ends with "You are all caught up".
+- **First visit:** the person picks at least 3 interests and their languages, or skips for now.
+
+**General** has:
+- search and the filter sheet: format, topic, language, length, source and sort, with a live "Show [n] results";
+- format chips, including Saved;
+- "Your interests" with Edit;
+- "Browse topics" with counts, opening topic pages.
+
+**Search** suggests as you type and has Top, Videos, Articles, Quizzes and Agencies tabs.
+
+**Lesson pages** (`/learn/p/:id`): video, article (reading to the end counts as done) or quiz, with like, save and share.
+
+Quizzes are marked on the server; the phone never receives the answers. Lessons with no footage play as step cards with story-style progress bars, built from their steps.
+
+**Admin Learn feed** (`/admin/learn`):
+- Tabs: Live, In review, Drafts, Removed, with counts.
+- New post: format, title, topic, language, from (platform team or an agency), show to (everyone or one state), video or image upload through the checked media pipeline, caption, and an article body or quiz builder.
+- Workflow: draft → in review → live. A different admin must approve, enforced in the API and the database. Sending back and removing need a note, and every step is audited.
+
+Development seeds 12 real lessons in English and Pidgin.
+
+**Not built yet:** comments on lessons, the AI suggestions for the feed (AI and LLM page), a reminder notification for new lessons, and video transcoding (uploads are capped at 10 MB until the media worker exists).

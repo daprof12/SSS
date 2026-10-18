@@ -9,7 +9,7 @@ import { Bus } from '../core/bus';
 import { Db } from '../core/db';
 import { AppError } from '../core/http';
 
-export type OwnerType = 'tip' | 'issue_case' | 'incident';
+export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'learn_post';
 export const MAX_BYTES = 10 * 1024 * 1024; // States doc: up to [10] MB
 const TYPES: Record<string, 'photo' | 'video' | 'voice'> = {
   'image/jpeg': 'photo',
@@ -99,6 +99,14 @@ export class MediaService {
       if (forUpload) return null;
       const staff = await this.db.query(`select 1 from user_roles where user_id = $1 and scope_type = 'agency' and scope_id = $2`, [p.userId, k.agency_id]);
       return staff.rowCount ? 'staff' : null;
+    }
+    if (ownerType === 'learn_post') {
+      // Platform team uploads to drafts; once live, anyone signed in can watch (no audit for public lessons).
+      const lp = (await this.db.query(`select state from learn_posts where id = $1`, [ownerId])).rows[0];
+      if (!lp) return null;
+      const admin = hasRole(p, 'platform_admin');
+      if (forUpload) return admin && lp.state === 'draft' ? 'self' : null;
+      return lp.state === 'live' || admin ? 'self' : null;
     }
     // incident: the reporter adds; assigned officers and the station see it (clips rule, BRIEF-5).
     const i = (await this.db.query(`select reporter_id, station_id, state from incidents where id = $1`, [ownerId])).rows[0];

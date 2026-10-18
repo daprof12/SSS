@@ -1,5 +1,10 @@
-import { NotBuilt } from '@/components/AppFrame';
+import { Suspense } from 'react';
+import { Learn } from '@/components/learn/Learn';
 
 export default function Page() {
-  return <NotBuilt title="Learn" note="Short safety lessons in a swipe feed. Coming next." />;
+  return (
+    <Suspense>
+      <Learn />
+    </Suspense>
+  );
 }
