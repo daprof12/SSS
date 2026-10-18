@@ -205,3 +205,29 @@ describe('paying the pool back when an agency leaves', () => {
     expect((await http.get(`/agencies/${seed.naptipId}/offboard`).set(as('agencyAdmin'))).body.canComplete).toBe(true);
   });
 });
+
+describe('payout queue for platform admins', () => {
+  it('shows gross, fee, net and destination, and holds only with a note', async () => {
+    await db.query(`insert into bank_accounts (owner_type, owner_id, bank_code, bank_name, last_four, account_name, name_match, verified_at) values ('agency', $1, '011', 'First Bank', '9876', 'Nigeria Police Force', true, now())`, [seed.agencyId]);
+    const id = (await db.query(`insert into payouts (agency_id, amount_kobo, reason) values ($1, 5000000, 'Test payout') returning id`, [seed.agencyId])).rows[0].id;
+    await http.get('/admin/payouts').set(as('agencyAdmin')).expect(403);
+
+    const row = (await http.get('/admin/payouts?state=pending').set(as('platformAdmin')).expect(200)).body.find((x: any) => x.id === id);
+    expect(row).toMatchObject({
+      agency: 'Nigeria Police Force (demo)',
+      amountKobo: 5_000_000,
+      feeKobo: 2_500,
+      netKobo: 4_997_500,
+      approvalsNeeded: 1,
+      approvedByMe: false,
+      destination: { bank: 'First Bank', lastFour: '9876', verified: true },
+    });
+
+    expect((await http.post(`/admin/payouts/${id}/hold`).set(as('platformAdmin')).send({ note: '' }).expect(400)).body.fields[0].message).toBe('Say why you are holding it.');
+    await http.post(`/admin/payouts/${id}/hold`).set(as('platformAdmin')).send({ note: 'Checking a dispute on tip T-1' }).expect(201);
+    await http.post(`/admin/payouts/${id}/approve`).set(as('platformAdmin')).expect(409);
+    expect((await http.get('/admin/payouts?state=held').set(as('platformAdmin'))).body[0]).toMatchObject({ id, holdNote: 'Checking a dispute on tip T-1' });
+    await http.post(`/admin/payouts/${id}/release`).set(as('platformAdmin')).expect(201);
+    expect((await http.post(`/admin/payouts/${id}/approve`).set(as('platformAdmin')).expect(201)).body.state).toBe('processing');
+  });
+});

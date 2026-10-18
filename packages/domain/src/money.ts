@@ -72,3 +72,13 @@ export function accountDeletionBlockers(s: {
   if (s.activeSubscription) out.push('active_subscription');
   return out;
 }
+
+/**
+ * Paystack's Nigerian transfer fee (Payout detail: "Gross, fees, net").
+ * The recipient bears it: the bank receives gross − fee.
+ */
+export function transferFee(grossKobo: number): number {
+  if (grossKobo <= 500_000) return 1_000; // ₦10 up to ₦5,000
+  if (grossKobo <= 5_000_000) return 2_500; // ₦25 up to ₦50,000
+  return 5_000; // ₦50 above
+}

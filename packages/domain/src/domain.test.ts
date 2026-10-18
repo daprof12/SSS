@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agencyHandles,
+  transferFee,
   bountyRangeText,
   suggestBounty,
   accountDeletionBlockers,
@@ -331,5 +332,13 @@ describe('bounty rates', () => {
   it('describes the range to tippers', () => {
     expect(bountyRangeText({ basis: 'percent_capped', tiers: { percent: 5 }, capKobo: 100_000_000 }, naira)).toBe('5% of the value recovered, up to ₦1,000,000');
     expect(bountyRangeText({ basis: 'fixed', tiers: { min: 2_000_000, max: 2_000_000 }, capKobo: null }, naira)).toBe('₦20,000');
+  });
+});
+
+describe('payout fees', () => {
+  it('uses Paystack transfer tiers', () => {
+    expect(transferFee(500_000)).toBe(1_000);
+    expect(transferFee(500_100)).toBe(2_500);
+    expect(transferFee(100_000_000)).toBe(5_000);
   });
 });

@@ -22,6 +22,10 @@ const AGENCY_BUILT: Record<string, NavItem> = {
   'Public issues': { label: 'Public issues', href: '/agency/issues', built: true },
 };
 
+const ADMIN_BUILT: Record<string, NavItem> = {
+  Donations: { label: 'Donations and payouts', href: '/admin/payouts', built: true },
+};
+
 // Sidebar orders from the Public Issues doc: Settings last, Messaging above it.
 const NAV: Record<string, NavItem[]> = {
   station: [
@@ -38,7 +42,7 @@ const NAV: Record<string, NavItem[]> = {
   ].map((l) => AGENCY_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
   admin: [
     'Overview', 'Live incident map', 'Coverage map', 'Device wall', 'Users', 'Inventory', 'Installation team', 'Subscriptions', 'KYC queue', 'Fines and appeals', 'Donations', 'Learn feed', 'Agencies', 'Audit log', 'AI and LLM', 'CRM messaging', 'Settings',
-  ].map((l) => ({ label: l, href: `/soon?page=${encodeURIComponent(l)}` })),
+  ].map((l) => ADMIN_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
 };
 
 export function Shell({ children }: { children: React.ReactNode }) {

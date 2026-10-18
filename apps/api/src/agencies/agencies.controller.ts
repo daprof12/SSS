@@ -5,7 +5,7 @@ import { CurrentUser, type Principal } from '../core/auth';
 import { AppError, ZodPipe } from '../core/http';
 import { PayoutsService } from './payouts.service';
 import { AgenciesService } from './agencies.service';
-import { AgencyBillingService } from './billing.service';
+import { AGENCY_BILLING, AgencyBillingService } from './billing.service';
 
 const Kinds = agencyDirectory.map((a) => a.kind) as [AgencyKind, ...AgencyKind[]];
 const RegisterBody = z
@@ -211,6 +211,7 @@ const MarkPaidBody = z.object({
 const WaiveBody = z.object({ reason: z.string().trim().min(3, 'A reason is required.').max(500) });
 const AsOfBody = z.object({ asOf: Day });
 const OverrideBody = z.object({ amountKobo: z.number().int().min(0), reason: z.string().trim().min(3, 'A reason is required.').max(500) });
+const HoldBody = z.object({ note: z.string().trim().min(3, 'Say why you are holding it.').max(500) });
 const StatusQuery = z.enum(agencyStates).optional();
 const InvoiceStateQuery = z.enum(['draft', 'issued', 'paid', 'overdue', 'waived', 'credited']).optional();
 
@@ -271,7 +272,17 @@ export class AdminAgenciesController {
 
   @Get('payouts')
   payouts(@CurrentUser() p: Principal, @Query('state') state?: string) {
-    return this.payoutsSvc.list(p, state);
+    return this.payoutsSvc.list(p, state, AGENCY_BILLING.secondApprovalAboveKobo);
+  }
+
+  @Post('payouts/:id/hold')
+  holdPayout(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(HoldBody)) b: z.infer<typeof HoldBody>) {
+    return this.payoutsSvc.hold(p, id, b.note);
+  }
+
+  @Post('payouts/:id/release')
+  releasePayout(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payoutsSvc.release(p, id);
   }
 
   @Post('payouts/:id/retry')

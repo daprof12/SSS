@@ -203,4 +203,17 @@ Every change is audited. Citizens see the new range on the tip form at once.
 - `GET /admin/payouts?state=` lists payouts for platform admins. The agency's Bounties page shows where its payout stands.
 - In development, `POST /dev/paystack/transfer/:payoutId?outcome=success|failed` stands in for Paystack.
 
-**Not built yet:** the platform fee of [%] on each bounty (still to be decided), and a platform admin screen for the payout queue (the API is there).
+**Admin: Donations and payouts** (`/admin/payouts`, from the States doc). The Payouts tab has:
+- headline figures: waiting for approval, needs your approval, failed, paid this month;
+- filters and a table;
+- the "Payout detail" sheet: gross, Paystack's transfer fee, net to the bank, destination account, approvals and status.
+
+On the sheet, a platform admin can:
+- **Approve:** "Approve (1 of 2)" above ₦100,000; one person cannot approve twice.
+- **Hold:** a note is required.
+- **Release:** back to the approval queue, with earlier approvals cleared.
+- **Retry:** for a failed transfer ("Retry or edit the bank details").
+
+The recipient bears the transfer fee (`transferFee` in `@erp/domain`: ₦10 / ₦25 / ₦50 by amount), so the bank receives gross minus fee. The Donations tab is a placeholder until donations exist.
+
+**Not built yet:** the platform fee of [%] on each bounty (still to be decided), and the "Bounty and wallet oversight" tabs (Pools, Claims, Disputes, Ledger, and the Paystack mismatch check).
