@@ -170,11 +170,16 @@ export function BuildingPicker({
   onPick,
   onSpot,
   start,
+  title = 'Pick your building',
+  cta = 'Use',
 }: {
   onClose: () => void;
   onPick: (b: PickedBuilding) => void;
-  onSpot: (s: Spot) => void;
+  /** Omit where a postcode is required (a home must be a building). */
+  onSpot?: (s: Spot) => void;
   start?: Spot | null;
+  title?: string;
+  cta?: string;
 }) {
   const [you, setYou] = useState<Spot | null>(start ?? null);
   const [center, setCenter] = useState<Spot | null>(start ?? null);
@@ -242,7 +247,7 @@ export function BuildingPicker({
         <button type="button" className="icon-btn" aria-label="Close" onClick={onClose}>
           <Icon name="back" />
         </button>
-        <h2 id="picker-title">Pick your building</h2>
+        <h2 id="picker-title">{title}</h2>
         <div className="segmented small" role="radiogroup" aria-label="Map style">
           {(
             [
@@ -333,18 +338,22 @@ export function BuildingPicker({
         {msg && <span className="field-error">{msg}</span>}
 
         <button className="btn block primary" type="button" disabled={!selected} onClick={() => selected && onPick(selected)}>
-          {selected ? `Use ${formatPostcode(selected.postcode)}` : 'Tap a building'}
+          {selected ? `${cta} ${formatPostcode(selected.postcode)}` : 'Tap a building'}
         </button>
         <div className="btn-row" style={{ marginTop: 8 }}>
           <button className="btn" type="button" onClick={find} disabled={state === 'locating'}>
             {state === 'locating' ? 'Locating…' : 'Retry location'}
           </button>
-          <button className="btn" type="button" disabled={!center} onClick={() => center && onSpot(center)}>
-            Use this spot
-          </button>
+          {onSpot && (
+            <button className="btn" type="button" disabled={!center} onClick={() => center && onSpot(center)}>
+              Use this spot
+            </button>
+          )}
         </div>
         <p className="muted" style={{ margin: '8px 0 0', fontSize: 'var(--text-sm)' }}>
-          Did not find your building? &ldquo;Use this spot&rdquo; sends the place on the map without a postcode.
+          {onSpot
+            ? 'Did not find your building? “Use this spot” sends the place on the map without a postcode.'
+            : 'Did not find your building? Widen the search, or tap closer to it on the map.'}
         </p>
 
         {list && list.length > 1 && (

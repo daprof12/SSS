@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/Icon';
+import { BuildingPicker, formatPostcode, type PickedBuilding } from '@/components/reports/BuildingPicker';
 import { api, ApiError, getSession, locate, setSession } from '@/lib/client';
 
 type Step = 'name' | 'tour' | 'permissions' | 'kyc' | 'home' | 'done';
@@ -394,32 +395,23 @@ function KycStep({ name, onDone, onSkip }: { name: string; onDone: () => void; o
 }
 
 function HomeStep({ onDone }: { onDone: () => void }) {
-  const [postcode, setPostcode] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
 
-  const save = async (pc: string) => {
+  // "I am at home now" opens the building picker: the user taps their building, nobody types a postcode.
+  const save = async (b: PickedBuilding) => {
+    setPicking(false);
     setErr(null);
     setBusy(true);
     try {
-      const r = await api<{ address: string; postcode: string }>('/me/places/home', { method: 'PUT', body: JSON.stringify({ postcode: pc }) });
-      setSaved(`${r.address}, ${r.postcode}`);
+      const r = await api<{ address: string; postcode: string }>('/me/places/home', { method: 'PUT', body: JSON.stringify({ postcode: b.postcode }) });
+      setSaved(`${r.address}, ${formatPostcode(r.postcode)}`);
     } catch (x) {
       setErr(x instanceof ApiError ? x.message : 'Could not save. Try again.');
     } finally {
       setBusy(false);
-    }
-  };
-  const here = async () => {
-    setErr(null);
-    const p = await locate();
-    if (!p) return setErr('Turn on location, or type your postcode.');
-    try {
-      const b = await api<{ postcode: string }>(`/places/nearest?lat=${p.lat}&lng=${p.lng}`);
-      await save(b.postcode);
-    } catch (x) {
-      setErr(x instanceof ApiError ? x.message : 'We could not find a building here. Type your postcode instead.');
     }
   };
 
@@ -434,19 +426,16 @@ function HomeStep({ onDone }: { onDone: () => void }) {
         </div>
       ) : (
         <>
-          <button className="btn block" type="button" onClick={here} disabled={busy} style={{ marginBottom: 12 }}>
-            <Icon name="pin" /> I am at home now
+          <button className="btn block signal" type="button" onClick={() => setPicking(true)} disabled={busy} style={{ marginBottom: 8 }}>
+            <Icon name="pin" /> {busy ? 'Saving…' : 'I am at home now'}
           </button>
-          <label className="field" data-invalid={!!err}>
-            <span>Or type your postcode</span>
-            <input className="input" value={postcode} onChange={(e) => setPostcode(e.target.value)} placeholder="AB 12 C" autoCapitalize="characters" aria-invalid={!!err} />
-            {err && <span className="field-error">{err}</span>}
-          </label>
-          <button className="btn block" type="button" disabled={busy || postcode.trim().length < 3} onClick={() => save(postcode)}>
-            {busy ? 'Checking…' : 'Use this postcode'}
-          </button>
+          <p className="muted" style={{ marginTop: 0 }}>
+            We find you on the map; tap your building to save its postcode.
+          </p>
+          {err && <span className="field-error">{err}</span>}
         </>
       )}
+      {picking && <BuildingPicker title="Pick your home" cta="Save" onClose={() => setPicking(false)} onPick={save} />}
       <button className="btn block primary" type="button" onClick={onDone} style={{ marginTop: 12 }}>
         {saved ? 'Continue' : 'Skip for now'}
       </button>

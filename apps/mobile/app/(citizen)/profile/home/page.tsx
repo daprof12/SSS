@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Header, Toast, useToast } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
+import { BuildingPicker, formatPostcode, type PickedBuilding } from '@/components/reports/BuildingPicker';
 import { api, ApiError } from '@/lib/client';
 
 interface Place {
@@ -16,7 +17,7 @@ interface Place {
 /** Home building (REP-3): the postcode that reports use by default. */
 export default function HomePlace() {
   const [home, setHome] = useState<Place | null | undefined>(undefined);
-  const [postcode, setPostcode] = useState('');
+  const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useToast();
@@ -29,14 +30,13 @@ export default function HomePlace() {
     void load();
   }, []);
 
-  const save = async () => {
+  const save = async (b: PickedBuilding) => {
     setErr(null);
-    if (postcode.trim().length < 3) return setErr('Enter a postcode.');
+    setPicking(false);
     setBusy(true);
     try {
-      const r = await api<{ address: string }>('/me/places/home', { method: 'PUT', body: JSON.stringify({ postcode }) });
+      const r = await api<{ address: string }>('/me/places/home', { method: 'PUT', body: JSON.stringify({ postcode: b.postcode }) });
       setToast(`Home set to ${r.address}.`);
-      setPostcode('');
       void load();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : 'Could not save. Try again.');
@@ -57,20 +57,20 @@ export default function HomePlace() {
           <span style={{ flex: 1 }}>
             <strong>{home.address}</strong>
             <span>
-              {home.postcode}, {home.area}
+              {formatPostcode(home.postcode)}, {home.area}
             </span>
           </span>
           <span className={`chip ${home.verified ? 'success' : 'warning'}`}>{home.verified ? 'Confirmed' : 'Not confirmed'}</span>
         </div>
       )}
-      <label className="field" data-invalid={!!err}>
-        <span>{home ? 'Change home postcode' : 'Home postcode'}</span>
-        <input className="input" value={postcode} onChange={(e) => setPostcode(e.target.value)} placeholder="AB 12 C" autoCapitalize="characters" aria-invalid={!!err} />
-        {err && <span className="field-error">{err}</span>}
-      </label>
-      <button className="btn block signal" type="button" onClick={save} disabled={busy}>
-        {busy ? 'Checking…' : 'Save home'}
+      <button className="btn block signal" type="button" onClick={() => setPicking(true)} disabled={busy}>
+        <Icon name="pin" /> {busy ? 'Saving…' : 'Where I am now'}
       </button>
+      <p className="muted" style={{ marginBottom: 0 }}>
+        {home ? 'To change your home, stand' : 'Stand'} at home, then tap your building on the map. Its NIPOST postcode is saved for you.
+      </p>
+      {err && <span className="field-error">{err}</span>}
+      {picking && <BuildingPicker title="Pick your home" cta="Save" onClose={() => setPicking(false)} onPick={save} />}
       <p className="muted">A new home is confirmed by the address check before it counts as verified. Work and other places come next.</p>
       <Toast msg={toast} />
     </main>

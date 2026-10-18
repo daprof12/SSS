@@ -242,4 +242,8 @@ The mock adapter places a stable building on most cells of a ~28 m grid around a
 
 The API takes `audio/webm`, `audio/mp4`, `audio/ogg` and `audio/mpeg`, checks the container from the file's bytes, and stores the length. A note on a live report adds "Voice note added" to the response log. Voice notes play back on the citizen's report, the officer's incident and the agency's tip and issue pages.
 
+The same picker opens wherever a place is set, and no screen asks anyone to type a postcode:
+- "Where I am now" on the emergency "Where is it happening?" sheet, which keeps "Use this spot" because an emergency can't wait for a postcode.
+- Home and places, and the onboarding "Where do you live?" step. These open as "Pick your home" without "Use this spot", since a home must be a building.
+
 The new-tip form now takes photos, video and voice notes too; they upload after the tip is created. My tips and My public issues go back to Activity.

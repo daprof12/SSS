@@ -94,7 +94,7 @@ export class IncidentsService implements OnModuleDestroy {
     }
     const lat = building?.lat ?? input.lat;
     const lng = building?.lng ?? input.lng;
-    if (lat == null || lng == null) throw new AppError(422, 'location_required', 'Turn on location so help can find you, or type your postcode.');
+    if (lat == null || lng == null) throw new AppError(422, 'location_required', 'Turn on location so help can find you, or pick your building on the map.');
 
     const id = await this.db.tx(async (c) => {
       const locationId = building ? await this.upsertLocation(c, building) : null;

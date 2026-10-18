@@ -34,7 +34,7 @@ export class PlacesController {
   @Get('nearest')
   async nearest(@Query(new ZodPipe(Nearest)) q: z.infer<typeof Nearest>) {
     const b = await this.safe(() => this.postcode.nearest(q.lat, q.lng, 50));
-    if (!b) throw new AppError(404, 'no_building_nearby', 'We could not find a building here. Type your postcode instead.');
+    if (!b) throw new AppError(404, 'no_building_nearby', 'We could not find a building here. Pick your building on the map instead.');
     return b;
   }
 

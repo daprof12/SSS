@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { Header } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
+import { BuildingPicker, formatPostcode } from '@/components/reports/BuildingPicker';
 import { api, ApiError, haptic, locate, TYPES, typeInfo, uid, type TypeCode } from '@/lib/client';
 import { sendReport, smsHref, type QueuedReport } from '@/lib/outbox';
 
@@ -14,7 +15,7 @@ interface Place {
   postcode: string;
   address: string;
 }
-type Where = { kind: 'home'; postcode: string; label: string } | { kind: 'here'; lat: number; lng: number } | { kind: 'postcode'; postcode: string };
+type Where = { kind: 'home'; postcode: string; label: string } | { kind: 'here'; lat: number; lng: number } | { kind: 'postcode'; postcode: string; label: string };
 
 const RING_S = 5;
 const C = 2 * Math.PI * 90;
@@ -81,7 +82,7 @@ function Report() {
   const confirm = async () => {
     setError(null);
     if (!where) {
-      setError('Turn on location so help can find you, or type your postcode.');
+      setError('Turn on location so help can find you, or pick your building on the map.');
       return;
     }
     haptic(40);
@@ -182,7 +183,7 @@ function Report() {
   }
 
   const whereText =
-    where?.kind === 'home' ? `Home, ${where.label} · ${where.postcode}` : where?.kind === 'postcode' ? `Postcode ${where.postcode}` : where ? 'Where you are now (GPS)' : 'Finding your location…';
+    where?.kind === 'home' ? `Home, ${where.label} · ${formatPostcode(where.postcode)}` : where?.kind === 'postcode' ? where.label : where ? 'Where you are now (GPS)' : 'Finding your location…';
 
   return (
     <main className="app bare">
@@ -261,38 +262,27 @@ function TypePicker() {
 }
 
 function WhereSheet({ open, home, onClose, onPick }: { open: boolean; home: Place | null; onClose: () => void; onPick: (w: Where) => void }) {
-  const [postcode, setPostcode] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const here = async () => {
-    setBusy(true);
-    setErr(null);
-    const p = await locate();
-    setBusy(false);
-    if (p) onPick({ kind: 'here', ...p });
-    else setErr('Turn on location so help can find you, or type your postcode.');
-  };
-  const typed = async () => {
-    setErr(null);
-    setBusy(true);
-    try {
-      const b = await api<{ postcode: string }>(`/places/lookup?postcode=${encodeURIComponent(postcode)}`);
-      onPick({ kind: 'postcode', postcode: b.postcode });
-    } catch (e) {
-      // Postcode service down: GPS still works, so offer it (States doc).
-      setErr(e instanceof ApiError ? e.message : 'Check the postcode.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  // "Where I am now" opens the same building picker as everywhere else: no typing a postcode.
+  const [picking, setPicking] = useState(false);
+  if (picking)
+    return (
+      <BuildingPicker
+        onClose={() => setPicking(false)}
+        onPick={(b) => {
+          setPicking(false);
+          onPick({ kind: 'postcode', postcode: b.postcode, label: `${b.address}, ${formatPostcode(b.postcode)}` });
+        }}
+        onSpot={(p) => {
+          setPicking(false);
+          onPick({ kind: 'here', lat: p.lat, lng: p.lng });
+        }}
+      />
+    );
   return (
     <Sheet
       open={open}
       title="Where is it happening?"
       onClose={onClose}
-      busy={busy}
       footer={
         <button className="btn" type="button" onClick={onClose}>
           Keep current
@@ -304,17 +294,12 @@ function WhereSheet({ open, home, onClose, onPick }: { open: boolean; home: Plac
           <Icon name="home" /> Home, {home.address}
         </button>
       )}
-      <button className="btn block" type="button" onClick={here} disabled={busy}>
+      <button className="btn block signal" type="button" onClick={() => setPicking(true)}>
         <Icon name="pin" /> Where I am now
       </button>
-      <label className="field" data-invalid={!!err} style={{ marginBottom: 0 }}>
-        <span>Or type a postcode</span>
-        <input className="input" value={postcode} onChange={(e) => setPostcode(e.target.value)} placeholder="AB 12 C" autoCapitalize="characters" inputMode="text" />
-      </label>
-      {err && <span className="field-error">{err}</span>}
-      <button className="btn block signal" type="button" onClick={typed} disabled={busy || postcode.trim().length < 3}>
-        Use this postcode
-      </button>
+      <p className="muted" style={{ margin: 0 }}>
+        We find you on the map; tap your building, or use the spot if it has no postcode.
+      </p>
     </Sheet>
   );
 }

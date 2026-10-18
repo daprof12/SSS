@@ -18,7 +18,7 @@ const CreateBody = z
     clientRef: z.string().min(8).max(80),
     discreet: z.boolean().optional(),
   })
-  .refine((b) => b.postcode || (b.lat != null && b.lng != null), { message: 'Turn on location so help can find you, or type your postcode.', path: ['postcode'] });
+  .refine((b) => b.postcode || (b.lat != null && b.lng != null), { message: 'Turn on location so help can find you, or pick your building on the map.', path: ['postcode'] });
 
 const CancelBody = z.object({ reason: z.enum(['mistake', 'resolved_myself', 'help_arrived_other', 'unsafe_to_wait', 'other']) });
 const ActBody = z.object({
