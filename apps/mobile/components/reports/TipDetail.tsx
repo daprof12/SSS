@@ -31,7 +31,9 @@ const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString([], 
 
 /** Tip detail (board "Tip detail"): status chip, timeline, bounty, add info, withdraw. */
 export function TipDetail({ id, back }: { id: string; back: string }) {
-  const sent = useSearchParams().get('sent') === '1';
+  const params = useSearchParams();
+  const sent = params.get('sent') === '1';
+  const failedFiles = Number(params.get('files') ?? 0);
   const [t, setT] = useState<Tip | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [sheet, setSheet] = useState<'info' | 'withdraw' | null>(null);
@@ -49,8 +51,8 @@ export function TipDetail({ id, back }: { id: string; back: string }) {
     void load();
   }, [load]);
   useEffect(() => {
-    if (sent) setToast('Tip sent. Thank you.');
-  }, [sent, setToast]);
+    if (sent) setToast(failedFiles ? 'Tip sent, but some files did not upload. Add them again with “Add more information”.' : 'Tip sent. Thank you.');
+  }, [sent, failedFiles, setToast]);
 
   if (err) return <main className="app bare"><Header back={back} /><div className="card empty"><strong>{err}</strong></div></main>;
   if (!t) return <main className="app bare">{[0, 1, 2].map((i) => <div key={i} className="skeleton" style={{ height: 90 }} />)}</main>;

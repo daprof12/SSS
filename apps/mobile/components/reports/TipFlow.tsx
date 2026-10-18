@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Header } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
 import { api, ApiError, uid } from '@/lib/client';
+import { AttachPicker, uploadPicked, usePicked } from './Attach';
 import { WherePicker, whereBody, type Where } from './WherePicker';
 
 interface Cat {
@@ -31,6 +32,8 @@ export function TipFlow({ base, sosHref }: { base: string; sosHref: string }) {
   const [errs, setErrs] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const clientRef = useRef(uid());
+  const picked = usePicked();
+  const [stage, setStage] = useState<'sending' | 'uploading' | null>(null);
 
   useEffect(() => {
     api<Cat[]>('/tips/categories').then(setCats).catch(() => setCats([]));
@@ -48,11 +51,18 @@ export function TipFlow({ base, sosHref }: { base: string; sosHref: string }) {
         method: 'POST',
         body: JSON.stringify({ category: pick!.code, description: text.trim(), anonymous, clientRef: clientRef.current, ...(where ? whereBody(where) : {}) }),
       });
-      router.replace(`${base}/${r.id}?sent=1`);
+      // The tip is in; files follow. A failed file never loses the tip.
+      let failed = 0;
+      if (picked.items.length) {
+        setStage('uploading');
+        failed = await uploadPicked('tip', r.id, picked);
+      }
+      router.replace(`${base}/${r.id}?sent=1${failed ? `&files=${failed}` : ''}`);
     } catch (x) {
       if (x instanceof ApiError && x.fields?.length) setErrs(Object.fromEntries(x.fields.map((f) => [f.field === 'postcode' ? 'where' : f.field, f.message])));
       else setErrs({ form: x instanceof ApiError ? x.message : 'Could not send. Try again.' });
       setBusy(false);
+      setStage(null);
     }
   };
 
@@ -89,16 +99,10 @@ export function TipFlow({ base, sosHref }: { base: string; sosHref: string }) {
           </div>
         )}
         <WherePicker value={where} onChange={setWhere} optional error={errs.where} />
-        <div className="list">
-          <div className="row" style={{ cursor: 'default' }}>
-            <span className="grow">
-              <strong>Photos and voice notes</strong>
-              <span className="sub">Coming next. Keep any evidence safe for now.</span>
-            </span>
-          </div>
-        </div>
+        <p className="section-label">Photos, video or a voice note (optional)</p>
+        <AttachPicker picked={picked} disabled={busy} />
         <button className="btn block primary" type="button" onClick={send} disabled={busy}>
-          {busy ? 'Sending…' : `Send to ${pick.agencyLabel}`}
+          {stage === 'uploading' ? 'Sending files…' : busy ? 'Sending…' : `Send to ${pick.agencyLabel}`}
         </button>
         <p className="muted center">{anonymous ? 'Your name is hidden from the agency.' : 'The agency will see your name.'}</p>
       </main>

@@ -30,13 +30,13 @@ export function haptic(pattern: number | number[]) {
 }
 
 /** Current position, or null if refused or unavailable within the timeout. */
-export function locate(timeoutMs = 6000): Promise<{ lat: number; lng: number } | null> {
+export function locate(timeoutMs = 6000, maximumAge = 30000): Promise<{ lat: number; lng: number; accuracy?: number } | null> {
   return new Promise((resolve) => {
     if (!('geolocation' in navigator)) return resolve(null);
     navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: Math.round(p.coords.accuracy) }),
       () => resolve(null),
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 30000 },
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge },
     );
   });
 }

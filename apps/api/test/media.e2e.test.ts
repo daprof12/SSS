@@ -24,6 +24,8 @@ const EXIF = Buffer.concat([Buffer.from([0xff, 0xe1, 0x00, 0x10]), Buffer.from('
 const JFIF = Buffer.from([0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
 const SCAN = Buffer.from([0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00, 0x12, 0x34, 0xff, 0xd9]);
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8]), EXIF, JFIF, SCAN]);
+// WebM (EBML header), as Chrome and Android record voice notes.
+const WEBM = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(40, 2)]);
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(24, 1)]);
 
 beforeAll(async () => {
@@ -50,15 +52,16 @@ async function backdate(table: 'issue_events' | 'wallet_ledger', set: string, wh
 
 const issue = (who: string) =>
   http.post('/issues').set(as(who)).send({ category: 'road', subtype: 'Pothole', severity: 'dangerous', description: 'Deep pothole by the bus stop', clientRef: ref(), postcode: 'GH78J' }).expect(201).then((r) => r.body.id as string);
-const attach = async (who: string, ownerType: string, ownerId: string, bytes: Buffer, contentType: string, status = 200) => {
-  const reg = (await http.post('/media').set(as(who)).send({ ownerType, ownerId, contentType, sizeBytes: bytes.length }).expect(201)).body;
-  return http.put(reg.uploadUrl).set(as(who)).set('Content-Type', contentType).send(bytes).expect(status);
+const attach = async (who: string, ownerType: string, ownerId: string, bytes: Buffer, contentType: string, status = 200, extra: Record<string, unknown> = {}) => {
+  const reg = (await http.post('/media').set(as(who)).send({ ownerType, ownerId, contentType, sizeBytes: bytes.length, ...extra }).expect(201)).body;
+  return http.put(reg.uploadUrl).set(as(who)).set('Content-Type', contentType.split(';')[0]!).send(bytes).expect(status);
 };
 
 describe('file checks', () => {
   it('recognises files by their bytes, not their names', () => {
-    expect(sniff(JPEG)).toBe('image/jpeg');
-    expect(sniff(PNG)).toBe('image/png');
+    expect(sniff(JPEG)).toBe('jpeg');
+    expect(sniff(PNG)).toBe('png');
+    expect(sniff(WEBM)).toBe('webm');
     expect(sniff(Buffer.from('<svg onload=alert(1)>'))).toBeNull();
   });
 
@@ -120,6 +123,50 @@ describe('attachments', () => {
     const ev = await db.query(`select payload from incident_events where incident_id = $1 and kind = 'add_info'`, [inc.id]);
     expect(ev.rows[0].payload.label).toBe('Photo added');
     await http.post('/media').set(as('neighbour')).send({ ownerType: 'incident', ownerId: inc.id, contentType: 'image/png', sizeBytes: 10 }).expect(404);
+  });
+});
+
+describe('voice notes', () => {
+  it('takes a voice note on a tip and tells responders on a live report', async () => {
+    const tip = (
+      await http
+        .post('/tips')
+        .set(as('citizen'))
+        .send({ category: 'human_trafficking', description: 'Girls are kept in a house on Allen and moved at night by a white bus.', clientRef: ref(), postcode: 'CD34E' })
+        .expect(201)
+    ).body;
+    const up = (await attach('citizen', 'tip', tip.id, WEBM, 'audio/webm;codecs=opus', 200, { durationS: 14 })).body;
+    expect(up).toMatchObject({ kind: 'voice' });
+    expect((await http.get('/attachments').query({ ownerType: 'tip', ownerId: tip.id }).set(as('agencyAdmin'))).body[0]).toMatchObject({ kind: 'voice', contentType: 'audio/webm', durationS: 14 });
+
+    // Over two minutes, or bytes that are not audio, are refused.
+    expect((await http.post('/media').set(as('citizen')).send({ ownerType: 'tip', ownerId: tip.id, contentType: 'audio/webm', sizeBytes: 100, durationS: 200 }).expect(422)).body.message).toBe('Voice notes can be up to 2 minutes.');
+    await attach('citizen', 'tip', tip.id, JPEG, 'audio/webm', 422);
+
+    const inc = (await http.post('/incidents').set(as('citizen')).send({ type: 'fire', postcode: 'GH78J', clientRef: ref() }).expect(201)).body;
+    await attach('citizen', 'incident', inc.id, WEBM, 'audio/webm', 200, { durationS: 5 });
+    const ev = await db.query(`select payload from incident_events where incident_id = $1 and kind = 'add_info'`, [inc.id]);
+    expect(ev.rows[0].payload.label).toBe('Voice note added');
+  });
+});
+
+describe('picking a building', () => {
+  it('lists buildings with postcodes around a point, and they resolve when a report uses them', async () => {
+    const r = (await http.get('/places/within?lat=6.60165&lng=3.35185&radius=60').set(as('citizen')).expect(200)).body;
+    expect(r.radiusM).toBe(60);
+    expect(r.buildings.length).toBeGreaterThan(3);
+    expect(r.buildings.every((b: any) => b.distanceM <= 60)).toBe(true);
+    expect(r.buildings.map((b: any) => b.distanceM)).toEqual([...r.buildings.map((b: any) => b.distanceM)].sort((a: number, b: number) => a - b));
+    const wide = (await http.get('/places/within?lat=6.60165&lng=3.35185&radius=250').set(as('citizen')).expect(200)).body;
+    expect(wide.buildings.length).toBeGreaterThan(r.buildings.length);
+    await http.get('/places/within?lat=6.6&lng=3.35&radius=900').set(as('citizen')).expect(400);
+
+    const pick = r.buildings[0];
+    expect((await http.get(`/places/lookup?postcode=${pick.postcode}`).set(as('citizen')).expect(200)).body).toMatchObject({ postcode: pick.postcode, lat: pick.lat });
+    const created = (
+      await http.post('/issues').set(as('citizen')).send({ category: 'road', subtype: 'Pothole', severity: 'small', description: 'Pothole outside the gate', clientRef: ref(), postcode: pick.postcode }).expect(201)
+    ).body;
+    expect((await http.get(`/issues/${created.id}`).set(as('citizen'))).body.place).toContain(pick.postcode);
   });
 });
 

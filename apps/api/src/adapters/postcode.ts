@@ -19,6 +19,8 @@ export type Level = 'state' | 'lga' | 'district' | 'area' | 'building';
 export interface PostcodeAdapter {
   lookup(postcode: string): Promise<Building | null>;
   nearest(lat: number, lng: number, radiusM?: number): Promise<Building | null>;
+  /** Every building with a digital postcode within radiusM (NIPOST caps searches at 250 m), nearest first. */
+  within(lat: number, lng: number, radiusM: number): Promise<Array<Building & { distanceM: number }>>;
   children(level: Level, parentId: string | null): Promise<Array<{ id: string; name: string }>>;
 }
 
@@ -46,6 +48,52 @@ function metres(aLat: number, aLng: number, bLat: number, bLng: number): number 
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+// ---- Development buildings. NIPOST assigns a digital postcode to every building; the mock
+// stands one up on most cells of a ~28 m grid around any point, so the picker works wherever
+// it is tried. Postcodes encode their cell, so a lookup after a restart still resolves them.
+const STEP = 0.00025;
+const b36 = (n: number, w: number) => n.toString(36).toUpperCase().padStart(w, '0').slice(-w);
+const hash = (i: number, j: number) => {
+  let h = (i * 73856093) ^ (j * 19349663);
+  h = Math.imul(h ^ (h >>> 13), 0x5bd1e995);
+  return (h ^ (h >>> 15)) >>> 0;
+};
+const stateOf = (lat: number, lng: number) => (lat > 6.2 && lat < 6.8 && lng > 2.7 && lng < 4.4 ? 'LA' : lat > 8.8 && lat < 9.3 && lng > 7.1 && lng < 7.7 ? 'FC' : 'NG');
+
+function devBuilding(i: number, j: number): Building | null {
+  const h = hash(i, j);
+  if (h % 10 >= 6) return null; // open ground, roads and yards between buildings
+  const lat = (i + 0.2 + ((h >>> 4) % 60) / 100) * STEP;
+  const lng = (j + 0.2 + ((h >>> 10) % 60) / 100) * STEP;
+  const state = stateOf(lat, lng);
+  const code = `${b36(i % 1296, 2)}${b36(j % 1296, 2)}`;
+  let area = 'Near you';
+  let best = 3000;
+  for (const s of SAMPLE) {
+    const d = metres(lat, lng, s.lat, s.lng);
+    if (d < best) [area, best] = [s.areaLabel, d];
+  }
+  return {
+    postcode: `${state}${b36(i, 4)}${b36(j, 4)}`,
+    name: code,
+    address: `Building ${code}`,
+    stateId: state,
+    lgaId: `${state}-DEV`,
+    districtId: `${state}-DEV-${b36(Math.floor(i / 200), 2)}`,
+    areaId: `${state}-DEV-${b36(Math.floor(i / 40), 3)}${b36(Math.floor(j / 40), 3)}`,
+    areaLabel: area,
+    lat,
+    lng,
+  };
+}
+
+function devLookup(pc: string): Building | null {
+  const m = /^(LA|FC|NG)([0-9A-Z]{4})([0-9A-Z]{4})$/.exec(pc);
+  if (!m) return null;
+  const b = devBuilding(parseInt(m[2]!, 36), parseInt(m[3]!, 36));
+  return b?.postcode === pc ? b : null;
+}
+
 export class MockPostcodeAdapter implements PostcodeAdapter {
   /** Set true to simulate "The address service is not responding." */
   down = false;
@@ -57,19 +105,33 @@ export class MockPostcodeAdapter implements PostcodeAdapter {
   async lookup(postcode: string) {
     this.guard();
     const pc = postcode.replace(/\s+/g, '').toUpperCase();
-    return SAMPLE.find((b) => b.postcode === pc) ?? null;
+    return SAMPLE.find((b) => b.postcode === pc) ?? devLookup(pc);
   }
 
   async nearest(lat: number, lng: number, radiusM = 25) {
+    return (await this.within(lat, lng, Math.min(radiusM, 250)))[0] ?? null;
+  }
+
+  async within(lat: number, lng: number, radiusM: number) {
     this.guard();
-    const cap = Math.min(radiusM, 250); // NIPOST nearest search caps at 250 m
-    let best: Building | null = null;
-    let bestD = Infinity;
+    const r = Math.min(Math.max(radiusM, 10), 250);
+    const out: Array<Building & { distanceM: number }> = [];
     for (const b of SAMPLE) {
       const d = metres(lat, lng, b.lat, b.lng);
-      if (d <= cap && d < bestD) [best, bestD] = [b, d];
+      if (d <= r) out.push({ ...b, distanceM: Math.round(d) });
     }
-    return best;
+    const span = Math.ceil(r / 27) + 1;
+    const ci = Math.floor(lat / STEP);
+    const cj = Math.floor(lng / STEP);
+    for (let i = ci - span; i <= ci + span; i++) {
+      for (let j = cj - span; j <= cj + span; j++) {
+        const b = devBuilding(i, j);
+        if (!b) continue;
+        const d = metres(lat, lng, b.lat, b.lng);
+        if (d <= r) out.push({ ...b, distanceM: Math.round(d) });
+      }
+    }
+    return out.sort((a, b) => a.distanceM - b.distanceM).slice(0, 60);
   }
 
   async children(level: Level, parentId: string | null) {

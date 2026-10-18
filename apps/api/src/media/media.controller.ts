@@ -11,6 +11,7 @@ const RegisterBody = z.object({
   ownerId: z.string().uuid(),
   contentType: z.string().max(60),
   sizeBytes: z.number().int().positive(),
+  durationS: z.number().int().min(0).max(600).optional(),
 });
 const ListQuery = z.object({ ownerType: Owner, ownerId: z.string().uuid() });
 

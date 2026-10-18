@@ -11,22 +11,45 @@ import { AppError } from '../core/http';
 
 export type OwnerType = 'tip' | 'issue_case' | 'incident';
 export const MAX_BYTES = 10 * 1024 * 1024; // States doc: up to [10] MB
-const TYPES: Record<string, 'photo' | 'video'> = {
+const TYPES: Record<string, 'photo' | 'video' | 'voice'> = {
   'image/jpeg': 'photo',
   'image/png': 'photo',
   'image/webp': 'photo',
   'video/mp4': 'video',
   'video/quicktime': 'video',
+  // Voice notes: Chrome and Android record WebM/Opus, Safari and iOS record MP4/AAC.
+  'audio/webm': 'voice',
+  'audio/mp4': 'voice',
+  'audio/ogg': 'voice',
+  'audio/mpeg': 'voice',
 };
+/** Which containers each declared type may actually be. */
+const CONTAINERS: Record<string, Container[]> = {
+  'image/jpeg': ['jpeg'],
+  'image/png': ['png'],
+  'image/webp': ['webp'],
+  'video/mp4': ['mp4', 'mov'],
+  'video/quicktime': ['mov', 'mp4'],
+  'audio/webm': ['webm'],
+  'audio/mp4': ['mp4'],
+  'audio/ogg': ['ogg'],
+  'audio/mpeg': ['mp3'],
+};
+export const MAX_VOICE_SECONDS = 120;
 const PER_OWNER = 6;
 const TOO_BIG = 'This file is too large or not supported.';
 
+type Container = 'jpeg' | 'png' | 'webp' | 'mp4' | 'mov' | 'webm' | 'ogg' | 'mp3';
+
 /** The file's own header must match the type it claims (never trust the name or header). */
-export function sniff(b: Buffer): string | null {
-  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
-  if (b.length > 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
-  if (b.length > 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
-  if (b.length > 12 && b.toString('ascii', 4, 8) === 'ftyp') return b.toString('ascii', 8, 10) === 'qt' ? 'video/quicktime' : 'video/mp4';
+export function sniff(b: Buffer): Container | null {
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpeg';
+  if (b.length > 8 && b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'png';
+  if (b.length > 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return 'webp';
+  if (b.length > 12 && b.toString('ascii', 4, 8) === 'ftyp') return b.toString('ascii', 8, 10) === 'qt' ? 'mov' : 'mp4';
+  if (b.length > 4 && b.readUInt32BE(0) === 0x1a45dfa3) return 'webm';
+  if (b.length > 4 && b.toString('ascii', 0, 4) === 'OggS') return 'ogg';
+  if (b.length > 3 && (b.toString('ascii', 0, 3) === 'ID3' || (b[0] === 0xff && (b[1]! & 0xe0) === 0xe0))) return 'mp3';
   return null;
 }
 
@@ -89,17 +112,20 @@ export class MediaService {
     return null;
   }
 
-  async register(p: Principal, b: { ownerType: OwnerType; ownerId: string; contentType: string; sizeBytes: number }) {
-    const kind = TYPES[b.contentType];
+  async register(p: Principal, b: { ownerType: OwnerType; ownerId: string; contentType: string; sizeBytes: number; durationS?: number }) {
+    // "audio/webm;codecs=opus" is still a WebM voice note.
+    const contentType = b.contentType.split(';')[0]!.trim().toLowerCase();
+    const kind = TYPES[contentType];
     if (!kind || b.sizeBytes <= 0 || b.sizeBytes > MAX_BYTES) throw new AppError(422, 'file_rejected', TOO_BIG);
+    if (kind === 'voice' && (b.durationS ?? 0) > MAX_VOICE_SECONDS) throw new AppError(422, 'file_rejected', 'Voice notes can be up to 2 minutes.');
     if (!(await this.access(p, b.ownerType, b.ownerId, true))) throw new AppError(404, 'not_found', 'You cannot add files here.');
     const count = (await this.db.query(`select count(*)::int as n from media where owner_type = $1 and owner_id = $2 and uploader_id = $3 and state <> 'rejected'`, [b.ownerType, b.ownerId, p.userId])).rows[0].n;
     if (count >= PER_OWNER) throw new AppError(422, 'too_many_files', `You can add up to ${PER_OWNER} files here.`);
     const key = `${b.ownerType}/${b.ownerId}/${createHash('sha256').update(`${p.userId}${Date.now()}${Math.random()}`).digest('hex').slice(0, 24)}`;
     const m = (
       await this.db.query(
-        `insert into media (owner_type, owner_id, uploader_id, kind, content_type, size_bytes, storage_key) values ($1, $2, $3, $4, $5, $6, $7) returning id`,
-        [b.ownerType, b.ownerId, p.userId, kind, b.contentType, b.sizeBytes, key],
+        `insert into media (owner_type, owner_id, uploader_id, kind, content_type, size_bytes, storage_key, duration_s) values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+        [b.ownerType, b.ownerId, p.userId, kind, contentType, b.sizeBytes, key, kind === 'photo' ? null : (b.durationS ?? null)],
       )
     ).rows[0];
     return { id: m.id, uploadUrl: `/media/${m.id}/content`, method: 'PUT', maxBytes: MAX_BYTES };
@@ -109,12 +135,12 @@ export class MediaService {
     const m = (await this.db.query(`select * from media where id = $1 and uploader_id = $2`, [id, p.userId])).rows[0];
     if (!m || m.state !== 'pending') throw new AppError(404, 'not_found', 'Upload not found.');
     const real = sniff(bytes);
-    const typeOk = real === m.content_type || (m.kind === 'video' && real?.startsWith('video/'));
+    const typeOk = !!real && (CONTAINERS[m.content_type] ?? []).includes(real);
     if (!real || !typeOk || bytes.length > MAX_BYTES) {
       await this.db.query(`update media set state = 'rejected' where id = $1`, [id]);
       throw new AppError(422, 'file_rejected', TOO_BIG);
     }
-    const clean = real === 'image/jpeg' ? stripJpegMetadata(bytes) : bytes;
+    const clean = real === 'jpeg' ? stripJpegMetadata(bytes) : bytes;
     await this.db.tx(async (c) => {
       await c.query(`insert into media_blobs (storage_key, bytes) values ($1, $2)`, [m.storage_key, clean]);
       await c.query(`update media set state = 'ready', size_bytes = $2, sha256 = $3 where id = $1`, [id, clean.length, createHash('sha256').update(clean).digest('hex')]);
@@ -123,7 +149,7 @@ export class MediaService {
         await c.query(`insert into incident_events (incident_id, actor_id, actor_kind, kind, payload, public) values ($1, $2, 'reporter', 'add_info', $3, true)`, [
           m.owner_id,
           p.userId,
-          { label: m.kind === 'photo' ? 'Photo added' : 'Video added', mediaId: id },
+          { label: m.kind === 'photo' ? 'Photo added' : m.kind === 'voice' ? 'Voice note added' : 'Video added', mediaId: id },
         ]);
       }
     });
@@ -135,10 +161,10 @@ export class MediaService {
     const who = await this.access(p, ownerType, ownerId);
     if (!who) throw new AppError(404, 'not_found', 'Not found.');
     const r = await this.db.query(
-      `select id, kind, content_type, size_bytes, created_at, uploader_id = $3 as mine from media where owner_type = $1 and owner_id = $2 and state = 'ready' order by created_at`,
+      `select id, kind, content_type, size_bytes, duration_s, created_at, uploader_id = $3 as mine from media where owner_type = $1 and owner_id = $2 and state = 'ready' order by created_at`,
       [ownerType, ownerId, p.userId],
     );
-    return r.rows.map((m) => ({ id: m.id, kind: m.kind, contentType: m.content_type, sizeBytes: m.size_bytes, mine: m.mine, at: m.created_at, url: `/media/${m.id}/content` }));
+    return r.rows.map((m) => ({ id: m.id, kind: m.kind, contentType: m.content_type, sizeBytes: m.size_bytes, durationS: m.duration_s, mine: m.mine, at: m.created_at, url: `/media/${m.id}/content` }));
   }
 
   /** Bytes for viewing. Staff views are written to the audit log (each look is logged). */

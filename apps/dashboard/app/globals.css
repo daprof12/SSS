@@ -1204,3 +1204,18 @@ input[type='text'] {
 [data-motion='reduced'] .evidence-grid li {
   animation: none;
 }
+.evidence-voice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  border-radius: 10px;
+  background: var(--color-surface-sunken);
+  font-size: var(--text-sm);
+}
+.evidence-voice audio {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+}

@@ -4,6 +4,7 @@ import { POSTCODE, PostcodeUnavailable, type PostcodeAdapter } from '../adapters
 import { AppError, ZodPipe } from '../core/http';
 
 const Nearest = z.object({ lat: z.coerce.number().min(-90).max(90), lng: z.coerce.number().min(-180).max(180) });
+const Within = Nearest.extend({ radius: z.coerce.number().int().min(10).max(250).default(100) });
 const LevelP = z.enum(['state', 'lga', 'district', 'area', 'building']);
 
 /** Wraps the postcode adapter — five cascading levels plus lookup (Wireframes: location filter). */
@@ -35,6 +36,16 @@ export class PlacesController {
     const b = await this.safe(() => this.postcode.nearest(q.lat, q.lng, 50));
     if (!b) throw new AppError(404, 'no_building_nearby', 'We could not find a building here. Type your postcode instead.');
     return b;
+  }
+
+  /** "Pick your building": every building with a postcode around a point, nearest first. */
+  @Get('within')
+  async within(@Query(new ZodPipe(Within)) q: z.infer<typeof Within>) {
+    const list = await this.safe(() => this.postcode.within(q.lat, q.lng, q.radius));
+    return {
+      radiusM: Math.min(q.radius, 250),
+      buildings: list.map((b) => ({ postcode: b.postcode, label: b.name ?? b.postcode, address: b.address, area: b.areaLabel, lat: b.lat, lng: b.lng, distanceM: b.distanceM })),
+    };
   }
 
   @Get('levels/:level')

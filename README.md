@@ -119,7 +119,7 @@ One installable app; the signed-in person decides the surface. Sign in with a de
 
 **Test-only screens:** while Paystack is mocked, `/pay/[ref]` stands in for the hosted checkout and the transfer screen has a "simulate arrival" button. Both are hidden in production builds.
 
-**Not built yet** (rows say "Soon" or open a "Coming next" page): Learn, tips, donations, withdraw, security, discreet mode, language, officer history and field reports, protected calling and messaging, and voice notes.
+**Not built yet** (rows say "Soon" or open a "Coming next" page): Learn, donations, withdraw, security, discreet mode, language, officer history and field reports, and protected calling and messaging.
 
 ## Sign-in and onboarding
 
@@ -224,3 +224,22 @@ The recipient bears the transfer fee (decided 2026-10-18; `transferFee` in `@erp
 - The approve sheet shows the amount to the tipper, the fee, and the total from the pool. Waiting claims, the "Pool low" check and pool activity all include the fee.
 
 **Not built yet:** the "Bounty and wallet oversight" tabs (Pools, Claims, Disputes, Ledger, and the Paystack mismatch check).
+
+## Picking a building, and voice notes
+
+**Pick your building** (`components/reports/BuildingPicker.tsx`). Wherever a report asks "Where", the user picks a building's NIPOST digital postcode on the map instead of typing one:
+- It finds the user's location and shows a satellite map (or street map) with the GPS accuracy circle and a search circle. A slider sets the search radius, 25–250 m (NIPOST's cap).
+- Every building with a postcode in the circle has a label. Labels that would overlap become small dots that can still be tapped, and a list view gives the same choices.
+- Tapping a building selects it and shows the postcode with a copy button. "Use this spot" sends the map point without a postcode when the building has none yet. Tapping open ground moves the search there.
+- `GET /places/within?lat&lng&radius` returns the buildings, nearest first, through the postcode adapter's new `within()`.
+
+The mock adapter places a stable building on most cells of a ~28 m grid around any point, so the picker works anywhere in development. Its postcodes encode their cell (e.g. `LA 0KDI 0ACF`), so lookups and reports resolve them. Map tiles are Esri World Imagery and World Street Map until a maps provider is chosen; `NEXT_PUBLIC_TILES_SATELLITE` and `NEXT_PUBLIC_TILES_MAP` swap them.
+
+**Voice notes** (migration 012). Alongside photo and video, "Voice note" records with the microphone:
+- WebM/Opus on Chrome and Android, MP4/AAC on Safari and iOS.
+- A live timer and level bars, cancel and done, and an automatic stop at 2 minutes.
+- Tap a voice tile to hear it before sending.
+
+The API takes `audio/webm`, `audio/mp4`, `audio/ogg` and `audio/mpeg`, checks the container from the file's bytes, and stores the length. A note on a live report adds "Voice note added" to the response log. Voice notes play back on the citizen's report, the officer's incident and the agency's tip and issue pages.
+
+The new-tip form now takes photos, video and voice notes too; they upload after the tip is created. My tips and My public issues go back to Activity.
