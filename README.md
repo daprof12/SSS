@@ -119,7 +119,7 @@ One installable app; the signed-in person decides the surface. Sign in with a de
 
 **Test-only screens:** while Paystack is mocked, `/pay/[ref]` stands in for the hosted checkout and the transfer screen has a "simulate arrival" button. Both are hidden in production builds.
 
-**Not built yet** (rows say "Soon" or open a "Coming next" page): Donations, withdraw, security (citizen), discreet mode, language, and protected calling and messaging.
+**Not built yet** (rows say "Soon" or open a "Coming next" page): Donations, security (citizen), discreet mode, language, and protected calling and messaging.
 
 ## Sign-in and onboarding
 
@@ -301,4 +301,34 @@ These follow the officer boards (`apps/api/src/officers/work.*`, migration 014).
 
 Development seeds a week of demo shifts for both officers.
 
-**Not built yet:** rewards paid from ratings (the detail shows them once they exist), withdraw (officer and citizen), a station-dashboard view of field reports, and teams smaller than a station.
+**Not built yet:** rewards paid from ratings (the detail shows them once they exist), a station-dashboard view of field reports, and teams smaller than a station.
+
+## Withdrawals (citizens and officers)
+
+Wallet → Withdraw, and Wallet → Bank account (`apps/api/src/wallet/withdrawals.service.ts`, migration 015). One flow serves both apps.
+
+**Bank account:**
+- A bank (Paystack codes in `NIGERIAN_BANKS`) and a 10-digit account number.
+- The account is looked up as soon as it is complete, and the bank's name for it is shown.
+- It is saved only when it matches the verified name from the identity check ("This account name does not match your verified name."). Officers' ranks are not part of that name.
+- Changing it needs the PIN, is blocked while a withdrawal is in progress, and sends a security notification.
+
+**PIN:**
+- 4 digits, set in the flow and entered twice. Same-digit and in-a-row PINs are refused.
+- 5 wrong tries lock it for 30 minutes. Wrong tries are counted outside the transaction.
+- It is stored as a salted, peppered scrypt hash.
+
+**Withdrawing:**
+- **Amount:** quick amounts and All. The quote applies the minimum, the available balance (held bounties and rewards excluded) and the daily limit, using the States doc messages.
+- **Confirm:** "Withdraw [Amount] to [Bank], ending [0000]? It arrives within 24 hours." with the transfer fee (the recipient bears it, as for payouts), then the PIN pad.
+- **First withdrawal:** the first one to an account waits 24 hours as "Scheduled". The scheduled job then sends it.
+- **Later withdrawals:** sent at once.
+- **Ledger:** the wallet is debited when the withdrawal is requested.
+- **Paystack:** the signed `transfer.success` marks it arrived ("[Amount] reached [Bank].") and trusts the account. `transfer.failed` refunds it in the same balanced journal ("Your withdrawal failed and the money is back in your wallet.").
+- Repeat requests with the same idempotency key are ignored, and every step is audited.
+
+**Development:**
+- The mock bank lookup returns the verified name for any number, someone else's name for numbers ending 0000, and "not found" for numbers ending 9999.
+- `POST /dev/paystack/withdrawal/:id?outcome=success|failed` stands in for the transfer webhook.
+
+**Not built yet:** a real Paystack adapter (resolve, recipients, transfers), PIN reset by OTP when forgotten, and an admin view of withdrawals.

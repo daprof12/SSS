@@ -12,7 +12,7 @@ type Surface = 'citizen' | 'officer';
 
 /** Signs the person in to the right surface, applies their saved appearance, draws the tab bar. */
 // Full-screen flows (reporting, live status, payment, offers) hide the tab bar.
-const NO_BAR = ['/welcome', '/learn/interests', '/tips/', '/issues/', '/officer/tips/', '/officer/issues/', '/report', '/reports/', '/pay/', '/wallet/fund', '/wallet/confirm', '/officer/offers/', '/officer/incidents/'];
+const NO_BAR = ['/welcome', '/learn/interests', '/tips/', '/issues/', '/officer/tips/', '/officer/issues/', '/report', '/reports/', '/pay/', '/wallet/fund', '/wallet/confirm', '/wallet/withdraw', '/wallet/bank', '/officer/wallet/withdraw', '/officer/wallet/bank', '/officer/offers/', '/officer/incidents/'];
 
 export function AppFrame({ surface, children }: { surface: Surface; children: React.ReactNode }) {
   const router = useRouter();

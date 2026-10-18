@@ -5,6 +5,7 @@ import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } f
 import { CONFIG, type AppConfig } from '../core/config';
 import { Db } from '../core/db';
 import { notify } from '../reports/shared';
+import { WithdrawalsService } from '../wallet/withdrawals.service';
 
 const EVERY_MS = 5 * 60 * 1000;
 
@@ -16,6 +17,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(Db) private readonly db: Db,
     @Inject(CONFIG) private readonly config: AppConfig,
+    @Inject(WithdrawalsService) private readonly withdrawals: WithdrawalsService,
   ) {}
 
   onModuleInit() {
@@ -30,7 +32,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async runAll() {
-    return { fixSilence: await this.fixSilence(), bountyRelease: await this.bountyRelease() };
+    return { fixSilence: await this.fixSilence(), bountyRelease: await this.bountyRelease(), withdrawalsReleased: await this.withdrawals.releaseHeld() };
   }
 
   /** Public issues: no reporter said "not fixed" within FIX_SILENCE_DAYS of the fix, so it is fixed. */

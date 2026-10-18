@@ -43,6 +43,7 @@ import { BriefController } from './reports/brief.controller';
 import { BriefService } from './reports/brief.service';
 import { WalletController } from './wallet/wallet.controller';
 import { WalletService } from './wallet/wallet.service';
+import { WithdrawalsService } from './wallet/withdrawals.service';
 
 @Public()
 @Controller('health')
@@ -90,6 +91,7 @@ export class AppModule {
         IncidentRepo,
         IncidentsService,
         WalletService,
+        WithdrawalsService,
         OfficersService,
         OfficerWorkService,
         TipsService,

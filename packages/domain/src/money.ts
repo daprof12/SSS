@@ -82,3 +82,50 @@ export function transferFee(grossKobo: number): number {
   if (grossKobo <= 5_000_000) return 2_500; // ₦25 up to ₦50,000
   return 5_000; // ₦50 above
 }
+
+/** Banks and wallets people withdraw to, with Paystack bank codes. */
+export const NIGERIAN_BANKS = [
+  { code: '044', name: 'Access Bank' },
+  { code: '023', name: 'Citibank' },
+  { code: '050', name: 'Ecobank' },
+  { code: '070', name: 'Fidelity Bank' },
+  { code: '011', name: 'First Bank' },
+  { code: '214', name: 'FCMB' },
+  { code: '058', name: 'GTBank' },
+  { code: '030', name: 'Heritage Bank' },
+  { code: '082', name: 'Keystone Bank' },
+  { code: '50211', name: 'Kuda' },
+  { code: '50515', name: 'Moniepoint' },
+  { code: '999992', name: 'OPay' },
+  { code: '999991', name: 'PalmPay' },
+  { code: '076', name: 'Polaris Bank' },
+  { code: '221', name: 'Stanbic IBTC' },
+  { code: '232', name: 'Sterling Bank' },
+  { code: '033', name: 'UBA' },
+  { code: '032', name: 'Union Bank' },
+  { code: '215', name: 'Unity Bank' },
+  { code: '035', name: 'Wema Bank' },
+  { code: '057', name: 'Zenith Bank' },
+] as const;
+export const bankName = (code: string) => NIGERIAN_BANKS.find((b) => b.code === code)?.name ?? 'Bank';
+
+/** NUBAN: 10 digits (States doc "Bank account: 10 digits, name must match the verified name"). */
+export const isNuban = (n: string) => /^\d{10}$/.test(n);
+
+/** Money-out rules (Rewards doc: "a delay on the first one"; States doc "arrives within [n] hours"). */
+export const WITHDRAWAL_RULES = {
+  /** The first withdrawal, or the first to a newly added account, waits this long before it is sent. */
+  firstHoldHours: 24,
+  arrivesWithinHours: 24,
+  pinLength: 4,
+  pinMaxTries: 5,
+  pinLockMinutes: 30,
+} as const;
+
+/** A 4-digit PIN that is not trivially guessed. */
+export function checkPin(pin: string): string | null {
+  if (!new RegExp(`^\\d{${WITHDRAWAL_RULES.pinLength}}$`).test(pin)) return `Use ${WITHDRAWAL_RULES.pinLength} digits.`;
+  if (/^(\d)\1+$/.test(pin)) return 'Avoid the same digit four times.';
+  if ('0123456789'.includes(pin) || '9876543210'.includes(pin)) return 'Avoid digits in a row, like 1234.';
+  return null;
+}

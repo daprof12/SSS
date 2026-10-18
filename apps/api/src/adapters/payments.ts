@@ -44,6 +44,10 @@ export interface PaymentsAdapter {
   initialize(input: InitInput): Promise<InitResult>;
   /** Queues a transfer. The outcome arrives later as a signed transfer.* webhook. */
   transfer(input: TransferInput): Promise<{ transferCode: string }>;
+  /** Paystack "Resolve account number": the name the bank holds for this account, or null if none. */
+  resolveAccount(bankCode: string, accountNumber: string, devHint?: string): Promise<{ accountName: string } | null>;
+  /** Paystack "Create transfer recipient", used for every later transfer to this account. */
+  createRecipient(input: { name: string; accountNumber: string; bankCode: string }): Promise<{ recipientCode: string }>;
   verifySignature(rawBody: Buffer, signature: string | undefined): boolean;
 }
 
@@ -72,6 +76,20 @@ export class MockPaystackAdapter implements PaymentsAdapter {
   }
 
   private readonly transfers = new Map<string, TransferInput & { transferCode: string }>();
+
+  /**
+   * Development only: any 10-digit number resolves to the name the caller expects, except numbers
+   * ending in 0000 (someone else's account) and 9999 (no such account), so both failures can be tried.
+   */
+  async resolveAccount(_bankCode: string, accountNumber: string, devHint?: string) {
+    if (accountNumber.endsWith('9999')) return null;
+    if (accountNumber.endsWith('0000')) return { accountName: 'CHINEDU OKAFOR TRADING' };
+    return { accountName: (devHint ?? 'ACCOUNT HOLDER').toUpperCase() };
+  }
+
+  async createRecipient(input: { name: string; accountNumber: string; bankCode: string }) {
+    return { recipientCode: `RCP_${input.bankCode}_${input.accountNumber.slice(-4)}_${randomBytes(3).toString('hex')}` };
+  }
 
   async transfer(input: TransferInput): Promise<{ transferCode: string }> {
     const transferCode = `TRF_${randomBytes(6).toString('hex')}`;

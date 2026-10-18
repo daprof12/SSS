@@ -1,9 +1,10 @@
 // Fund wallet — UX Gap Analysis §9. Credit happens only in handleWebhook.
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { checkFund, formatNaira, kobo, naira, type WalletLimits } from '@erp/domain';
+import { checkFund, formatNaira, kobo } from '@erp/domain';
 import { PAYMENTS, newReference, type ChargeEvent, type PayMethod, type PaymentsAdapter, type TransferEvent } from '../adapters/payments';
 import { PayoutsService } from '../agencies/payouts.service';
+import { WithdrawalsService } from './withdrawals.service';
 import { AgencyBillingService } from '../agencies/billing.service';
 import { creditPool, poolFundFailed } from '../reports/bounties.service';
 import { Audit } from '../core/audit';
@@ -11,13 +12,8 @@ import type { Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
 
-// Placeholders until pricing is settled — held as config, not code (PRD).
-export const WALLET_LIMITS: WalletLimits = {
-  minFund: naira(100),
-  maxFundPerTxn: naira(500_000),
-  minWithdraw: naira(1_000),
-  dailyWithdrawLimit: naira(200_000),
-};
+export { WALLET_LIMITS } from './limits';
+import { WALLET_LIMITS } from './limits';
 
 @Injectable()
 export class WalletService {
@@ -29,6 +25,7 @@ export class WalletService {
     @Inject(PAYMENTS) private readonly payments: PaymentsAdapter,
     @Inject(AgencyBillingService) private readonly agencyBilling: AgencyBillingService,
     @Inject(PayoutsService) private readonly payouts: PayoutsService,
+    @Inject(WithdrawalsService) private readonly withdrawals: WithdrawalsService,
   ) {}
 
   async walletId(userId: string, c: Queryable = this.db.pool): Promise<string> {
@@ -155,7 +152,9 @@ export class WalletService {
       );
       if (!stored.rowCount) return { ok: true as const, duplicate: true };
       if (event.event.startsWith('transfer.')) {
-        await this.payouts.onTransfer(c, event as TransferEvent);
+        const tr = event as TransferEvent;
+        if (tr.data.reference.startsWith('wd:')) await this.withdrawals.onTransfer(c, tr);
+        else await this.payouts.onTransfer(c, tr);
         await c.query(`update webhook_events set processed_at = now() where provider = 'paystack' and event_id = $1`, [String(event.data.id)]);
         return { ok: true as const };
       }

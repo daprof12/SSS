@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   agencyHandles,
+  bankName,
+  checkPin,
+  isNuban,
   subRatings,
   checkLearnPost,
   learnPostMachine,
@@ -397,5 +400,17 @@ describe('officer sub-ratings', () => {
     ]);
     expect(r).toMatchObject({ overall: 4, count: 3, arrival: 4.2, care: 4.2, communication: 4 });
     expect(subRatings([])).toMatchObject({ overall: null, count: 0 });
+  });
+});
+
+describe('withdrawal rules', () => {
+  it('checks NUBAN and PIN strength', () => {
+    expect(isNuban('0123456789')).toBe(true);
+    expect(isNuban('12345')).toBe(false);
+    expect(checkPin('1234')).toBe('Avoid digits in a row, like 1234.');
+    expect(checkPin('7777')).toBe('Avoid the same digit four times.');
+    expect(checkPin('12a4')).toBe('Use 4 digits.');
+    expect(checkPin('4821')).toBeNull();
+    expect(bankName('058')).toBe('GTBank');
   });
 });

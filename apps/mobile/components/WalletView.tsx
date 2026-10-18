@@ -73,7 +73,7 @@ export function WalletView({ base, back, tabs, canFund }: { base: string; back: 
       </div>
       {w && (
         <div className="list">
-          <div className="row" style={{ cursor: 'default' }}>
+          <Link href={`${base}/bank`} className="row">
             <span className="icon">
               <Icon name="shield" />
             </span>
@@ -81,7 +81,8 @@ export function WalletView({ base, back, tabs, canFund }: { base: string; back: 
               <strong>{w.bank ? `${w.bank.bankName}, ending ${w.bank.lastFour}` : 'No bank account yet'}</strong>
               <span className="sub">{w.bank ? (w.bank.nameMatches ? 'Name matches your verified identity' : 'Name does not match your ID') : 'Add an account in your own name to withdraw'}</span>
             </span>
-          </div>
+            <span className="link-btn">{w.bank ? 'Change' : 'Add'}</span>
+          </Link>
         </div>
       )}
       {w && w.pendingFunding.length > 0 && (
