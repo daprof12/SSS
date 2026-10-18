@@ -124,7 +124,7 @@ describe('tips', () => {
     const r = (await tip('neighbour').expect(201)).body;
     await act(r.id, { event: 'outcome_recorded', outcome: 'arrest' }).expect(201);
     await db.query(`update bounty_rates set cap_kobo = 999999999999 where agency_id = $1`, [seed.naptipId]);
-    expect((await act(r.id, { event: 'approve', amountKobo: 900000000 }).expect(409)).body.message).toMatch(/^Your pool has ₦[\d,.]+\. Add funds before approving\.$/);
+    expect((await act(r.id, { event: 'approve', amountKobo: 900000000 }).expect(409)).body.message).toMatch(/^Your pool has ₦[\d,.]+\. This bounty and the 10% platform fee need ₦[\d,.]+\. Add funds before approving\.$/);
   });
 
   it('lets the tipper withdraw, and lowers trust for a false tip', async () => {

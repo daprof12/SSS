@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   agencyHandles,
+  bountyFee,
+  checkFeeSettings,
+  effectiveFeeBps,
+  percent,
   transferFee,
   bountyRangeText,
   suggestBounty,
@@ -340,5 +344,22 @@ describe('payout fees', () => {
     expect(transferFee(500_000)).toBe(1_000);
     expect(transferFee(500_100)).toBe(2_500);
     expect(transferFee(100_000_000)).toBe(5_000);
+  });
+});
+
+describe('platform fee on bounties', () => {
+  const s = { suggestedBps: 1000, minBps: 500, maxBps: 2000 };
+  it('uses the agency choice inside the range, else the suggestion', () => {
+    expect(effectiveFeeBps(s, null)).toBe(1000);
+    expect(effectiveFeeBps(s, 700)).toBe(700);
+    expect(effectiveFeeBps(s, 100)).toBe(500); // range raised after the agency chose
+    expect(effectiveFeeBps(s, 9000)).toBe(2000);
+    expect(bountyFee(10_000_000, 1000)).toBe(1_000_000);
+    expect(percent(750)).toBe('7.5%');
+  });
+  it('validates admin settings', () => {
+    expect(checkFeeSettings(s)).toEqual({ ok: true });
+    expect(checkFeeSettings({ ...s, suggestedBps: 3000 })).toMatchObject({ ok: false, field: 'suggestedBps' });
+    expect(checkFeeSettings({ ...s, minBps: 2500 })).toMatchObject({ ok: false, field: 'maxBps' });
   });
 });

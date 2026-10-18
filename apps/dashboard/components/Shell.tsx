@@ -24,6 +24,7 @@ const AGENCY_BUILT: Record<string, NavItem> = {
 
 const ADMIN_BUILT: Record<string, NavItem> = {
   Donations: { label: 'Donations and payouts', href: '/admin/payouts', built: true },
+  Settings: { label: 'Settings', href: '/admin/settings', built: true },
 };
 
 // Sidebar orders from the Public Issues doc: Settings last, Messaging above it.

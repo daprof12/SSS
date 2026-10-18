@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@erp/web-ui/api';
 import { AgencySwitcher, WithAgency, dateTime, useToast, type MyAgency } from '@/components/Agency';
-import { FundSheet, RateSheet, naira, type PoolSummary } from '@/components/BountyPool';
+import { FeeSheet, FundSheet, RateSheet, naira, type PoolSummary } from '@/components/BountyPool';
 import { TipStateChip, outcomeLabel } from '@/components/IssueChips';
 
 interface TipRow {
@@ -51,7 +51,7 @@ function Bounties({ agency }: { agency: MyAgency }) {
   const [data, setData] = useState<Partial<Record<Tab, TipRow[]>>>({});
   const [error, setError] = useState<ApiError | null>(null);
   const [pool, setPool] = useState<PoolSummary | null>(null);
-  const [sheet, setSheet] = useState<{ kind: 'fund' } | { kind: 'rate'; category: string } | null>(null);
+  const [sheet, setSheet] = useState<{ kind: 'fund' } | { kind: 'fee' } | { kind: 'rate'; category: string } | null>(null);
   const [toast, setToast] = useToast();
   const [n, setN] = useState(0);
   const reload = () => setN((x) => x + 1);
@@ -105,6 +105,18 @@ function Bounties({ agency }: { agency: MyAgency }) {
             reload();
           }}
           onFunded={(m) => {
+            setSheet(null);
+            setToast(m);
+            reload();
+          }}
+        />
+      )}
+      {sheet?.kind === 'fee' && pool && (
+        <FeeSheet
+          agencyId={agency.id}
+          fee={pool.fee}
+          onClose={() => setSheet(null)}
+          onSaved={(m) => {
             setSheet(null);
             setToast(m);
             reload();
@@ -195,6 +207,12 @@ function Bounties({ agency }: { agency: MyAgency }) {
                 Add or change a rate
               </button>
             </div>
+            <p className="muted" style={{ margin: '8px 0 0' }}>
+              Platform fee {pool.fee.label} of each bounty, paid from the pool on top{pool.fee.chosenBps == null ? ' (suggested)' : ''}.{' '}
+              <button className="link-btn" type="button" onClick={() => setSheet({ kind: 'fee' })}>
+                Change
+              </button>
+            </p>
             <table className="table" style={{ marginTop: 12 }}>
               <thead>
                 <tr>

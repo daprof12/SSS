@@ -216,4 +216,11 @@ On the sheet, a platform admin can:
 
 The recipient bears the transfer fee (decided 2026-10-18; `transferFee` in `@erp/domain`: ₦10 / ₦25 / ₦50 by amount), so the bank receives gross minus fee. The Donations tab is a placeholder until donations exist.
 
-**Not built yet:** the platform fee of [%] on each bounty (still to be decided), and the "Bounty and wallet oversight" tabs (Pools, Claims, Disputes, Ledger, and the Paystack mismatch check).
+**Platform fee on bounties** (decided 2026-10-18, migration 011):
+- Platform admins set a suggested fee (10% to start) and the range agencies may choose within (5–20% to start), on Admin → Settings (`GET/PUT /admin/settings/bounty-fee`).
+- Each agency uses the suggestion, or picks its own within the range from its Bounties page (`PUT /agencies/:id/bounty-fee {bps | null}`).
+- If the range later excludes an agency's choice, the nearest limit applies, and the admin page lists those agencies.
+- On approval the fee is charged to the agency's pool on top of the bounty, so the tipper gets the full amount. It goes to a separate `platform_fees` wallet in the same balanced journal, and the claim records `fee_bps` and `fee_kobo`.
+- The approve sheet shows the amount to the tipper, the fee, and the total from the pool. Waiting claims, the "Pool low" check and pool activity all include the fee.
+
+**Not built yet:** the "Bounty and wallet oversight" tabs (Pools, Claims, Disputes, Ledger, and the Paystack mismatch check).

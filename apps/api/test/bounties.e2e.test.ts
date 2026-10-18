@@ -115,12 +115,15 @@ describe('funding the bounty pool', () => {
     await act({ event: 'outcome_recorded', outcome: 'rescue', severity: 'high' });
     let s = (await summary()).body;
     expect(s.claimsWaiting).toBe(1);
-    expect(s.pool.pendingClaimsKobo).toBe(40000000);
+    expect(s.pool.pendingClaimsKobo).toBe(44000000); // ₦400,000 bounty + 10% platform fee
     expect(s.pool.low).toBeNull();
     await act({ event: 'approve' });
     s = (await summary()).body;
     expect(s.paidThisMonth).toEqual({ kobo: 40000000, tips: 1 });
-    expect(s.history[0]).toMatchObject({ kind: 'paid', amountKobo: -40000000, label: `Bounty for tip ${tip.publicNo}` });
+    expect(s.history.slice(0, 2)).toEqual([
+      expect.objectContaining({ kind: 'fee', amountKobo: -4000000, label: `Platform fee, tip ${tip.publicNo}` }),
+      expect.objectContaining({ kind: 'paid', amountKobo: -40000000, label: `Bounty for tip ${tip.publicNo}` }),
+    ]);
     expect(s.tipsThisMonth).toBeGreaterThanOrEqual(1);
   });
 });
@@ -229,5 +232,60 @@ describe('payout queue for platform admins', () => {
     expect((await http.get('/admin/payouts?state=held').set(as('platformAdmin'))).body[0]).toMatchObject({ id, holdNote: 'Checking a dispute on tip T-1' });
     await http.post(`/admin/payouts/${id}/release`).set(as('platformAdmin')).expect(201);
     expect((await http.post(`/admin/payouts/${id}/approve`).set(as('platformAdmin')).expect(201)).body.state).toBe('processing');
+  });
+});
+
+describe('platform fee on bounties', () => {
+  const feeWallet = async () => Number((await db.query(`select coalesce(sum(l.amount_kobo), 0)::bigint as k from wallet_ledger l join wallets w on w.id = l.wallet_id where w.owner_type = 'platform_fees'`)).rows[0].k);
+
+  it('lets platform admins set the suggestion and range, with checks', async () => {
+    await http.get('/admin/settings/bounty-fee').set(as('agencyAdmin')).expect(403);
+    const s = (await http.get('/admin/settings/bounty-fee').set(as('platformAdmin')).expect(200)).body;
+    expect(s).toMatchObject({ suggestedBps: 1000, minBps: 500, maxBps: 2000 });
+    expect((await http.put('/admin/settings/bounty-fee').set(as('platformAdmin')).send({ suggestedBps: 3000, minBps: 500, maxBps: 2000 }).expect(422)).body.message).toBe(
+      'The suggested fee must be inside the range.',
+    );
+    expect((await http.put('/admin/settings/bounty-fee').set(as('platformAdmin')).send({ suggestedBps: 800, minBps: 500, maxBps: 1500 }).expect(200)).body.message).toBe(
+      'Suggested fee 8%; agencies can choose 5% to 15%.',
+    );
+    expect((await summary(seed.agencyId)).body.fee).toMatchObject({ bps: 800, label: '8%', chosenBps: null });
+  });
+
+  it('lets an agency choose its fee within the range, and charges it on top of the bounty', async () => {
+    const set = (bps: number | null) => http.put(`/agencies/${seed.agencyId}/bounty-fee`).set(as('agencyAdmin')).send({ bps });
+    expect((await set(2500).expect(422)).body.message).toBe('Choose between 5% and 15%.');
+    expect((await set(1200).expect(200)).body.message).toBe('Platform fee set to 12% of each bounty.');
+
+    // Police: rate and pool for cult activity, then a claim approved at ₦100,000.
+    await http.put(`/agencies/${seed.agencyId}/bounty-rates/cult_activity`).set(as('agencyAdmin')).send({ basis: 'fixed', standardKobo: 10_000_000 }).expect(200);
+    const f = (await http.post(`/agencies/${seed.agencyId}/bounty-pool/fund`).set(as('agencyAdmin')).send({ amountKobo: 50_000_000, method: 'card', idempotencyKey: key() }).expect(201)).body;
+    await http.post(`/dev/paystack/complete/${f.reference}`).expect(201);
+    const tip = (
+      await http
+        .post('/tips')
+        .set(as('citizen'))
+        .send({ category: 'cult_activity', description: 'Young men initiate members at the abandoned school every Friday night.', clientRef: key(), postcode: 'CD34E' })
+        .expect(201)
+    ).body;
+    const act = (body: Record<string, unknown>) => http.post(`/agencies/${seed.agencyId}/tips/${tip.id}/actions`).set(as('agencyAdmin')).send(body).expect(201);
+    await act({ event: 'outcome_recorded', outcome: 'arrest' });
+    const before = { pool: (await summary(seed.agencyId)).body.pool.availableKobo, fees: await feeWallet() };
+    await act({ event: 'approve' });
+
+    const after = (await summary(seed.agencyId)).body;
+    expect(after.pool.availableKobo).toBe(before.pool - 10_000_000 - 1_200_000);
+    expect(await feeWallet()).toBe(before.fees + 1_200_000);
+    const d = (await http.get(`/agencies/${seed.agencyId}/tips/${tip.id}`).set(as('agencyAdmin'))).body;
+    expect(d.claim).toMatchObject({ approvedKobo: 10_000_000, feeKobo: 1_200_000 });
+    // The tipper is told the full bounty.
+    const note = (await http.get('/me/notifications').set(as('citizen'))).body.items.find((x: any) => x.type === 'bounty_approved');
+    expect(note.body).toMatch(/^₦100,000\.00 was added to your wallet/);
+
+    // Back to the suggestion; and a narrower range applies to agencies that chose outside it.
+    expect((await set(null).expect(200)).body.message).toBe('Using the suggested fee of 8%.');
+    await set(1500).expect(200);
+    await http.put('/admin/settings/bounty-fee').set(as('platformAdmin')).send({ suggestedBps: 800, minBps: 500, maxBps: 1000 }).expect(200);
+    expect((await summary(seed.agencyId)).body.fee).toMatchObject({ bps: 1000, chosenBps: 1500 });
+    expect((await http.get('/admin/settings/bounty-fee').set(as('platformAdmin'))).body.agencies).toEqual([expect.objectContaining({ name: 'Nigeria Police Force (demo)', chosenBps: 1500, bps: 1000, outside: true })]);
   });
 });

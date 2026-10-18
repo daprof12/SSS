@@ -1,6 +1,6 @@
 'use client';
 // Board "Agency bounties": fund the pool (Paystack) and add or change a rate.
-import { formatNaira } from '@erp/domain';
+import { formatNaira, percent } from '@erp/domain';
 import { api, ApiError } from '@erp/web-ui/api';
 import { focusFirstError } from '@erp/web-ui/CloseReportSheet';
 import { Sheet } from '@erp/web-ui/Sheet';
@@ -23,6 +23,7 @@ export interface PoolSummary {
   pool: { availableKobo: number; pendingClaimsKobo: number; low: string | null };
   /** True once the agency asked to leave: no funding, no new bounties. */
   closed: boolean;
+  fee: { bps: number; label: string; chosenBps: number | null; suggestedBps: number; minBps: number; maxBps: number };
   payout: { amountKobo: number; state: string; line: string; reason: string | null; paidAt: string | null } | null;
   claimsWaiting: number;
   paidThisMonth: { kobo: number; tips: number };
@@ -383,6 +384,89 @@ export function RateSheet({ agencyId, rates, initial, onClose, onSaved }: { agen
       </div>
       <p className="muted" style={{ margin: 0 }}>
         Only the first person to report a tip is paid. A tip that matches an open case is attached to it and the first reporter is still the one paid.
+      </p>
+    </Sheet>
+  );
+}
+
+/** The agency's platform fee: the suggestion, or its own choice inside the admin's range. */
+export function FeeSheet({ agencyId, fee, onClose, onSaved }: { agencyId: string; fee: PoolSummary['fee']; onClose: () => void; onSaved: (m: string) => void }) {
+  const [own, setOwn] = useState(fee.chosenBps != null);
+  const [value, setValue] = useState(fee.chosenBps != null ? String(fee.chosenBps / 100) : String(fee.suggestedBps / 100));
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const bps = Math.round(Number(value) * 100);
+
+  const save = async () => {
+    if (own && (!Number.isFinite(bps) || bps < fee.minBps || bps > fee.maxBps)) {
+      setErr(`Choose between ${percent(fee.minBps)} and ${percent(fee.maxBps)}.`);
+      return focusFirstError();
+    }
+    setErr(null);
+    setBusy(true);
+    try {
+      const r = await api<{ message: string }>(`/agencies/${agencyId}/bounty-fee`, { method: 'PUT', body: JSON.stringify({ bps: own ? bps : null }) });
+      onSaved(r.message);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not save. Try again.');
+      setBusy(false);
+      focusFirstError();
+    }
+  };
+
+  const example = 10_000_000;
+  const shownBps = own ? (Number.isFinite(bps) ? bps : 0) : fee.suggestedBps;
+  return (
+    <Sheet
+      open
+      title="Platform fee"
+      description="The platform takes a fee on each bounty you approve. It comes from your pool on top of the bounty, so the tipper always gets the full amount."
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <button className="btn" type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="btn primary" type="button" onClick={save} disabled={busy}>
+            {busy ? 'Saving…' : 'Save fee'}
+          </button>
+        </>
+      }
+    >
+      <div className="grid" style={{ gap: 8 }} role="radiogroup" aria-label="Platform fee">
+        <label className="choice">
+          <input type="radio" name="fee" checked={!own} onChange={() => setOwn(false)} />
+          <span>
+            <strong>Use the suggested fee, {percent(fee.suggestedBps)}</strong>
+            <small className="muted" style={{ display: 'block' }}>
+              Follows the platform&apos;s suggestion if it changes.
+            </small>
+          </span>
+        </label>
+        <label className="choice">
+          <input type="radio" name="fee" checked={own} onChange={() => setOwn(true)} />
+          <span>
+            <strong>Choose my own</strong>
+            <small className="muted" style={{ display: 'block' }}>
+              Between {percent(fee.minBps)} and {percent(fee.maxBps)}.
+            </small>
+          </span>
+        </label>
+      </div>
+      {own && (
+        <label className="field" data-invalid={!!err} style={{ marginTop: 12 }}>
+          <span>Fee (%)</span>
+          <input inputMode="decimal" autoFocus value={value} onChange={(e) => setValue(e.target.value)} aria-label="Fee in percent" aria-invalid={!!err} />
+        </label>
+      )}
+      {err && (
+        <span className="field-error" role="alert">
+          {err}
+        </span>
+      )}
+      <p className="muted" style={{ marginBottom: 0 }}>
+        Example: a {naira(example)} bounty costs your pool {naira(example + Math.round((example * shownBps) / 10_000))}.
       </p>
     </Sheet>
   );

@@ -1,6 +1,6 @@
 // Agency side of bounties (board "Agency bounties"): the pool the agency funds in
 // advance, its rates per tip category, and what it has paid.
-import { agencyHandles, BOUNTY_VERIFIED_WHEN, formatNaira, POOL_FUND_LIMITS, tipCategory } from '@erp/domain';
+import { agencyHandles, BOUNTY_FEE_SUGGESTED, BOUNTY_VERIFIED_WHEN, bountyFee, checkFeeSettings, effectiveFeeBps, formatNaira, percent, POOL_FUND_LIMITS, tipCategory, type BountyFeeSettings } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { newReference, PAYMENTS, type PaymentsAdapter, type PayMethod } from '../adapters/payments';
 import { AgencyLifecycle } from '../agencies/agency.lifecycle';
@@ -29,6 +29,19 @@ export async function poolWallet(c: Queryable, agencyId: string): Promise<string
       [agencyId],
     )
   ).rows[0].id;
+}
+
+/** Admin-set suggestion and range for the platform fee on bounties. */
+export async function feeSettings(c: Queryable): Promise<BountyFeeSettings> {
+  const r = (await c.query(`select value from platform_settings where key = 'bounty_fee'`)).rows[0];
+  return r ? (r.value as BountyFeeSettings) : BOUNTY_FEE_SUGGESTED;
+}
+
+/** The fee this agency pays now, and whether it chose it or uses the suggestion. */
+export async function agencyFee(c: Queryable, agencyId: string) {
+  const settings = await feeSettings(c);
+  const chosen = (await c.query(`select bounty_fee_bps from agencies where id = $1`, [agencyId])).rows[0]?.bounty_fee_bps ?? null;
+  return { ...settings, chosenBps: chosen as number | null, bps: effectiveFeeBps(settings, chosen) };
 }
 
 @Injectable()
@@ -69,6 +82,7 @@ export class BountiesService {
       ),
       this.db.query(`select provider_ref, amount_kobo, method, created_at from payments where agency_id = $1 and purpose = 'bounty_pool' and state in ('initiated', 'pending') order by created_at desc limit 5`, [agencyId]),
     ]);
+    const fee = await agencyFee(this.db.pool, agencyId);
     const available = Number(bal.rows[0]?.available ?? 0);
     const po = (await this.db.query(`select amount_kobo, state, failure_reason, paid_at from payouts where source_wallet_id = $1 order by created_at desc limit 1`, [wallet])).rows[0];
     const PAYOUT: Record<string, string> = {
@@ -78,7 +92,8 @@ export class BountiesService {
       paid: 'Sent to your bank.',
       failed: 'The transfer failed. Check your bank account; our team will send it again.',
     };
-    const pendingClaims = Number(claims.rows[0].kobo);
+    // Each claim will also take the platform fee from the pool.
+    const pendingClaims = Number(claims.rows[0].kobo) + bountyFee(Number(claims.rows[0].kobo), fee.bps);
     const byCat = new Map(rates.rows.map((r) => [r.category, r]));
     const handles = agencyHandles(await this.kind(agencyId));
     return {
@@ -91,6 +106,7 @@ export class BountiesService {
       // At offboarding the whole pool is paid back to the agency's bank account.
       payout: po ? { amountKobo: Number(po.amount_kobo), state: po.state as string, line: PAYOUT[po.state] ?? po.state, reason: po.failure_reason as string | null, paidAt: po.paid_at } : null,
       closed: ['offboarding', 'offboarded'].includes((await this.db.query(`select status from agencies where id = $1`, [agencyId])).rows[0]?.status),
+      fee: { bps: fee.bps, label: percent(fee.bps), chosenBps: fee.chosenBps, suggestedBps: fee.suggestedBps, minBps: fee.minBps, maxBps: fee.maxBps },
       claimsWaiting: claims.rows[0].n,
       paidThisMonth: { kobo: Number(paid.rows[0].kobo), tips: paid.rows[0].n },
       tipsThisMonth: tips.rows[0].n,
@@ -113,9 +129,16 @@ export class BountiesService {
         };
       }),
       history: moves.rows.map((m) => ({
-        kind: m.type === 'bounty' ? (Number(m.amount_kobo) < 0 ? 'paid' : 'returned') : m.type,
+        kind: m.type === 'bounty' ? (Number(m.amount_kobo) < 0 ? 'paid' : 'returned') : m.type === 'payment' ? 'fee' : m.type,
         amountKobo: Number(m.amount_kobo),
-        label: m.type === 'fund' ? (m.memo ?? 'Pool funded') : m.type === 'bounty' ? `Bounty for tip ${m.public_no ?? ''}`.trim() : (m.memo ?? m.type),
+        label:
+          m.type === 'fund'
+            ? (m.memo ?? 'Pool funded')
+            : m.type === 'bounty'
+              ? `Bounty for tip ${m.public_no ?? ''}`.trim()
+              : m.type === 'payment'
+                ? `Platform fee, tip ${m.public_no ?? ''}`.trim()
+                : (m.memo ?? m.type),
         at: m.created_at,
       })),
       pendingFunding: pending.rows.map((x) => ({ reference: x.provider_ref, amountKobo: Number(x.amount_kobo), method: x.method, since: x.created_at })),
@@ -151,6 +174,56 @@ export class BountiesService {
       await this.audit.write({ actorId: p.userId, actorRole: 'agency_admin', action: 'bounty.rate_set', entity: 'agency', entityId: agencyId, payload: { category, before: prior, after: b } }, c);
     });
     return { ok: true, message: b.active ? `Rate saved for ${tipCategory(category)?.label ?? category}.` : 'Rate saved and paused. This category pays no bounty until you turn it on.' };
+  }
+
+  /** The agency picks its own fee inside the admin's range, or goes back to the suggestion (null). */
+  async setFee(p: Principal, agencyId: string, bps: number | null) {
+    await this.agencies.requireStaff(p, agencyId, ['agency_admin']);
+    await this.agencies.requireHandles(agencyId, 'bounties');
+    const s = await feeSettings(this.db.pool);
+    if (bps != null && (bps < s.minBps || bps > s.maxBps)) {
+      const message = `Choose between ${percent(s.minBps)} and ${percent(s.maxBps)}.`;
+      throw new AppError(422, 'validation_failed', message, { fields: [{ field: 'bps', message }] });
+    }
+    const before = (await this.db.query(`select bounty_fee_bps from agencies where id = $1`, [agencyId])).rows[0]?.bounty_fee_bps ?? null;
+    await this.db.tx(async (c) => {
+      await c.query(`update agencies set bounty_fee_bps = $2 where id = $1`, [agencyId, bps]);
+      await this.audit.write({ actorId: p.userId, actorRole: 'agency_admin', action: 'bounty.fee_set', entity: 'agency', entityId: agencyId, payload: { before, after: bps } }, c);
+    });
+    const now = effectiveFeeBps(s, bps);
+    return { bps: now, message: bps == null ? `Using the suggested fee of ${percent(now)}.` : `Platform fee set to ${percent(now)} of each bounty.` };
+  }
+
+  async getFeeSettings(p: Principal) {
+    this.agencies.requirePlatformAdmin(p);
+    const s = await feeSettings(this.db.pool);
+    const agencies = (
+      await this.db.query(`select id, name, bounty_fee_bps from agencies where bounty_fee_bps is not null and status not in ('rejected', 'offboarded') order by name`)
+    ).rows.map((a) => ({ id: a.id, name: a.name, chosenBps: a.bounty_fee_bps as number, bps: effectiveFeeBps(s, a.bounty_fee_bps), outside: a.bounty_fee_bps < s.minBps || a.bounty_fee_bps > s.maxBps }));
+    const earned = (
+      await this.db.query(
+        `select coalesce(sum(l.amount_kobo), 0)::bigint as k from wallet_ledger l join wallets w on w.id = l.wallet_id
+          where w.owner_type = 'platform_fees' and l.created_at >= date_trunc('month', now() at time zone 'Africa/Lagos') at time zone 'Africa/Lagos'`,
+      )
+    ).rows[0].k;
+    return { ...s, agencies, earnedThisMonthKobo: Number(earned) };
+  }
+
+  /** Platform admin: the suggestion new agencies get and the range agencies can choose within. */
+  async setFeeSettings(p: Principal, s: BountyFeeSettings) {
+    this.agencies.requirePlatformAdmin(p);
+    const check = checkFeeSettings(s);
+    if (!check.ok) throw new AppError(422, 'validation_failed', check.message, { fields: [{ field: check.field, message: check.message }] });
+    const before = await feeSettings(this.db.pool);
+    await this.db.tx(async (c) => {
+      await c.query(
+        `insert into platform_settings (key, value, updated_by, updated_at) values ('bounty_fee', $1, $2, now())
+         on conflict (key) do update set value = excluded.value, updated_by = excluded.updated_by, updated_at = now()`,
+        [s, p.userId],
+      );
+      await this.audit.write({ actorId: p.userId, actorRole: 'platform_admin', action: 'settings.bounty_fee', entity: 'platform_settings', reason: 'bounty_fee', payload: { before, after: s } }, c);
+    });
+    return { ...s, message: `Suggested fee ${percent(s.suggestedBps)}; agencies can choose ${percent(s.minBps)} to ${percent(s.maxBps)}.` };
   }
 
   /** Fund the pool through Paystack. The pool is credited only on the signed webhook. */

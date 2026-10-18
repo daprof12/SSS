@@ -183,3 +183,32 @@ export function bountyRangeText(rate: BountyRate, naira: (kobo: number) => strin
   const max = rate.basis === 'tiered' ? Number(rate.tiers.max ?? min) : min;
   return min === max ? naira(min) : `${naira(min)} to ${naira(max)}`;
 }
+
+/** Platform fee on each bounty, in basis points (100 = 1%). Admins set the suggestion and the range. */
+export interface BountyFeeSettings {
+  suggestedBps: number;
+  minBps: number;
+  maxBps: number;
+}
+export const BOUNTY_FEE_SUGGESTED: BountyFeeSettings = { suggestedBps: 1000, minBps: 500, maxBps: 2000 };
+
+/** The fee an agency pays: its own choice, or the suggestion, always inside the current range. */
+export function effectiveFeeBps(settings: BountyFeeSettings, agencyBps: number | null): number {
+  const want = agencyBps ?? settings.suggestedBps;
+  return Math.min(settings.maxBps, Math.max(settings.minBps, want));
+}
+
+/** Charged to the pool on top of the bounty, so the tipper gets the full amount promised. */
+export const bountyFee = (bountyKobo: number, bps: number) => Math.round((bountyKobo * bps) / 10_000);
+
+export const percent = (bps: number) => `${(bps / 100).toFixed(bps % 100 === 0 ? 0 : 1)}%`;
+
+/** Admin edit: 0–50%, min ≤ suggested ≤ max. */
+export function checkFeeSettings(s: BountyFeeSettings): { ok: true } | { ok: false; field: keyof BountyFeeSettings; message: string } {
+  for (const k of ['minBps', 'suggestedBps', 'maxBps'] as const) {
+    if (!Number.isInteger(s[k]) || s[k] < 0 || s[k] > 5000) return { ok: false, field: k, message: 'Enter a fee between 0% and 50%.' };
+  }
+  if (s.minBps > s.maxBps) return { ok: false, field: 'maxBps', message: 'The highest fee must be at least the lowest.' };
+  if (s.suggestedBps < s.minBps || s.suggestedBps > s.maxBps) return { ok: false, field: 'suggestedBps', message: 'The suggested fee must be inside the range.' };
+  return { ok: true };
+}

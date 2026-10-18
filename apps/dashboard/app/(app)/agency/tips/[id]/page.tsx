@@ -1,6 +1,6 @@
 'use client';
 
-import { formatNaira, suggestBounty } from '@erp/domain';
+import { bountyFee, formatNaira, percent, suggestBounty } from '@erp/domain';
 import Link from 'next/link';
 import { use, useCallback, useRef, useState } from 'react';
 import { api, ApiError } from '@erp/web-ui/api';
@@ -21,9 +21,11 @@ interface TipView {
   place: string | null;
   tipper: string;
   createdAt: string;
-  claim: { outcome: string; severity: 'standard' | 'high' | null; suggestedKobo: number; approvedKobo: number | null; declineReason: string | null; recoveredKobo: number | null; recordedAt: string } | null;
+  claim: { outcome: string; severity: 'standard' | 'high' | null; suggestedKobo: number; approvedKobo: number | null; declineReason: string | null; recoveredKobo: number | null; feeKobo: number | null; recordedAt: string } | null;
   rate: { basis: 'fixed' | 'tiered' | 'percent_capped'; percent: number | null; minKobo: number | null; maxKobo: number | null; capKobo: number | null } | null;
   poolKobo: number | null;
+  /** Platform fee on each bounty, charged to the pool on top of it. */
+  feeBps: number;
   holdDays: number;
   actions: Event[];
   history: Array<{ kind: string; label: string; note: string | null; amountKobo: number | null; at: string }>;
@@ -169,6 +171,17 @@ function TipDetail({ id }: { id: string }) {
                 <div>
                   <dt>Paid to tipper</dt>
                   <dd style={{ color: 'var(--color-success-text)' }}>{naira(c.approvedKobo)}</dd>
+                </div>
+              )}
+              {c?.feeKobo != null ? (
+                <div>
+                  <dt>Platform fee</dt>
+                  <dd>{naira(c.feeKobo)}</dd>
+                </div>
+              ) : (
+                <div>
+                  <dt>Platform fee</dt>
+                  <dd>{percent(v.feeBps)} on top of the bounty</dd>
                 </div>
               )}
               <div>
@@ -407,6 +420,7 @@ function ApproveSheet({ path, onClose, onDone, tip }: SheetProps & { tip: TipVie
   const kobo = Number.isFinite(naira_) ? Math.round(naira_ * 100) : NaN;
   const localError = !amount.trim() ? 'Enter the bounty amount.' : !(kobo > 0) ? 'Enter an amount in naira, like 50000.' : null;
   const shownError = (tried && localError) || fieldError;
+  const feeKobo = kobo > 0 ? bountyFee(kobo, tip.feeBps) : 0;
 
   const approve = async () => {
     setTried(true);
@@ -462,6 +476,22 @@ function ApproveSheet({ path, onClose, onDone, tip }: SheetProps & { tip: TipVie
           </small>
         )}
       </label>
+      {kobo > 0 && (
+        <dl className="facts" style={{ marginTop: 12 }}>
+          <div>
+            <dt>To the tipper</dt>
+            <dd>{naira(kobo)}</dd>
+          </div>
+          <div>
+            <dt>Platform fee ({percent(tip.feeBps)})</dt>
+            <dd>{naira(feeKobo)}</dd>
+          </div>
+          <div>
+            <dt>From your pool</dt>
+            <dd>{naira(kobo + feeKobo)}</dd>
+          </div>
+        </dl>
+      )}
     </Sheet>
   );
 }

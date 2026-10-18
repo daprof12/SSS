@@ -33,7 +33,7 @@ import { JobsController } from './jobs/jobs.controller';
 import { JobsService } from './jobs/jobs.service';
 import { MediaController } from './media/media.controller';
 import { MediaService } from './media/media.service';
-import { BountiesController } from './reports/bounties.controller';
+import { AdminBountyFeeController, BountiesController } from './reports/bounties.controller';
 import { BountiesService } from './reports/bounties.service';
 import { BriefController } from './reports/brief.controller';
 import { BriefService } from './reports/brief.service';
@@ -70,6 +70,7 @@ export class AppModule {
         MediaController,
         BriefController,
         BountiesController,
+        AdminBountyFeeController,
         JobsController,
         ...(config.devTools ? [DevController] : []),
       ],

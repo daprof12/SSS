@@ -1,13 +1,14 @@
 // Tips → bounty (Rewards doc "Whistleblower bounty"; Report Tracking B2).
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { applyEvent, availableEvents, bountyRangeText, formatNaira, suggestBounty, type BountyRate, tipCategories, tipCategory, tipMachine, tipStatus } from '@erp/domain';
+import { applyEvent, availableEvents, bountyFee, bountyRangeText, formatNaira, percent, suggestBounty, type BountyRate, tipCategories, tipCategory, tipMachine, tipStatus } from '@erp/domain';
 import { POSTCODE, PostcodeUnavailable, type PostcodeAdapter } from '../adapters/postcode';
 import { AgencyLifecycle } from '../agencies/agency.lifecycle';
 import { Audit } from '../core/audit';
 import type { Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
+import { agencyFee } from './bounties.service';
 import { agencyStaff, notify, publicNo, receivingAgency } from './shared';
 
 /** Bounties wait this long before they can be withdrawn (Rewards doc "[n] days"). Placeholder. */
@@ -235,7 +236,7 @@ export class TipsService {
     await this.agencies.requireStaff(p, agencyId);
     const t = (
       await this.db.query(
-        `select t.*, l.postcode, l.area_label, u.display_name, c.outcome, c.severity as claim_severity, c.suggested_kobo, c.approved_kobo, c.decline_reason, c.recovered_kobo, c.created_at as claimed_at
+        `select t.*, l.postcode, l.area_label, u.display_name, c.outcome, c.severity as claim_severity, c.suggested_kobo, c.approved_kobo, c.decline_reason, c.recovered_kobo, c.fee_kobo, c.created_at as claimed_at
            from tips t join users u on u.id = t.user_id left join locations l on l.id = t.location_id left join tip_claims c on c.tip_id = t.id
           where t.id = $1 and t.agency_id = $2`,
         [tipId, agencyId],
@@ -281,11 +282,13 @@ export class TipsService {
             approvedKobo: t.approved_kobo == null ? null : Number(t.approved_kobo),
             declineReason: t.decline_reason,
             recoveredKobo: t.recovered_kobo == null ? null : Number(t.recovered_kobo),
+            feeKobo: t.fee_kobo == null ? null : Number(t.fee_kobo),
             recordedAt: t.claimed_at,
           }
         : null,
       rate: rate ? { basis: rate.basis, percent: rate.tiers?.percent == null ? null : Number(rate.tiers.percent), minKobo: rate.tiers?.min == null ? null : Number(rate.tiers.min), maxKobo: rate.tiers?.max == null ? null : Number(rate.tiers.max), capKobo: rate.cap_kobo == null ? null : Number(rate.cap_kobo) } : null,
       poolKobo: pool ? Number(pool.kobo) : null,
+      feeBps: (await agencyFee(this.db.pool, agencyId)).bps,
       holdDays: BOUNTY_HOLD_DAYS,
       actions: availableEvents(tipMachine, t.state, 'agency_admin'),
       history: events.rows.map((e) => ({ kind: e.kind, label: LABEL[e.kind] ?? e.kind, note: e.kind === 'outcome_recorded' ? null : p0(e), amountKobo: e.payload.amount ?? null, at: e.at })),
@@ -350,7 +353,16 @@ export class TipsService {
               [agencyId],
             )
           ).rows[0];
-          if (!pool || Number(pool.kobo) < amount) throw new AppError(409, 'pool_low', `Your pool has ${formatNaira(Number(pool?.kobo ?? 0))}. Add funds before approving.`);
+          // The platform fee comes from the pool on top of the bounty; the tipper gets the full amount.
+          const fee = await agencyFee(c, agencyId);
+          const feeKobo = bountyFee(amount, fee.bps);
+          if (!pool || Number(pool.kobo) < amount + feeKobo) {
+            throw new AppError(
+              409,
+              'pool_low',
+              `Your pool has ${formatNaira(Number(pool?.kobo ?? 0))}. This bounty and the ${percent(fee.bps)} platform fee need ${formatNaira(amount + feeKobo)}. Add funds before approving.`,
+            );
+          }
           const tipperWallet = (
             await c.query(`insert into wallets (owner_type, owner_id) values ('user', $1) on conflict (owner_type, owner_id) do update set owner_type = excluded.owner_type returning id`, [t.user_id])
           ).rows[0].id;
@@ -360,7 +372,15 @@ export class TipsService {
                ($1, 'bounty', $3, $4, $5, $6, now() + make_interval(days => $7)), ($2, 'bounty', -$3::bigint, $4, $5, $6, now())`,
             [tipperWallet, pool.id, amount, `tip:${tipId}`, journal, `Bounty, tip ${t.public_no}`, BOUNTY_HOLD_DAYS],
           );
-          await c.query(`update tip_claims set approved_kobo = $2, decided_by = $3 where tip_id = $1`, [tipId, amount, p.userId]);
+          if (feeKobo > 0) {
+            const fees = (await c.query(`select id from wallets where owner_type = 'platform_fees' and owner_id is null`)).rows[0].id;
+            await c.query(
+              `insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values
+                 ($1, 'payment', -$3::bigint, $4, $5, $6), ($2, 'payment', $3, $4, $5, $6)`,
+              [pool.id, fees, feeKobo, `tip:${tipId}`, journal, `Platform fee ${percent(fee.bps)}, tip ${t.public_no}`],
+            );
+          }
+          await c.query(`update tip_claims set approved_kobo = $2, decided_by = $3, fee_bps = $4, fee_kobo = $5 where tip_id = $1`, [tipId, amount, p.userId, fee.bps, feeKobo]);
           await this.transition(c, tipId, 'approve', 'agency_admin', { amount });
           await notify(c, [t.user_id], {
             type: 'bounty_approved',
@@ -369,7 +389,7 @@ export class TipsService {
             body: `${formatNaira(amount)} was added to your wallet. It can be withdrawn in ${BOUNTY_HOLD_DAYS} days.`,
             link,
           });
-          await this.audit.write({ actorId: p.userId, actorRole: 'agency', action: 'bounty.approve', entity: 'tip', entityId: tipId, payload: { amount, journal } }, c);
+          await this.audit.write({ actorId: p.userId, actorRole: 'agency', action: 'bounty.approve', entity: 'tip', entityId: tipId, payload: { amount, feeKobo, feeBps: fee.bps, journal } }, c);
           break;
         }
         case 'decline': {
