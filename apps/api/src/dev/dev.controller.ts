@@ -184,6 +184,27 @@ export class DevController {
         );
       }
       await seedLearn(c, ids.platformAdmin!, { police: agency, ferma, naptip });
+      // Duty roster for the two demo officers: today and the next few days.
+      const shifts = (await c.query(`select count(*)::int as n from duty_shifts where officer_id = any($1::uuid[])`, [[ids.officer, ids.officer2]])).rows[0].n;
+      if (!shifts) {
+        for (const [who, offset, kind, vehicle] of [
+          [ids.officer, 0, 'day', 'Patrol 4-1'],
+          [ids.officer2, 0, 'day', 'Patrol 4-1'],
+          [ids.officer, 1, 'night', 'Patrol 4-2'],
+          [ids.officer2, 1, 'off', null],
+          [ids.officer, 2, 'off', null],
+          [ids.officer2, 2, 'day', 'Patrol 4-1'],
+          [ids.officer, 3, 'day', 'Patrol 4-1'],
+        ] as const) {
+          const start = kind === 'night' ? 19 : 7;
+          await c.query(
+            `insert into duty_shifts (officer_id, starts_at, ends_at, kind, vehicle_ref)
+             values ($1, date_trunc('day', now() at time zone 'Africa/Lagos') at time zone 'Africa/Lagos' + make_interval(days => $2, hours => $3),
+                         date_trunc('day', now() at time zone 'Africa/Lagos') at time zone 'Africa/Lagos' + make_interval(days => $2, hours => $3 + 12), $4, $5)`,
+            [who, offset, start, kind, vehicle],
+          );
+        }
+      }
       return { users: ids, agencyId: agency, stationId: station, naptipId: naptip, fermaId: ferma };
     });
   }

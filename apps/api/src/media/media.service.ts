@@ -9,7 +9,7 @@ import { Bus } from '../core/bus';
 import { Db } from '../core/db';
 import { AppError } from '../core/http';
 
-export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'learn_post';
+export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'learn_post' | 'field_report';
 export const MAX_BYTES = 10 * 1024 * 1024; // States doc: up to [10] MB
 const TYPES: Record<string, 'photo' | 'video' | 'voice'> = {
   'image/jpeg': 'photo',
@@ -99,6 +99,14 @@ export class MediaService {
       if (forUpload) return null;
       const staff = await this.db.query(`select 1 from user_roles where user_id = $1 and scope_type = 'agency' and scope_id = $2`, [p.userId, k.agency_id]);
       return staff.rowCount ? 'staff' : null;
+    }
+    if (ownerType === 'field_report') {
+      // The officer adds files for a day after filing; the station head and dispatchers see them.
+      const f = (await this.db.query(`select officer_id, station_id, created_at from field_reports where id = $1`, [ownerId])).rows[0];
+      if (!f) return null;
+      if (f.officer_id === p.userId) return forUpload && Date.now() - +new Date(f.created_at) > 86_400_000 ? null : 'self';
+      if (forUpload) return null;
+      return hasRole(p, 'head', f.station_id) || hasRole(p, 'dispatcher', f.station_id) ? 'staff' : null;
     }
     if (ownerType === 'learn_post') {
       // Platform team uploads to drafts; once live, anyone signed in can watch (no audit for public lessons).

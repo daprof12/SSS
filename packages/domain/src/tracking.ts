@@ -123,3 +123,32 @@ export function freshness(lastUpdateAt: Date, now: Date, socketConnected: boolea
   if (secondsAgo >= incidentTimers.staleAfterSeconds) return { kind: 'stale', secondsAgo };
   return { kind: 'live' };
 }
+
+/** Rating tags a citizen can add (incidents controller), grouped into the officer's three sub-scores. */
+export const RATING_DIMENSIONS = {
+  arrival: { label: 'Arrival speed', good: ['fast'], bad: ['slow'] },
+  care: { label: 'Care and manner', good: ['polite', 'professional'], bad: ['rude'] },
+  communication: { label: 'Communication', good: ['clear'], bad: ['unclear'] },
+} as const;
+export type RatingDimension = keyof typeof RATING_DIMENSIONS;
+
+/**
+ * Board "Officer profile and rating": the overall score is the star average; each sub-score
+ * starts from it and moves up to half a star with the share of good versus bad tags.
+ */
+export function subRatings(ratings: { stars: number; tags: readonly string[] }[]): { overall: number | null; count: number } & Record<RatingDimension, number | null> {
+  if (!ratings.length) return { overall: null, count: 0, arrival: null, care: null, communication: null };
+  const overall = ratings.reduce((s, r) => s + r.stars, 0) / ratings.length;
+  const round = (n: number) => Math.round(Math.min(5, Math.max(1, n)) * 10) / 10;
+  const dim = (d: RatingDimension) => {
+    const { good, bad } = RATING_DIMENSIONS[d];
+    let g = 0;
+    let b = 0;
+    for (const r of ratings) {
+      if (r.tags.some((t) => (good as readonly string[]).includes(t))) g++;
+      if (r.tags.some((t) => (bad as readonly string[]).includes(t))) b++;
+    }
+    return round(overall + ((g - b) / ratings.length) * 0.5);
+  };
+  return { overall: round(overall), count: ratings.length, arrival: dim('arrival'), care: dim('care'), communication: dim('communication') };
+}

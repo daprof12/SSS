@@ -25,6 +25,8 @@ import { AuthService } from './auth/auth.service';
 import { MeController } from './me/me.controller';
 import { OfficersController } from './officers/officers.controller';
 import { OfficersService } from './officers/officers.service';
+import { OfficerWorkController } from './officers/work.controller';
+import { OfficerWorkService } from './officers/work.service';
 import { PlacesController } from './places/places.controller';
 import { IssuesService } from './reports/issues.service';
 import { ReportsController } from './reports/reports.controller';
@@ -66,6 +68,7 @@ export class AppModule {
         MeController,
         PlacesController,
         OfficersController,
+        OfficerWorkController,
         ReportsController,
         AgenciesController,
         AdminAgenciesController,
@@ -88,6 +91,7 @@ export class AppModule {
         IncidentsService,
         WalletService,
         OfficersService,
+        OfficerWorkService,
         TipsService,
         IssuesService,
         AgencyLifecycle,

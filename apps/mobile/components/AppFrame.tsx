@@ -83,12 +83,12 @@ function OfficerBar() {
     <div className="tabbar">
       <nav aria-label="Main">
         <Tab href="/officer" icon="home" label="Home" />
-        <Tab href="/officer/history" icon="history" label="History" />
+        <Tab href="/officer/history" icon="history" label="History" match="/officer/history" />
         <Link href="/officer/report" className="center" aria-label="Report from the field">
           <Icon name="plus" size={28} />
         </Link>
-        <Tab href="/officer/wallet" icon="wallet" label="Wallet" />
-        <Tab href="/officer/profile" icon="user" label="Profile" />
+        <Tab href="/officer/wallet" icon="wallet" label="Wallet" match="/officer/wallet" />
+        <Tab href="/officer/profile" icon="user" label="Profile" match="/officer/profile" />
       </nav>
     </div>
   );

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agencyHandles,
+  subRatings,
   checkLearnPost,
   learnPostMachine,
   rankForYou,
@@ -384,5 +385,17 @@ describe('learn', () => {
     expect(checkLearnPost({ ...base, format: 'quiz', quiz: [{ q: 'Where do you call from?', options: ['Inside', 'Outside'], answer: 1, why: 'Smoke kills.' }] })).toBeNull();
     expect(checkLearnPost({ ...base, format: 'quiz', quiz: [{ q: 'Where?', options: ['Inside'], answer: 0, why: '' }] })).toMatchObject({ field: 'quiz' });
     expect(availableEvents(learnPostMachine, 'in_review', 'platform_admin').sort()).toEqual(['approve', 'remove', 'send_back']);
+  });
+});
+
+describe('officer sub-ratings', () => {
+  it('moves each sub-score with good and bad tags', () => {
+    const r = subRatings([
+      { stars: 4, tags: ['fast', 'polite'] },
+      { stars: 5, tags: ['fast', 'clear'] },
+      { stars: 3, tags: ['slow', 'unclear'] },
+    ]);
+    expect(r).toMatchObject({ overall: 4, count: 3, arrival: 4.2, care: 4.2, communication: 4 });
+    expect(subRatings([])).toMatchObject({ overall: null, count: 0 });
   });
 });

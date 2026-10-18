@@ -119,7 +119,7 @@ One installable app; the signed-in person decides the surface. Sign in with a de
 
 **Test-only screens:** while Paystack is mocked, `/pay/[ref]` stands in for the hosted checkout and the transfer screen has a "simulate arrival" button. Both are hidden in production builds.
 
-**Not built yet** (rows say "Soon" or open a "Coming next" page): Donations, withdraw, security, discreet mode, language, officer history and field reports, and protected calling and messaging.
+**Not built yet** (rows say "Soon" or open a "Coming next" page): Donations, withdraw, security (citizen), discreet mode, language, and protected calling and messaging.
 
 ## Sign-in and onboarding
 
@@ -279,3 +279,26 @@ Quizzes are marked on the server; the phone never receives the answers. Lessons 
 Development seeds 12 real lessons in English and Pidgin.
 
 **Not built yet:** comments on lessons, the AI suggestions for the feed (AI and LLM page), a reminder notification for new lessons, and video transcoding (uploads are capped at 10 MB until the media worker exists).
+
+## Officer app: History, Team, Profile and field reports
+
+These follow the officer boards (`apps/api/src/officers/work.*`, migration 014). "Team" is the officer's station.
+
+- **History:** the station's closed responses from the last 90 days, with stats (responses, my rating, team rating) and filters (All, Mine, Team, This month). Each row shows the type and postcode, who responded ("You" first) and the rating.
+- **Activity detail:** date, arrival time, reports merged and outcome. Each officer on the team appears with their role (Lead or Support), rating and any reward. Below that, the citizen's comment and the reward-split note once rewards are paid.
+- **Team** has three tabs:
+  - **Members:** duty status, with "back" times from the roster.
+  - **Shifts:** the next 7 days of `duty_shifts`.
+  - **Activity:** accepts, arrivals and closings over the last week.
+  - The stats show team rating, responses and average arrival.
+- **Profile:** the board's rating card, with sub-scores (arrival speed, care and manner, communication) derived from citizens' rating tags by `subRatings` in `@erp/domain`. It also has the team card, wallet, rewards and donations, bank account, tips, theme, and these rows:
+  - **Documents and badge:** status, expiry, and what citizens see.
+  - **Duty and shifts:** the next two weeks.
+  - **Dispatch alerts:** opens the notification settings.
+  - **Security:** two-step status, signed-in devices and signing out others.
+  - **Help.**
+- **Report (the + tab):** an incident report from the field. It has the type grid, location from GPS or the building picker, the description, photos, video, voice notes and "Link to incident". A link is limited to incidents the officer is on or closed that day, and adds "Field report added" to that incident's log. "Tip, earn a bounty" switches to the tip form. The officer's past field reports are listed below. The station head and dispatchers can see field reports and their files.
+
+Development seeds a week of demo shifts for both officers.
+
+**Not built yet:** rewards paid from ratings (the detail shows them once they exist), withdraw (officer and citizen), a station-dashboard view of field reports, and teams smaller than a station.
