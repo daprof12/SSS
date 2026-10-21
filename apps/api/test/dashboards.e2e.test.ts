@@ -154,11 +154,36 @@ describe('agency and admin dashboards', () => {
     const u = (await http.get('/admin/users?role=officers').set(as('platformAdmin')).expect(200)).body;
     expect(u.map((x: any) => x.role)).toEqual(expect.arrayContaining(['Officer']));
     expect((await http.get('/admin/users?q=Ada').set(as('platformAdmin'))).body[0]).toMatchObject({ name: 'Ada Obi', role: 'Household owner', postcode: 'AB12C' });
-    const subs = (await http.get('/admin/subscriptions?state=active').set(as('platformAdmin')).expect(200)).body;
+    const subs = (await http.get('/admin/subscriptions?status=active').set(as('platformAdmin')).expect(200)).body;
     expect(subs.items[0]).toMatchObject({ owner: 'Ada Obi', plan: 'Household', cameras: 2, lights: 2 });
     expect((await http.post(`/admin/subscriptions/${subs.items[0].id}`).set(as('platformAdmin')).send({ action: 'pause' }).expect(422)).body.message).toBe('Give a reason; it is logged.');
     await http.post(`/admin/subscriptions/${subs.items[0].id}`).set(as('platformAdmin')).send({ action: 'remind' }).expect(200);
     expect((await http.get('/admin/live').set(as('platformAdmin')).expect(200)).body.units.length).toBeGreaterThan(0);
+  });
+
+  it('filters by location: state, LGA, area, building or a typed postcode', async () => {
+    const lagos = (await http.get('/admin/users?q=Ada&state=LA').set(as('platformAdmin')).expect(200)).body;
+    expect(lagos[0]).toMatchObject({ name: 'Ada Obi' });
+    expect((await http.get('/admin/users?q=Ada&state=FC').set(as('platformAdmin'))).body).toEqual([]);
+    expect((await http.get('/admin/users?q=Ada&postcode=AB 12').set(as('platformAdmin'))).body).toHaveLength(1);
+    expect((await http.get('/admin/subscriptions?area=LA-IKJ-01-MPL').set(as('platformAdmin'))).body.items).toHaveLength(1);
+    expect((await http.get('/admin/subscriptions?building=ZZ99Z').set(as('platformAdmin'))).body.items).toHaveLength(0);
+    const all = (await http.get('/admin/overview?lga=LA-IKJ').set(as('platformAdmin'))).body;
+    expect(all.devices.total).toBe(4);
+    expect((await http.get('/admin/overview?state=FC').set(as('platformAdmin'))).body.devices.total).toBe(0);
+  });
+
+  it('live map by type: emergencies, tips, public issues; an agency sees only its own', async () => {
+    const id = (await http.post('/incidents').set(as('neighbour')).send({ type: 'robbery', postcode: 'AB12C', clientRef: ref() }).expect(201)).body.id;
+    for (let i = 0; i < 60 && !['offered', 'escalated'].includes((await view('neighbour', id)).state); i++) await sleep(50);
+    const live = (await http.get('/admin/live?kinds=emergency').set(as('platformAdmin')).expect(200)).body;
+    expect(live.items.every((x: any) => x.kind === 'emergency')).toBe(true);
+    expect(live.items.find((x: any) => x.id === id)).toMatchObject({ label: 'Robbery, AB12C', href: `/incidents/${id}` });
+    expect(live.counts).toMatchObject({ tip: 0, issue: 0 });
+    const ag = (await http.get(`/agencies/${agencyId}/live?kinds=emergency,tip,issue`).set(as('agencyAdmin')).expect(200)).body;
+    expect(ag.items.some((x: any) => x.id === id)).toBe(true);
+    expect((await http.get(`/agencies/${agencyId}/live?state=FC`).set(as('agencyAdmin'))).body.items).toEqual([]);
+    await http.get(`/agencies/${agencyId}/live`).set(as('citizen')).expect(404);
   });
 
   it('KYC queue: approve a manual review', async () => {

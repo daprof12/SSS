@@ -4,6 +4,7 @@ import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { HBars, mmss, naira } from '@/components/Dash';
+import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface O {
   stats: { open: number; avgResponseS: number | null; activeSubscriptions: number; devicesOnlinePct: number | null; falseAlarmPct: number | null; kycWaiting: number };
@@ -24,15 +25,17 @@ const DEV: [keyof O['devices'], string, string][] = [
 export default function AdminOverview() {
   const [o, setO] = useState<O | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loc, setLoc] = useState<LocFilter>({});
+  const q = locQuery(loc);
   useEffect(() => {
     const load = () =>
-      api<O>('/admin/overview')
+      api<O>(`/admin/overview${q ? `?${q}` : ''}`)
         .then(setO)
         .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load the overview.'));
     void load();
     const t = setInterval(load, 20000);
     return () => clearInterval(t);
-  }, []);
+  }, [q]);
   const s = o?.stats;
   const d = o?.devices;
   return (
@@ -51,6 +54,7 @@ export default function AdminOverview() {
           </button>
         </div>
       </div>
+      <LocationFilter value={loc} onChange={setLoc} />
       {error && (
         <div className="banner critical" role="alert">
           {error}

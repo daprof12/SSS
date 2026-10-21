@@ -41,8 +41,8 @@ function Overview({ agency }: { agency: MyAgency }) {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <AgencySwitcher />
-          <Link className="btn" href="/agency/stations">
-            Stations
+          <Link className="btn" href="/agency/live">
+            View live map
           </Link>
         </div>
       </div>

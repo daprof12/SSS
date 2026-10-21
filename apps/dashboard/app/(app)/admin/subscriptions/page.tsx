@@ -4,6 +4,7 @@ import { api, ApiError } from '@erp/web-ui/api';
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/Agency';
 import { naira } from '@/components/Dash';
+import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface Sub {
   id: string;
@@ -46,15 +47,17 @@ export default function Subscriptions() {
   const [sel, setSel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  const [loc, setLoc] = useState<LocFilter>({});
+  const lq = locQuery(loc);
   const [toast, setToast] = useToast();
   const load = useCallback(() => {
-    api<D>(`/admin/subscriptions?state=${f}`)
+    api<D>(`/admin/subscriptions?status=${f}${lq ? `&${lq}` : ''}`)
       .then((x) => {
         setD(x);
         setSel((s) => (s && x.items.some((i) => i.id === s) ? s : (x.items[0]?.id ?? null)));
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load subscriptions.'));
-  }, [f]);
+  }, [f, lq]);
   useEffect(load, [load]);
   const s = d?.items.find((x) => x.id === sel);
   const act = async (body: object) => {
@@ -76,6 +79,7 @@ export default function Subscriptions() {
           <p className="lede">Households and communities paying for cameras and street lights.</p>
         </div>
       </div>
+      <LocationFilter value={loc} onChange={setLoc} />
       {error && (
         <div className="banner critical" role="alert">
           {error}

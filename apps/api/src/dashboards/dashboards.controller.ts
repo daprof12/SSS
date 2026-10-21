@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, P
 import { z } from 'zod';
 import { CurrentUser, type Principal } from '../core/auth';
 import { ZodPipe } from '../core/http';
+import { LocationQuery } from '../core/location-filter';
 import { OverviewService } from './overview.service';
 import { StationService } from './station.service';
 
@@ -30,7 +31,10 @@ const Settings = z.object({
   ifNobodyAccepts: z.enum(['next_officer_then_station', 'next_station']).optional(),
   alerts: z.record(z.boolean()).optional(),
 });
-const UsersQ = z.object({ role: z.enum(['all', 'citizens', 'owners', 'officers', 'heads', 'technicians', 'staff']).default('all'), q: z.string().max(60).optional() });
+const UsersQ = LocationQuery.extend({ role: z.enum(['all', 'citizens', 'owners', 'officers', 'heads', 'technicians', 'staff']).default('all'), q: z.string().max(60).optional() });
+const LiveQ = LocationQuery.extend({ kinds: z.string().optional() });
+const SubsQ = LocationQuery.extend({ status: z.string().default('all') });
+const kindsOf = (s?: string) => (s ?? '').split(',').filter((k): k is 'emergency' | 'tip' | 'issue' => ['emergency', 'tip', 'issue'].includes(k));
 const SubAct = z.object({ action: z.enum(['remind', 'pause', 'resume', 'change_plan']), planCode: z.string().optional(), reason: z.string().max(500).optional() });
 const Kyc = z.object({ decision: z.enum(['approve', 'reject', 'more']), reason: z.string().max(500).optional() });
 
@@ -153,8 +157,8 @@ export class DashboardsController {
 
   // Platform admin
   @Get('admin/overview')
-  adminOverview(@CurrentUser() p: Principal) {
-    return this.overview.adminOverview(p);
+  adminOverview(@CurrentUser() p: Principal, @Query(new ZodPipe(LocationQuery)) f: z.infer<typeof LocationQuery>) {
+    return this.overview.adminOverview(p, f);
   }
 
   @Get('admin/users')
@@ -163,8 +167,8 @@ export class DashboardsController {
   }
 
   @Get('admin/subscriptions')
-  subscriptions(@CurrentUser() p: Principal, @Query('state') state = 'all') {
-    return this.overview.subscriptions(p, state);
+  subscriptions(@CurrentUser() p: Principal, @Query(new ZodPipe(SubsQ)) q: z.infer<typeof SubsQ>) {
+    return this.overview.subscriptions(p, q.status, q);
   }
 
   @Post('admin/subscriptions/:id')
@@ -185,7 +189,12 @@ export class DashboardsController {
   }
 
   @Get('admin/live')
-  live(@CurrentUser() p: Principal) {
-    return this.overview.liveMap(p);
+  live(@CurrentUser() p: Principal, @Query(new ZodPipe(LiveQ)) q: z.infer<typeof LiveQ>) {
+    return this.overview.live(p, { agencyId: null }, kindsOf(q.kinds), q);
+  }
+
+  @Get('agencies/:agencyId/live')
+  agencyLive(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Query(new ZodPipe(LiveQ)) q: z.infer<typeof LiveQ>) {
+    return this.overview.live(p, { agencyId: a }, kindsOf(q.kinds), q);
   }
 }

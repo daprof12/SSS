@@ -3,6 +3,7 @@
 // phone or postcode. Adding staff is done from the agency (officers) or Settings (staff roles).
 import { api, ApiError } from '@erp/web-ui/api';
 import { useEffect, useState } from 'react';
+import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface U {
   id: string;
@@ -29,14 +30,16 @@ export default function Users() {
   const [q, setQ] = useState('');
   const [list, setList] = useState<U[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loc, setLoc] = useState<LocFilter>({});
+  const lq = locQuery(loc);
   useEffect(() => {
     const t = setTimeout(() => {
-      api<U[]>(`/admin/users?role=${role}${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''}`)
+      api<U[]>(`/admin/users?role=${role}${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''}${lq ? `&${lq}` : ''}`)
         .then(setList)
         .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load users.'));
     }, 250);
     return () => clearTimeout(t);
-  }, [role, q]);
+  }, [role, q, lq]);
   return (
     <>
       <div className="page-head">
@@ -44,8 +47,9 @@ export default function Users() {
           <h1>Users</h1>
           <p className="lede">Citizens, household owners, officers, station heads, agency and platform staff.</p>
         </div>
-        <input className="search" type="search" placeholder="Search a name, phone or postcode" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search users" style={{ minWidth: 280 }} />
+        <input className="search" type="search" placeholder="Search a name or phone" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search users" style={{ minWidth: 280 }} />
       </div>
+      <LocationFilter value={loc} onChange={setLoc} />
       {error && (
         <div className="banner critical" role="alert">
           {error}
