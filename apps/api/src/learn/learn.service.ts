@@ -1,6 +1,7 @@
 // Learn: the citizen feed (For you, General, search, filter) and the platform team's
 // review workflow (draft → in review → live; a second person approves).
 import {
+  agencyLearnTopics,
   applyEvent,
   checkLearnPost,
   LEARN_MIN_INTERESTS,
@@ -262,15 +263,24 @@ export class LearnService {
     if (!hasRole(p, 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
   }
 
-  async adminList(p: Principal, state: 'draft' | 'in_review' | 'live' | 'removed') {
-    this.requireAdmin(p);
-    const counts = Object.fromEntries((await this.db.query(`select state, count(*)::int as n from learn_posts group by state`)).rows.map((r) => [r.state, r.n]));
+  /** Agency staff post for their own agency, in the topics it handles; the platform team reviews. */
+  private async agencyKind(p: Principal, agencyId: string): Promise<string> {
+    if (!p.roles.some((r) => r.role === 'agency_admin' && r.scopeId === agencyId)) throw new AppError(404, 'not_found', 'Agency not found.');
+    return (await this.db.query(`select kind from agencies where id = $1`, [agencyId])).rows[0].kind;
+  }
+
+  async adminList(p: Principal, state: 'draft' | 'in_review' | 'live' | 'removed', agencyId?: string) {
+    if (agencyId) await this.agencyKind(p, agencyId);
+    else this.requireAdmin(p);
+    const counts = Object.fromEntries(
+      (await this.db.query(`select state, count(*)::int as n from learn_posts where ($1::uuid is null or source_agency = $1) group by state`, [agencyId ?? null])).rows.map((r) => [r.state, r.n]),
+    );
     const rows = (
       await this.db.query(
         `select p.*, a.name as source_name, u.display_name as author, s.display_name as submitter
            from learn_posts p left join agencies a on a.id = p.source_agency join users u on u.id = p.created_by left join users s on s.id = p.submitted_by
-          where p.state = $1 order by p.updated_at desc limit 200`,
-        [state],
+          where p.state = $1 and ($2::uuid is null or p.source_agency = $2) order by p.updated_at desc limit 200`,
+        [state, agencyId ?? null],
       )
     ).rows;
     const shown = await this.present(this.db.pool, rows, p.userId);
@@ -292,10 +302,24 @@ export class LearnService {
     };
   }
 
-  async sources(p: Principal) {
+  async sources(p: Principal, agencyId?: string) {
+    const states = [{ code: 'LA', name: 'Lagos' }, { code: 'FC', name: 'FCT Abuja' }];
+    if (agencyId) {
+      const kind = await this.agencyKind(p, agencyId);
+      const a = (await this.db.query(`select id, name from agencies where id = $1`, [agencyId])).rows;
+      return { agencies: a, states, topics: agencyLearnTopics(kind).map((t) => t.code) };
+    }
     this.requireAdmin(p);
     const agencies = (await this.db.query(`select id, name from agencies where status in ('live', 'overdue', 'setting_up') order by name`)).rows;
-    return { agencies, states: [{ code: 'LA', name: 'Lagos' }, { code: 'FC', name: 'FCT Abuja' }] };
+    return { agencies, states, topics: null };
+  }
+
+  private async agencyInput(p: Principal, agencyId: string, b: PostInput): Promise<PostInput> {
+    const kind = await this.agencyKind(p, agencyId);
+    if (!agencyLearnTopics(kind).some((t) => t.code === b.topic)) {
+      throw new AppError(422, 'validation_failed', 'Choose one of your agency’s topics.', { fields: [{ field: 'topic', message: 'Choose one of your agency’s topics.' }] });
+    }
+    return { ...b, sourceAgencyId: agencyId };
   }
 
   private clean(b: PostInput) {
@@ -306,8 +330,9 @@ export class LearnService {
     return { ...b, durationS };
   }
 
-  async create(p: Principal, b: PostInput) {
-    this.requireAdmin(p);
+  async create(p: Principal, b: PostInput, agencyId?: string) {
+    if (agencyId) b = await this.agencyInput(p, agencyId, b);
+    else this.requireAdmin(p);
     const x = this.clean(b);
     const r = (
       await this.db.query(
@@ -316,28 +341,30 @@ export class LearnService {
         [x.title.trim(), x.caption.trim(), x.body ?? null, x.quiz ? JSON.stringify(x.quiz) : null, x.format, x.topic, x.language, x.durationS, x.sourceAgencyId ?? null, x.audienceState ?? null, p.userId],
       )
     ).rows[0];
-    await this.audit.write({ actorId: p.userId, actorRole: 'platform_admin', action: 'learn.create', entity: 'learn_post', entityId: r.id, payload: { title: x.title } });
+    await this.audit.write({ actorId: p.userId, actorRole: agencyId ? 'agency_admin' : 'platform_admin', action: 'learn.create', entity: 'learn_post', entityId: r.id, payload: { title: x.title } });
     return { id: r.id, state: 'draft' };
   }
 
-  async update(p: Principal, id: string, b: PostInput) {
-    this.requireAdmin(p);
+  async update(p: Principal, id: string, b: PostInput, agencyId?: string) {
+    if (agencyId) b = await this.agencyInput(p, agencyId, b);
+    else this.requireAdmin(p);
     const x = this.clean(b);
     const r = await this.db.query(
       `update learn_posts set title = $2, caption = $3, body = $4, quiz = $5, format = $6, topic = $7, language = $8, duration_s = $9, source_agency = $10, audience_state = $11, updated_at = now()
-        where id = $1 and state = 'draft' returning id`,
-      [id, x.title.trim(), x.caption.trim(), x.body ?? null, x.quiz ? JSON.stringify(x.quiz) : null, x.format, x.topic, x.language, x.durationS, x.sourceAgencyId ?? null, x.audienceState ?? null],
+        where id = $1 and state = 'draft' and ($12::uuid is null or source_agency = $12) returning id`,
+      [id, x.title.trim(), x.caption.trim(), x.body ?? null, x.quiz ? JSON.stringify(x.quiz) : null, x.format, x.topic, x.language, x.durationS, x.sourceAgencyId ?? null, x.audienceState ?? null, agencyId ?? null],
     );
     if (!r.rowCount) throw new AppError(409, 'not_editable', 'Only drafts can be edited. Send it back to draft first.');
     return { id, state: 'draft' };
   }
 
-  async act(p: Principal, id: string, event: 'submit' | 'approve' | 'send_back' | 'remove' | 'restore', note?: string) {
-    this.requireAdmin(p);
+  async act(p: Principal, id: string, event: 'submit' | 'approve' | 'send_back' | 'remove' | 'restore', note?: string, agencyId?: string) {
+    if (agencyId) await this.agencyKind(p, agencyId);
+    else this.requireAdmin(p);
     return this.db.tx(async (c) => {
       const post = (await c.query(`select * from learn_posts where id = $1 for update`, [id])).rows[0];
-      if (!post) throw new AppError(404, 'not_found', 'Post not found.');
-      const r = applyEvent(learnPostMachine, post.state, event, 'platform_admin');
+      if (!post || (agencyId && post.source_agency !== agencyId)) throw new AppError(404, 'not_found', 'Post not found.');
+      const r = applyEvent(learnPostMachine, post.state, event, agencyId ? 'agency' : 'platform_admin');
       if (!r.ok) throw new AppError(409, r.code, 'That is not possible at this stage.');
       const set: string[] = [`state = '${r.to}'`, 'updated_at = now()'];
       const args: unknown[] = [id];
@@ -360,7 +387,14 @@ export class LearnService {
       }
       if (event === 'restore') set.push('removed_reason = null', 'published_at = null', 'reviewed_by = null');
       await c.query(`update learn_posts set ${set.join(', ')} where id = $1`, args);
-      await this.audit.write({ actorId: p.userId, actorRole: 'platform_admin', action: `learn.${event}`, entity: 'learn_post', entityId: id, reason: note }, c);
+      await this.audit.write({ actorId: p.userId, actorRole: agencyId ? 'agency_admin' : 'platform_admin', action: `learn.${event}`, entity: 'learn_post', entityId: id, reason: note }, c);
+      if (agencyId && event === 'submit') {
+        const admins = (await c.query(`select user_id from user_roles where role = 'platform_admin'`)).rows.map((x) => x.user_id);
+        await c.query(
+          `insert into notifications (user_id, type, grp, channel, title, body, deep_link) select u, 'learn_review', 'account', 'in_app', 'Learn post to review', $2, '/admin/learn' from unnest($1::uuid[]) as u`,
+          [admins, `An agency sent "${post.title}" for review.`],
+        );
+      }
       const message = { submit: 'Sent for review.', approve: 'Approved. It is live now.', send_back: 'Sent back to draft with your note.', remove: 'Removed from the feed.', restore: 'Restored as a draft.' }[event];
       return { state: r.to, message };
     });

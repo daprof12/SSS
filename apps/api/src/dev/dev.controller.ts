@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { MockPostcodeAdapter, POSTCODE, type PostcodeAdapter } from '../adapters/postcode';
 import { MockPaystackAdapter, PAYMENTS, type PaymentsAdapter } from '../adapters/payments';
 import { MockSmsAdapter, SMS, type SmsAdapter } from '../adapters/sms';
+import { MockWhatsAppAdapter, WHATSAPP, type WhatsAppAdapter } from '../adapters/whatsapp';
 import { Public, TokenService, type RoleGrant } from '../core/auth';
 import { Db } from '../core/db';
 import { AppError, ZodPipe } from '../core/http';
@@ -34,7 +35,14 @@ export class DevController {
     @Inject(POSTCODE) private readonly postcode: PostcodeAdapter,
     @Inject(WalletService) private readonly wallet: WalletService,
     @Inject(BillingService) private readonly billing: BillingService,
+    @Inject(WHATSAPP) private readonly whatsapp: WhatsAppAdapter,
   ) {}
+
+  /** WhatsApp messages the mock adapter "sent" (dev panel and tests). */
+  @Get('whatsapp')
+  whatsappOutbox() {
+    return this.whatsapp instanceof MockWhatsAppAdapter ? this.whatsapp.outbox : [];
+  }
 
   @Post('token')
   async token(@Body(new ZodPipe(z.object({ userId: z.string().uuid(), mfa: z.boolean().default(true) }))) b: { userId: string; mfa: boolean }) {

@@ -136,11 +136,13 @@ export class MediaService {
     }
     if (ownerType === 'learn_post') {
       // Platform team uploads to drafts; once live, anyone signed in can watch (no audit for public lessons).
-      const lp = (await this.db.query(`select state from learn_posts where id = $1`, [ownerId])).rows[0];
+      const lp = (await this.db.query(`select state, source_agency from learn_posts where id = $1`, [ownerId])).rows[0];
       if (!lp) return null;
       const admin = hasRole(p, 'platform_admin');
-      if (forUpload) return admin && lp.state === 'draft' ? 'self' : null;
-      return lp.state === 'live' || admin ? 'self' : null;
+      // An agency's own post: its admins upload to drafts and see it at every stage.
+      const ownAgency = !!lp.source_agency && p.roles.some((r) => r.role === 'agency_admin' && r.scopeId === lp.source_agency);
+      if (forUpload) return (admin || ownAgency) && lp.state === 'draft' ? 'self' : null;
+      return lp.state === 'live' || admin || ownAgency ? 'self' : null;
     }
     // incident: the reporter adds; assigned officers and the station see it (clips rule, BRIEF-5).
     const i = (await this.db.query(`select reporter_id, station_id, state from incidents where id = $1`, [ownerId])).rows[0];

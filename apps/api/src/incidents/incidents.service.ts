@@ -599,6 +599,112 @@ export class IncidentsService implements OnModuleDestroy {
     throw new AppError(400, 'unsupported_event', 'That action is not available here.');
   }
 
+  // ---------------------------------------------------------------- duplicates (board "Station incident detail")
+
+  private stationOf(p: Principal, row: IncidentRow) {
+    if (!row.station_id || !(hasRole(p, 'head', row.station_id) || hasRole(p, 'dispatcher', row.station_id))) throw new AppError(404, 'not_found', 'This report could not be found.');
+  }
+
+  /**
+   * Possible duplicates: other open reports within 500 m in the last hour that were not merged on
+   * their own (a different building, or a related type), and not already kept separate.
+   */
+  async duplicates(p: Principal, id: string) {
+    const row = await this.repo.row(id);
+    if (!row) throw new AppError(404, 'not_found', 'This report could not be found.');
+    this.stationOf(p, row);
+    const r = await this.db.query(
+      `select t.id, t.type, t.created_at, t.report_count, t.location_id = n.location_id as same_building, tt.family = nt.family as same_family, t.type = n.type as same_type,
+              st_distance(t.geom, n.geom)::int as d, l.postcode, coalesce(l.address_text, '') as address
+         from incidents n join incident_types nt on nt.code = n.type, incidents t join incident_types tt on tt.code = t.type left join locations l on l.id = t.location_id
+        where n.id = $1 and t.id <> n.id and t.state in ('received', 'offered', 'escalated', 'accepted', 'en_route', 'on_scene', 'closing')
+          and abs(extract(epoch from (t.created_at - n.created_at))) < 3600 and st_dwithin(t.geom, n.geom, 500)
+          and not exists (select 1 from incident_links k where k.a_id = least(n.id, t.id) and k.b_id = greatest(n.id, t.id))
+        order by st_distance(t.geom, n.geom) limit 5`,
+      [id],
+    );
+    return r.rows.map((x) => ({
+      id: x.id,
+      label: `${cap(x.type)}, ${x.postcode ?? 'GPS location'}`,
+      distanceM: x.d,
+      reports: x.report_count,
+      at: x.created_at,
+      why: `${x.same_building ? 'Same building' : 'Different building'}, ${x.same_type ? 'same type' : x.same_family ? 'related type' : 'different type'}${x.address ? `, ${x.address}` : ''}.`,
+    }));
+  }
+
+  /** Merge another open report into this one: one response for everyone; its reporters are told. */
+  async mergeIn(p: Principal, id: string, otherId: string) {
+    const [row, other] = await Promise.all([this.repo.row(id), this.repo.row(otherId)]);
+    if (!row || !other) throw new AppError(404, 'not_found', 'This report could not be found.');
+    this.stationOf(p, row);
+    if (id === otherId) throw new AppError(422, 'same', 'Choose another report.');
+    if (['resolved', 'unfounded', 'cancelled', 'merged'].includes(row.state)) throw new AppError(409, 'closed', 'This report is closed.');
+    await this.transition(otherId, 'merge_into', 'station', p.userId, async (c) => {
+      const reports = (await c.query(`select reporter_id, source, type_chosen, answers from incident_reports where incident_id = $1 and reporter_id is not null`, [otherId])).rows;
+      for (const r of reports) {
+        await c.query(`insert into incident_reports (incident_id, reporter_id, source, role, type_chosen, answers) values ($1, $2, $3, 'joined', $4, $5)`, [id, r.reporter_id, r.source, r.type_chosen, r.answers]);
+      }
+      await c.query(`update incidents set report_count = report_count + $2 where id = $1`, [id, reports.length || 1]);
+      await c.query(`update incident_units set state = 'released' where incident_id = $1 and state in ('offered', 'accepted', 'en_route', 'on_scene')`, [otherId]);
+      await c.query(`update merge_suggestions set state = 'merged', decided_by = $3 where (incident_id = $1 and candidate_id = $2) or (incident_id = $2 and candidate_id = $1)`, [id, otherId, p.userId]);
+      await this.logEvent(c, id, p.userId, 'station', 'report_joined', null, null, { label: PUBLIC_LABELS.report_joined, staffLabel: 'Report merged by the station', from: otherId }, true);
+      await c.query(
+        `insert into notifications (user_id, type, grp, channel, title, body, deep_link)
+         select distinct r.reporter_id, 'joined_report', 'reports', 'in_app', 'Already being handled', 'Others reported this too. One response is on its way for everyone.', $2
+           from incident_reports r where r.incident_id = $1 and r.reporter_id is not null`,
+        [otherId, `/reports/${id}`],
+      );
+      return { into: id };
+    }, { merged_into: id, merge_reason: 'dispatcher' });
+    clearTimeout(this.timers.get(`window:${otherId}`));
+    await this.audit.write({ actorId: p.userId, actorRole: 'head', action: 'incident.merge', entity: 'incident', entityId: id, payload: { from: otherId } });
+    this.publish(id, 'report_joined');
+    return { message: 'Merged. One response for everyone; their reporters are told.' };
+  }
+
+  async keepSeparate(p: Principal, id: string, otherId: string) {
+    const row = await this.repo.row(id);
+    if (!row) throw new AppError(404, 'not_found', 'This report could not be found.');
+    this.stationOf(p, row);
+    const [a, b] = id < otherId ? [id, otherId] : [otherId, id];
+    await this.db.query(`insert into incident_links (a_id, b_id, reason) values ($1, $2, 'kept_separate') on conflict do nothing`, [a, b]);
+    await this.db.query(`update merge_suggestions set state = 'kept_separate', decided_by = $3 where (incident_id = $1 and candidate_id = $2) or (incident_id = $2 and candidate_id = $1)`, [id, otherId, p.userId]);
+    return { message: 'Kept separate. It will not be suggested again.' };
+  }
+
+  /** Split a report that was merged automatically but is a different emergency: it gets its own response. */
+  async split(p: Principal, id: string, reportId: string) {
+    const row = await this.repo.row(id);
+    if (!row) throw new AppError(404, 'not_found', 'This report could not be found.');
+    this.stationOf(p, row);
+    const newId = await this.db.tx(async (c) => {
+      const r = (await c.query(`select * from incident_reports where id = $1 and incident_id = $2 for update`, [reportId, id])).rows[0];
+      if (!r) throw new AppError(404, 'not_found', 'Report not found.');
+      if (r.role !== 'joined' || !r.reporter_id) throw new AppError(409, 'not_joined', 'Only a report that joined this one can be split off.');
+      const i = (
+        await c.query(
+          `insert into incidents (reporter_id, type, location_id, geom, state, received_at, station_id, agency_id, discreet, source)
+           select $2, $3, i.location_id, i.geom, 'received', now(), null, null, false, 'app' from incidents i where i.id = $1 returning id`,
+          [id, r.reporter_id, r.type_chosen],
+        )
+      ).rows[0];
+      await c.query(`update incident_reports set incident_id = $2, role = 'first' where id = $1`, [reportId, i.id]);
+      await c.query(`update incidents set report_count = greatest(1, report_count - 1) where id = $1`, [id]);
+      await this.logEvent(c, id, p.userId, 'station', 'split', null, null, { label: 'Report split off', newIncident: i.id }, false);
+      await this.logEvent(c, i.id, p.userId, 'station', 'split', null, 'received', { label: 'Report received', from: id }, true);
+      await c.query(
+        `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'report_split', 'reports', 'in_app', 'Handled on its own', 'Your report is a different emergency, so it now has its own response. Finding the nearest team.', $2)`,
+        [r.reporter_id, `/reports/${i.id}`],
+      );
+      return i.id as string;
+    });
+    await this.audit.write({ actorId: p.userId, actorRole: 'head', action: 'incident.split', entity: 'incident', entityId: id, payload: { newIncident: newId } });
+    this.publish(id, 'split');
+    await this.route(newId);
+    return { id: newId, message: 'Split off. It has its own response now.' };
+  }
+
   /** Next station: the routing rule's fallback first, else the nearest eligible station not yet tried. */
   private async nextStation(id: string, type: string, current: string, lat: number, lng: number): Promise<{ id: string; name: string } | null> {
     const tried = (

@@ -9,6 +9,7 @@ import { KYC, MockKycAdapter } from './adapters/kyc';
 import { MockPaystackAdapter, PAYMENTS } from './adapters/payments';
 import { MockPostcodeAdapter, POSTCODE } from './adapters/postcode';
 import { MockSmsAdapter, SMS } from './adapters/sms';
+import { MockWhatsAppAdapter, WHATSAPP } from './adapters/whatsapp';
 import { MockStorageAdapter, STORAGE } from './adapters/storage';
 import { Audit } from './core/audit';
 import { AuthGuard, Public, TokenService } from './core/auth';
@@ -112,6 +113,7 @@ export class AppModule {
         BillingService,
         StatementsService,
         { provide: TRANSLATE, useValue: new MockTranslateAdapter() },
+        { provide: WHATSAPP, useValue: new MockWhatsAppAdapter() },
         FinesService,
         HomeService,
         Db,

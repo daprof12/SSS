@@ -204,3 +204,62 @@ export function ReinforceSheet({ incidentId, onClose, onDone }: { incidentId: st
     </Sheet>
   );
 }
+
+interface Dup {
+  id: string;
+  label: string;
+  distanceM: number;
+  reports: number;
+  at: string;
+  why: string;
+}
+
+/** "Possible duplicates": close by or a related type, but not certain enough to merge on its own. */
+export function Duplicates({ incidentId, version, onDone }: { incidentId: string; version: string; onDone: (m: string) => void }) {
+  const [list, setList] = useState<Dup[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = useCallback(() => {
+    api<Dup[]>(`/incidents/${incidentId}/duplicates`)
+      .then(setList)
+      .catch(() => setList([]));
+  }, [incidentId]);
+  useEffect(load, [load, version]);
+  if (!list?.length) return null;
+  const act = async (otherId: string, path: 'merge' | 'keep-separate') => {
+    setBusy(otherId);
+    try {
+      onDone((await api<{ message: string }>(`/incidents/${incidentId}/${path}`, { method: 'POST', body: JSON.stringify({ otherId }) })).message);
+      load();
+    } catch (e) {
+      onDone(e instanceof ApiError ? e.message : 'Could not do that.');
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <section className="card" aria-labelledby="dups">
+      <h2 id="dups">Possible duplicates</h2>
+      {list.map((d) => (
+        <div key={d.id} className="card" style={{ margin: '0 0 8px' }}>
+          <strong>
+            <Link href={`/incidents/${d.id}`}>{d.label}</Link>, {d.distanceM} m away
+          </strong>
+          <p className="muted" style={{ margin: '4px 0 8px' }}>
+            Reported {new Date(d.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. {d.why}
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn signal" type="button" disabled={busy === d.id} onClick={() => act(d.id, 'merge')}>
+              Merge
+            </button>
+            <button className="btn" type="button" disabled={busy === d.id} onClick={() => act(d.id, 'keep-separate')}>
+              Keep separate
+            </button>
+          </div>
+        </div>
+      ))}
+      <p className="muted" style={{ marginBottom: 0 }}>
+        Suggested when a report is close by or a related type, but not certain enough to merge on its own. Merging sends one response; its reporters are told.
+      </p>
+    </section>
+  );
+}

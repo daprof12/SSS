@@ -38,6 +38,12 @@ export default function OfficerProfile() {
   const router = useRouter();
   const [p, setP] = useState<Profile | null>(null);
   const [theme, setTheme] = useState('System');
+  const [wa, setWa] = useState<boolean | null>(null);
+  useEffect(() => {
+    api<{ preferences: { whatsappOptIn?: boolean } }>('/me')
+      .then((m) => setWa(!!m.preferences.whatsappOptIn))
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     api<Profile>('/me/officer/profile')
       .then(setP)
@@ -136,6 +142,25 @@ export default function OfficerProfile() {
         {row('/officer/badge', 'shield', 'Documents and badge', p?.badge.status === 'verified' ? 'Verified' : 'Check')}
         {row('/officer/shifts', 'history', 'Duty and shifts', p ? (p.onDuty ? 'On duty' : 'Off duty') : '')}
         {row('/officer/notifications', 'bell', 'Dispatch alerts')}
+        <div className="row" style={{ cursor: 'default' }}>
+          <span className="grow">
+            <strong>Station messages on WhatsApp</strong>
+            <span className="sub">As well as in the app</span>
+          </span>
+          <button
+            className="toggle"
+            type="button"
+            role="switch"
+            aria-checked={!!wa}
+            aria-label="Station messages on WhatsApp"
+            disabled={wa === null}
+            onClick={async () => {
+              const next = !wa;
+              setWa(next);
+              await api('/me/preferences', { method: 'PATCH', body: JSON.stringify({ whatsappOptIn: next }) }).catch(() => setWa(!next));
+            }}
+          />
+        </div>
       </div>
       <p className="section-label">Account</p>
       <div className="list">

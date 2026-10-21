@@ -21,6 +21,7 @@ const AGENCY_BUILT: Record<string, NavItem> = {
   Overview: { label: 'Overview', href: '/agency/overview', built: true },
   Stations: { label: 'Stations', href: '/agency/stations', built: true },
   'Live map': { label: 'Live map', href: '/agency/live', built: true },
+  'Learn feed': { label: 'Learn feed', href: '/agency/learn', built: true },
   Bounties: { label: 'Bounties', href: '/agency/bounties', built: true, also: ['/agency/tips'] },
   'Public issues': { label: 'Public issues', href: '/agency/issues', built: true },
   Payouts: { label: 'Payouts', href: '/agency/payouts', built: true },
@@ -52,7 +53,7 @@ const NAV: Record<string, NavItem[]> = {
     { label: 'Settings', href: '/station/settings', built: true },
   ],
   agency: [
-    'Overview', 'Live map', 'Stations', 'Officers', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Assets', 'Messaging', 'Settings',
+    'Overview', 'Live map', 'Stations', 'Officers', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Learn feed', 'Assets', 'Messaging', 'Settings',
   ].map((l) => AGENCY_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
   admin: [
     'Overview', 'Live incident map', 'Coverage map', 'Device wall', 'Users', 'Inventory', 'Installation team', 'Subscriptions', 'KYC queue', 'Fines and appeals', 'Help inbox', 'Donations', 'Learn feed', 'Agencies', 'Audit log', 'AI and LLM', 'CRM messaging', 'Settings',

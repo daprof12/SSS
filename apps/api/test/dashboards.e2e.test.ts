@@ -196,3 +196,105 @@ describe('agency and admin dashboards', () => {
     expect((await http.get('/me').set(as('neighbour'))).body.kyc.status).toBe('verified');
   });
 });
+
+describe('agency learn feed', () => {
+  it('an agency posts in its own topics; the platform team reviews before it goes live', async () => {
+    const src = (await http.get(`/agencies/${agencyId}/learn/sources`).set(as('agencyAdmin')).expect(200)).body;
+    expect(src.topics).toEqual(expect.arrayContaining(['crime_prevention', 'scams_fraud']));
+    expect(src.topics).not.toContain('fire_safety');
+    const post = { title: 'Lock your gate at night', caption: 'Three habits that stop most break-ins.', topic: 'fire_safety', format: 'article', language: 'en', body: 'Lock the gate. Light the yard. Know your neighbours. '.repeat(10) };
+    expect((await http.post(`/agencies/${agencyId}/learn/posts`).set(as('agencyAdmin')).send(post).expect(422)).body.message).toBe('Choose one of your agency’s topics.');
+    const d = (await http.post(`/agencies/${agencyId}/learn/posts`).set(as('agencyAdmin')).send({ ...post, topic: 'home_security' }).expect(201)).body;
+    const r = (await http.post(`/agencies/${agencyId}/learn/posts/${d.id}/actions`).set(as('agencyAdmin')).send({ event: 'submit' }).expect(201)).body;
+    expect(r).toMatchObject({ state: 'in_review' });
+    // Agencies cannot approve their own posts.
+    await http.post(`/agencies/${agencyId}/learn/posts/${d.id}/actions`).set(as('agencyAdmin')).send({ event: 'approve' }).expect(409);
+    const mine = (await http.get(`/agencies/${agencyId}/learn/posts?state=in_review`).set(as('agencyAdmin')).expect(200)).body;
+    expect(mine.items.map((x: any) => x.id)).toEqual([d.id]);
+    expect(mine.items[0].source).toBe('Nigeria Police Force (demo)');
+    await http.post(`/admin/learn/posts/${d.id}/actions`).set(as('platformAdmin')).send({ event: 'approve' }).expect(201);
+    expect((await http.get(`/learn/posts/${d.id}`).set(as('citizen')).expect(200)).body.title).toBe('Lock your gate at night');
+    await http.get(`/agencies/${agencyId}/learn/posts?state=live`).set(as('citizen')).expect(404);
+  });
+});
+
+describe('duplicates: suggest, merge, keep separate, split', () => {
+  it('suggests a nearby report, merges it, and splits a joined report back out', async () => {
+    // Start clean: earlier tests leave reports open at this building, and a new one would merge into them.
+    await db.query(`update incident_units set state = 'released' where state in ('offered', 'accepted', 'en_route', 'on_scene')`);
+    await db.query(`update incidents set state = 'cancelled' where state not in ('resolved', 'unfounded', 'cancelled', 'merged')`);
+    const mk = async (who: string, body: Record<string, unknown>) => (await http.post('/incidents').set(as(who)).send({ clientRef: ref(), ...body }).expect(201)).body.id as string;
+    const a = await mk('citizen', { type: 'riot', postcode: 'AB12C' });
+    for (let i = 0; i < 60 && (await view('citizen', a)).state === 'pending_cancel'; i++) await sleep(50);
+    // A GPS-only report 100 m away: not the same building, so not merged on its own.
+    const b = await mk('neighbour', { type: 'violence', lat: 6.6027, lng: 3.3515 });
+    for (let i = 0; i < 60 && (await view('neighbour', b)).state === 'pending_cancel'; i++) await sleep(50);
+    const d = (await http.get(`/incidents/${a}/duplicates`).set(as('head')).expect(200)).body;
+    const hit = d.find((x: any) => x.id === b);
+    expect(hit).toBeTruthy();
+    expect(hit.why).toMatch(/^Different building, related type/);
+    await http.get(`/incidents/${a}/duplicates`).set(as('citizen')).expect(404);
+
+    expect((await http.post(`/incidents/${a}/merge`).set(as('head')).send({ otherId: b }).expect(201)).body.message).toMatch(/^Merged\./);
+    expect((await view('neighbour', b)).state).toBe('merged');
+    const x = (await http.get(`/incidents/${a}/station-detail`).set(as('head'))).body;
+    const joined = x.reports.find((r: any) => r.role === 'joined');
+    expect(joined).toBeTruthy();
+    expect((await http.get(`/incidents/${a}/duplicates`).set(as('head'))).body.find((y: any) => y.id === b)).toBeUndefined();
+
+    const s = (await http.post(`/incidents/${a}/split`).set(as('head')).send({ reportId: joined.id }).expect(201)).body;
+    expect(s.message).toBe('Split off. It has its own response now.');
+    const fresh = await view('neighbour', s.id);
+    expect(['received', 'offered', 'escalated']).toContain(fresh.state);
+    const note = (await http.get('/me/notifications').set(as('neighbour'))).body.items.find((n: any) => n.type === 'report_split');
+    expect(note.body).toMatch(/^Your report is a different emergency/);
+    await http.post(`/incidents/${a}/split`).set(as('head')).send({ reportId: x.reports.find((r: any) => r.role === 'first').id }).expect(409);
+
+    // Keep separate: never suggested again.
+    await http.post(`/incidents/${a}/keep-separate`).set(as('head')).send({ otherId: s.id }).expect(201);
+    expect((await http.get(`/incidents/${a}/duplicates`).set(as('head'))).body.find((y: any) => y.id === s.id)).toBeUndefined();
+  });
+});
+
+describe('roster requests and message channels', () => {
+  const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  it('an officer asks to swap; approving trades the two shifts on the roster', async () => {
+    await http.put('/me/station/roster').set(as('head')).send({ officerId: users.officer, date: day(2), kind: 'night' }).expect(200);
+    await http.put('/me/station/roster').set(as('head')).send({ officerId: users.officer2, date: day(3), kind: 'day' }).expect(200);
+    await http.post('/me/officer/roster-requests').set(as('officer')).send({ kind: 'swap', otherOfficerId: users.officer, myDate: day(2), otherDate: day(3) }).expect(422);
+    const r = (await http.post('/me/officer/roster-requests').set(as('officer')).send({ kind: 'swap', otherOfficerId: users.officer2, myDate: day(2), otherDate: day(3), note: 'Family event' }).expect(201)).body;
+    const list = (await http.get('/me/station/roster/requests').set(as('head')).expect(200)).body;
+    expect(list[0]).toMatchObject({ id: r.id, kind: 'swap', state: 'waiting', officer: 'Insp. Musa Bello', other: 'Sgt. Bola Ade' });
+    expect(list[0].line).toMatch(/^Swap \w+ \d+ \w+ for \w+ \d+ \w+ with Sgt\. Bola Ade$/);
+    await http.post(`/me/station/roster/requests/${r.id}`).set(as('head')).send({ decision: 'approve' }).expect(200);
+    const kind = async (who: string, d: string) => (await db.query(`select coalesce((select kind from duty_shifts where officer_id = $1 and (starts_at at time zone 'Africa/Lagos')::date = $2::date limit 1), 'off') as k`, [users[who], d])).rows[0].k;
+    expect([await kind('officer', day(2)), await kind('officer2', day(2)), await kind('officer2', day(3)), await kind('officer', day(3))]).toEqual(['off', 'night', 'off', 'day']);
+    expect((await http.get('/me/notifications').set(as('officer2'))).body.items.some((x: any) => x.type === 'roster_decided')).toBe(true);
+  });
+
+  it('leave marks each day; a decline needs a reason', async () => {
+    const r = (await http.post('/me/officer/roster-requests').set(as('officer2')).send({ kind: 'leave', fromDate: day(5), toDate: day(6) }).expect(201)).body;
+    expect((await http.post(`/me/station/roster/requests/${r.id}`).set(as('head')).send({ decision: 'decline' }).expect(422)).body.message).toBe('Say why, so the officer knows.');
+    await http.post(`/me/station/roster/requests/${r.id}`).set(as('head')).send({ decision: 'approve' }).expect(200);
+    const n = (await db.query(`select count(*)::int as n from duty_shifts where officer_id = $1 and kind = 'leave'`, [users.officer2])).rows[0].n;
+    expect(n).toBe(2);
+    expect((await http.get('/me/officer/roster-requests').set(as('officer2'))).body[0]).toMatchObject({ kind: 'leave', state: 'approved' });
+  });
+
+  it('messages go by WhatsApp to staff who opted in, and by SMS to anyone who has not opened them', async () => {
+    await http.patch('/me/preferences').set(as('officer')).send({ whatsappOptIn: true }).expect(200);
+    const s = (await http.post('/me/station/messages').set(as('head')).send({ audience: 'everyone', title: 'Briefing', body: 'Briefing at 7pm.', whatsapp: true, sms: 'unread', smsAfterMinutes: 5 }).expect(201)).body;
+    expect(s.message).toBe('Sent to 2 officers (1 on WhatsApp, SMS to anyone who has not opened it in 5 min).');
+    const wa = (await http.get('/dev/whatsapp')).body;
+    expect(wa[wa.length - 1]).toMatchObject({ to: '+2348030000002', body: 'Station 4 Ikeja: Briefing. Briefing at 7pm.' });
+    await http.get(`/me/messages/${s.id}`).set(as('officer')).expect(200);
+    await db.query(`update station_broadcasts set created_at = now() - interval '10 minutes' where id = $1`, [s.id]);
+    const ran = (await http.post('/admin/jobs/run').set(as('platformAdmin')).expect(201)).body;
+    expect(ran.messagesTexted).toBe(1);
+    const d = (await http.get(`/me/station/messages/${s.id}`).set(as('head'))).body;
+    expect(d.channels).toEqual(['push', 'whatsapp', 'sms']);
+    const r2 = d.recipients.find((x: any) => x.id === users.officer2);
+    expect(r2.smsAt).toBeTruthy();
+    expect(d.recipients.find((x: any) => x.id === users.officer).smsAt).toBeNull();
+  });
+});

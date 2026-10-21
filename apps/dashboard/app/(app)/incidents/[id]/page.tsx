@@ -5,13 +5,13 @@ import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { streamUrl } from '@erp/web-ui/api';
 import { StateChip } from '@erp/web-ui/StateChip';
-import { FalseAlarmReview, ReinforceSheet, StatementCard } from '@/components/IncidentExtras';
+import { Duplicates, FalseAlarmReview, ReinforceSheet, StatementCard } from '@/components/IncidentExtras';
 import { api, ApiError } from '@erp/web-ui/api';
 import { StationActions } from '@/components/StationActions';
 
 interface Extras {
   units: { name: string; badgeNo: string | null; role: string; state: string; acceptedAt: string | null; offeredAt: string; secondsLeft: number | null; distanceM: number | null; declineReason: string | null }[];
-  reports: { role: string; source: string; type: string; detail: string | null; at: string; who: string; trustBand: string }[];
+  reports: { id: string; role: string; source: string; type: string; detail: string | null; at: string; who: string; trustBand: string }[];
   notes: { text: string; at: string; by: string | null }[];
 }
 const UNIT: Record<string, [string, string]> = {
@@ -110,6 +110,7 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
     );
   }
 
+  const live = !['resolved', 'unfounded', 'cancelled', 'merged'].includes(v.state);
   return (
     <>
       <p style={{ margin: '0 0 8px' }}>
@@ -234,14 +235,35 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
                   {new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {r.source === 'device' ? 'Device' : 'App report'}, trust {r.trustBand}
                 </span>
               </div>
-              <span className={`chip ${r.role === 'first' ? 'info' : r.role === 'device' ? 'neutral' : 'success'}`}>{r.role === 'first' ? 'First report' : r.role === 'device' ? 'Device' : 'Joined'}</span>
+              <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {r.role === 'joined' && live && (
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        setToast((await api<{ message: string }>(`/incidents/${v.id}/split`, { method: 'POST', body: JSON.stringify({ reportId: r.id }) })).message);
+                        setX(await api<Extras>(`/incidents/${id}/station-detail`));
+                      } catch (e) {
+                        setToast(e instanceof ApiError ? e.message : 'Could not split.');
+                      }
+                    }}
+                  >
+                    Split
+                  </button>
+                )}
+                <span className={`chip ${r.role === 'first' ? 'info' : r.role === 'device' ? 'neutral' : 'success'}`}>{r.role === 'first' ? 'First report' : r.role === 'device' ? 'Device' : 'Joined'}</span>
+              </span>
             </div>
           ))}
           <p className="muted" style={{ marginBottom: 0 }}>
             Everyone who reported sees the same status. People who join a confirmed incident are never fined for a false alarm.
           </p>
         </section>
-        <StatementCard incidentId={v.id} state={v.state} onDone={setToast} />
+        <div style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
+          {live && <Duplicates incidentId={v.id} version={version} onDone={setToast} />}
+          <StatementCard incidentId={v.id} state={v.state} onDone={setToast} />
+        </div>
       </div>
 
       <div className="grid two">

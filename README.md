@@ -443,3 +443,32 @@ Migration 021 (station settings, `station_broadcasts` for station messages). Tes
   - **Live incident map**, **Users** (role tabs and search), **Subscriptions** (change plan, reminder, pause or resume with a reason), and **KYC queue** (approve, ask for more, or reject with a reason).
   - Platform admins land on the Overview.
 - **Maps:** schematic, not map tiles. Points are placed by their real distance from the centre.
+
+## Location filter, street maps, agency map and Learn, duplicates, roster requests, message channels
+
+Migration 022. Tests: `apps/api/test/dashboards.e2e.test.ts`.
+
+- **Filter by location** (admin Overview, Users, Subscriptions, both live maps):
+  - Five cascading lists, State → LGA → District → Area → Building, each loaded from the postcode service (`/places/levels/:level?parent=`), plus a postcode search and Clear.
+  - The API takes `state`, `lga`, `district`, `area`, `building` and `postcode` (`core/location-filter.ts`). The deepest level chosen wins.
+  - Each page filters by its own place: incidents by their building, devices and plans by their home, users by their home (or their station, for officers).
+- **Street maps:** dashboard maps now use street tiles (Esri; set `NEXT_PUBLIC_TILES_MAP` to change provider), with zoom buttons and drag to pan, dimmed in dark mode. They fit the points until you move the map.
+- **Live map by type:**
+  - Emergencies and incidents, report tips and public issues, each in its own colour, can be toggled on and off.
+  - The admin sees everything at `/admin/live`.
+  - Each agency sees only what is routed to it, and only the kinds it handles, at `/agency/live`: emergencies always, tips and public issues when it handles them.
+- **Agency Learn feed** (`/agency/learn`):
+  - Agencies write videos, articles and quizzes in the topics that match their kind (police: crime prevention, scams, home security, child safety, drugs, rights; fire: fire safety, flood; health: first aid, outbreaks; and so on).
+  - They send drafts for review, and only the platform team approves. Admins get a notification.
+- **Duplicates** (station incident page):
+  - "Possible duplicates" lists open reports within 500 m in the last hour that were not merged on their own.
+  - **Merge** gives one response for everyone and tells the other reporters. **Keep separate** means the pair is never suggested again.
+  - **Split** gives a joined report its own response.
+- **Roster requests:**
+  - Officers ask for a swap (their shift on one day for a teammate's on another) or for leave, from Duty and shifts.
+  - The station head approves or declines with a reason in Roster. Approving updates the roster, and both officers are told.
+- **Station messages by SMS and WhatsApp:** push is always on.
+  - **WhatsApp** goes to staff who opted in (officer profile toggle).
+  - **SMS** goes now, or to anyone who has not opened the message after N minutes (jobs).
+  - **Urgent** messages text at once.
+  - Each recipient shows WhatsApp, SMS or failed. The adapters are mocks with outboxes (`/dev/sms`, `/dev/whatsapp`) until providers are connected.

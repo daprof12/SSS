@@ -115,4 +115,30 @@ export class LearnController {
   act(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(ActBody)) b: z.infer<typeof ActBody>) {
     return this.learn.act(p, id, b.event, b.note);
   }
+
+  // ---------- agencies (their own posts, in their topics; the platform team reviews)
+  @Get('agencies/:agencyId/learn/posts')
+  agencyList(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Query('state', new ZodPipe(StateQ)) state: z.infer<typeof StateQ>) {
+    return this.learn.adminList(p, state, a);
+  }
+
+  @Get('agencies/:agencyId/learn/sources')
+  agencySources(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string) {
+    return this.learn.sources(p, a);
+  }
+
+  @Post('agencies/:agencyId/learn/posts')
+  agencyCreate(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Body(new ZodPipe(PostBody)) b: z.infer<typeof PostBody>) {
+    return this.learn.create(p, b, a);
+  }
+
+  @Patch('agencies/:agencyId/learn/posts/:id')
+  agencyUpdate(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(PostBody)) b: z.infer<typeof PostBody>) {
+    return this.learn.update(p, id, b, a);
+  }
+
+  @Post('agencies/:agencyId/learn/posts/:id/actions')
+  agencyAct(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(ActBody)) b: z.infer<typeof ActBody>) {
+    return this.learn.act(p, id, b.event, b.note, a);
+  }
 }

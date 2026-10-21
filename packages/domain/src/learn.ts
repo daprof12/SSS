@@ -27,6 +27,27 @@ export const learnTopics: LearnTopic[] = [
 ];
 export const learnTopic = (code: string) => learnTopics.find((t) => t.code === code);
 
+/** Topics an agency may post to: the ones that match what it handles (an agency posts in its own field). */
+const AGENCY_TOPICS: Record<string, string[]> = {
+  police: ['crime_prevention', 'scams_fraud', 'home_security', 'child_safety', 'drugs_addiction', 'know_your_rights'],
+  fire: ['fire_safety', 'flood_disaster'],
+  health: ['first_aid', 'health_outbreaks'],
+  frsc: ['road_safety'],
+  roads: ['road_safety', 'environment'],
+  efcc: ['scams_fraud', 'know_your_rights'],
+  icpc: ['scams_fraud', 'know_your_rights'],
+  ndlea: ['drugs_addiction'],
+  naptip: ['child_safety', 'know_your_rights'],
+  nafdac: ['health_outbreaks', 'drugs_addiction'],
+  son: ['scams_fraud', 'know_your_rights'],
+  fccpc: ['scams_fraud', 'know_your_rights'],
+  customs: ['know_your_rights', 'scams_fraud'],
+  immigration: ['know_your_rights', 'child_safety'],
+  environment: ['environment', 'flood_disaster'],
+  nema: ['flood_disaster', 'first_aid'],
+};
+export const agencyLearnTopics = (kind: string): LearnTopic[] => (AGENCY_TOPICS[kind] ?? ['know_your_rights']).map((c) => learnTopic(c)!).filter(Boolean);
+
 export const learnLanguages = [
   { code: 'en', label: 'English' },
   { code: 'pcm', label: 'Pidgin' },
@@ -73,13 +94,14 @@ export function checkLearnPost(p: { title: string; caption: string; topic: strin
 export const learnPostMachine = defineMachine<
   'draft' | 'in_review' | 'live' | 'removed',
   'submit' | 'approve' | 'send_back' | 'remove' | 'restore',
-  'platform_admin'
+  'platform_admin' | 'agency'
 >({
   name: 'learnPost',
   initial: 'draft',
   terminal: [],
   transitions: [
-    { event: 'submit', from: ['draft'], to: 'in_review', actors: ['platform_admin'] },
+    // Agencies write and send their own posts; the platform team reviews every post before it is live.
+    { event: 'submit', from: ['draft'], to: 'in_review', actors: ['platform_admin', 'agency'] },
     { event: 'approve', from: ['in_review'], to: 'live', actors: ['platform_admin'] },
     { event: 'send_back', from: ['in_review'], to: 'draft', actors: ['platform_admin'] },
     { event: 'remove', from: ['live', 'in_review', 'draft'], to: 'removed', actors: ['platform_admin'] },

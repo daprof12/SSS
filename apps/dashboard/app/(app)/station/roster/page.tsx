@@ -14,6 +14,15 @@ interface Roster {
   rules: { dayStart: string; nightStart: string; minOnDuty: number };
   publishedAt: string | null;
 }
+interface Req {
+  id: string;
+  kind: 'swap' | 'leave';
+  state: 'waiting' | 'approved' | 'declined' | 'withdrawn';
+  officer: string;
+  line: string;
+  note: string | null;
+  declineReason: string | null;
+}
 const NEXT: Record<Kind, Kind> = { day: 'night', night: 'off', off: 'leave', leave: 'day' };
 const LABEL: Record<Kind, string> = { day: 'Day', night: 'Night', off: 'Off', leave: 'Leave' };
 const DAYNAME: Record<string, string> = { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' };
@@ -29,6 +38,24 @@ export default function RosterPage() {
   const [error, setError] = useState<string | null>(null);
   const [rules, setRules] = useState<{ dayStart: string; nightStart: string; minOnDuty: string } | null>(null);
   const [toast, setToast] = useToast();
+  const [reqs, setReqs] = useState<Req[] | null>(null);
+  const [declining, setDeclining] = useState<string | null>(null);
+  const [why, setWhy] = useState('');
+  const loadReqs = useCallback(() => {
+    api<Req[]>('/me/station/roster/requests').then(setReqs).catch(() => setReqs([]));
+  }, []);
+  useEffect(loadReqs, [loadReqs]);
+  const decide = async (id: string, decision: 'approve' | 'decline') => {
+    try {
+      setToast((await api<{ message: string }>(`/me/station/roster/requests/${id}`, { method: 'POST', body: JSON.stringify({ decision, reason: decision === 'decline' ? why : undefined }) })).message);
+      setDeclining(null);
+      setWhy('');
+      loadReqs();
+      load();
+    } catch (e) {
+      setToast(e instanceof ApiError ? e.message : 'Could not save.');
+    }
+  };
   const load = useCallback(() => {
     api<Roster>(`/me/station/roster${week ? `?week=${week}` : ''}`)
       .then((x) => {
@@ -199,7 +226,54 @@ export default function RosterPage() {
             </>
           )}
         </section>
-      </div>
+            </div>
+      <section className="card" aria-labelledby="swaps">
+        <h2 id="swaps" style={{ marginTop: 0 }}>
+          Swap and leave requests
+        </h2>
+        {reqs && !reqs.length && <p className="muted">No requests. Officers ask from Duty and shifts in the app.</p>}
+        {reqs?.map((q) => (
+          <div key={q.id} className="row" style={{ alignItems: 'flex-start' }}>
+            <div className="label">
+              <strong>
+                {q.officer}: {q.kind === 'swap' ? 'swap' : 'leave'}
+              </strong>
+              <span>
+                {q.line}
+                {q.note ? ` · “${q.note}”` : ''}
+                {q.declineReason ? ` · declined: ${q.declineReason}` : ''}
+              </span>
+              {declining === q.id && (
+                <label className="field" style={{ marginTop: 8 }}>
+                  <span>Why are you declining?</span>
+                  <input value={why} onChange={(e) => setWhy(e.target.value)} maxLength={300} autoFocus />
+                </label>
+              )}
+            </div>
+            {q.state === 'waiting' ? (
+              <div style={{ display: 'flex', gap: 8 }}>
+                {declining === q.id ? (
+                  <button className="btn" type="button" onClick={() => decide(q.id, 'decline')}>
+                    Send decline
+                  </button>
+                ) : (
+                  <button className="btn" type="button" onClick={() => setDeclining(q.id)}>
+                    Decline
+                  </button>
+                )}
+                <button className="btn signal" type="button" onClick={() => decide(q.id, 'approve')}>
+                  Approve
+                </button>
+              </div>
+            ) : (
+              <strong style={{ color: q.state === 'approved' ? 'var(--color-success-text)' : 'var(--color-text-secondary)' }}>{q.state[0]!.toUpperCase() + q.state.slice(1)}</strong>
+            )}
+          </div>
+        ))}
+        <p className="muted" style={{ marginBottom: 0 }}>
+          Approving a swap trades the two shifts on the roster; approving leave marks each day as leave. Both officers are told.
+        </p>
+      </section>
     </>
   );
 }

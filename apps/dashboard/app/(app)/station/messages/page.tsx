@@ -5,15 +5,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/Agency';
 
 interface Data {
-  audience: { onDuty: number; everyone: number };
+  audience: { onDuty: number; everyone: number; whatsapp: number };
   officers: { id: string; name: string }[];
-  recent: { id: string; title: string; body: string; urgent: boolean; needsConfirm: boolean; audience: string; total: number; read: number; confirmed: number; at: string }[];
+  recent: { id: string; title: string; body: string; urgent: boolean; needsConfirm: boolean; audience: string; channels: string[]; total: number; read: number; confirmed: number; failed: number; at: string }[];
 }
 interface Detail {
   id: string;
   title: string;
   needsConfirm: boolean;
-  recipients: { id: string; name: string; readAt: string | null; confirmedAt: string | null }[];
+  channels: string[];
+  smsAfterMinutes: number | null;
+  recipients: { id: string; name: string; readAt: string | null; confirmedAt: string | null; smsAt: string | null; whatsappAt: string | null; failedAt: string | null; failure: string | null }[];
 }
 type Aud = 'on_duty' | 'everyone' | 'officer';
 
@@ -25,6 +27,9 @@ export default function Messages() {
   const [body, setBody] = useState('');
   const [urgent, setUrgent] = useState(false);
   const [confirm, setConfirm] = useState(true);
+  const [sms, setSms] = useState<'off' | 'now' | 'unread'>('unread');
+  const [smsMin, setSmsMin] = useState('10');
+  const [whatsapp, setWhatsapp] = useState(false);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<Detail | null>(null);
@@ -44,7 +49,7 @@ export default function Messages() {
     if (!body.trim() || !title.trim()) return;
     setBusy(true);
     try {
-      const r = await api<{ message: string }>('/me/station/messages', { method: 'POST', body: JSON.stringify({ audience: aud, officerId: officer || undefined, title, body, urgent, needsConfirm: confirm, test }) });
+      const r = await api<{ message: string }>('/me/station/messages', { method: 'POST', body: JSON.stringify({ audience: aud, officerId: officer || undefined, title, body, urgent, needsConfirm: confirm, test, sms, smsAfterMinutes: Number(smsMin) || 10, whatsapp }) });
       setToast(r.message);
       if (!test) {
         setTitle('');
@@ -109,20 +114,50 @@ export default function Messages() {
           )}
           <div className="banner info" style={{ marginTop: 12, marginBottom: 0 }}>
             <strong>Audience</strong>
-            {count ?? '…'} {count === 1 ? 'officer' : 'officers'} get it in the app with a notification.
+            {count ?? '…'} {count === 1 ? 'officer' : 'officers'} get it in the app with a notification{d ? `, ${d.audience.whatsapp} opted in to WhatsApp` : ''}.
           </div>
         </section>
         <section className="card" aria-labelledby="how">
           <h2 id="how" style={{ marginTop: 0 }}>
             2. How
           </h2>
-          <div className="row">
-            <div className="label">
-              <strong>Urgent</strong>
-              <span>Goes to the dispatch channel. Use for danger or a station call-out only.</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div className="choice-card" aria-pressed="true" style={{ cursor: 'default' }}>
+              <strong>Push</strong>
+              <div className="muted" style={{ fontSize: 13 }}>
+                Instant, with sound. Always on.
+              </div>
             </div>
-            <button className="toggle" type="button" role="switch" aria-checked={urgent} aria-label="Urgent" onClick={() => setUrgent((v) => !v)} />
+            <button type="button" className="choice-card" aria-pressed={sms !== 'off'} onClick={() => setSms(sms === 'off' ? 'unread' : 'off')}>
+              <strong>SMS</strong>
+              <div className="muted" style={{ fontSize: 13 }}>
+                {sms === 'off' ? 'Off' : sms === 'now' ? 'To everyone, now' : `If not opened in ${smsMin} min`}
+              </div>
+            </button>
+            <button type="button" className="choice-card" aria-pressed={whatsapp} onClick={() => setWhatsapp((v) => !v)} style={{ gridColumn: '1 / -1' }}>
+              <strong>WhatsApp</strong>
+              <div className="muted" style={{ fontSize: 13 }}>
+                Staff who opted in{d ? ` (${d.audience.whatsapp})` : ''}
+              </div>
+            </button>
           </div>
+          {sms !== 'off' && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'end', marginTop: 8 }}>
+              <label className="field" style={{ margin: 0, flex: 1 }}>
+                <span>SMS</span>
+                <select value={sms} onChange={(e) => setSms(e.target.value as typeof sms)}>
+                  <option value="unread">If not opened in…</option>
+                  <option value="now">To everyone, now</option>
+                </select>
+              </label>
+              {sms === 'unread' && (
+                <label className="field" style={{ margin: 0, width: 110 }}>
+                  <span>Minutes</span>
+                  <input inputMode="numeric" value={smsMin} onChange={(e) => setSmsMin(e.target.value.replace(/\D/g, ''))} />
+                </label>
+              )}
+            </div>
+          )}
           <div className="row">
             <div className="label">
               <strong>Needs reply</strong>
@@ -130,9 +165,13 @@ export default function Messages() {
             </div>
             <button className="toggle" type="button" role="switch" aria-checked={confirm} aria-label="Officers must confirm" onClick={() => setConfirm((v) => !v)} />
           </div>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            SMS and WhatsApp fallback come with the messaging provider; today messages are in-app with a notification.
-          </p>
+          <div className="row">
+            <div className="label">
+              <strong>Urgent</strong>
+              <span>Dispatch channel and an SMS at once. Danger or a station call-out only.</span>
+            </div>
+            <button className="toggle" type="button" role="switch" aria-checked={urgent} aria-label="Urgent" onClick={() => (setUrgent((v) => !v), !urgent && setSms('now'))} />
+          </div>
         </section>
       </div>
       <section className="card" aria-labelledby="msg">
@@ -180,10 +219,21 @@ export default function Messages() {
                     <dd>{open.recipients.filter((r) => r.confirmedAt).length}</dd>
                   </div>
                 )}
+                <div>
+                  <dt>Failed to deliver</dt>
+                  <dd className="critical">{open.recipients.filter((r) => r.failedAt).length}</dd>
+                </div>
               </dl>
               {open.recipients.map((r) => (
                 <div className="row" key={r.id}>
-                  <span>{r.name}</span>
+                  <span>
+                    {r.name}
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      {r.whatsappAt ? ' · WhatsApp' : ''}
+                      {r.smsAt ? ' · SMS' : ''}
+                      {r.failedAt ? ` · failed (${r.failure})` : ''}
+                    </span>
+                  </span>
                   <span className={`chip ${r.confirmedAt ? 'success' : r.readAt ? 'info' : 'warning'}`}>{r.confirmedAt ? 'Confirmed' : r.readAt ? 'Read' : 'Not yet'}</span>
                 </div>
               ))}

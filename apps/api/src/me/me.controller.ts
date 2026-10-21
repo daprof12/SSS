@@ -15,6 +15,7 @@ const Prefs = z
     locale: z.enum(['en', 'ha', 'yo', 'ig', 'pcm']),
     reduceMotion: z.boolean(),
     discreetMode: z.boolean(),
+    whatsappOptIn: z.boolean(),
   })
   .partial()
   .refine((o) => Object.keys(o).length > 0, 'Nothing to change.');
@@ -60,7 +61,7 @@ export class MeController {
   async me(@CurrentUser() p: Principal) {
     const u = (
       await this.db.query(
-        `select id, display_name, phone, email, locale, theme, reduce_motion, discreet_mode, mfa_enabled, pin_hash is not null as has_pin, onboarding, onboarded_at from users where id = $1`,
+        `select id, display_name, phone, email, locale, theme, reduce_motion, discreet_mode, whatsapp_opt_in, mfa_enabled, pin_hash is not null as has_pin, onboarding, onboarded_at from users where id = $1`,
         [p.userId],
       )
     ).rows[0];
@@ -74,7 +75,7 @@ export class MeController {
       phone: u.phone ? `${u.phone.slice(0, 7)}•••${u.phone.slice(-2)}` : null,
       email: u.email,
       roles: p.roles,
-      preferences: { theme: u.theme, locale: u.locale, reduceMotion: u.reduce_motion, discreetMode: u.discreet_mode },
+      preferences: { theme: u.theme, locale: u.locale, reduceMotion: u.reduce_motion, discreetMode: u.discreet_mode, whatsappOptIn: u.whatsapp_opt_in },
       security: { mfaEnabled: u.mfa_enabled, mfaRequired: p.roles.some((r) => mfaRequired.has(r.role)), hasPin: u.has_pin },
       kyc: kyc ? { status: kyc.status, idMasked: kyc.id_masked, verifiedAt: kyc.verified_at } : { status: 'not_started' },
       trust: trust ?? { score: 70, band: 'normal' },
@@ -105,7 +106,7 @@ export class MeController {
 
   @Patch('preferences')
   async prefs(@CurrentUser() p: Principal, @Body(new ZodPipe(Prefs)) b: z.infer<typeof Prefs>) {
-    const map = { theme: 'theme', locale: 'locale', reduceMotion: 'reduce_motion', discreetMode: 'discreet_mode' } as const;
+    const map = { theme: 'theme', locale: 'locale', reduceMotion: 'reduce_motion', discreetMode: 'discreet_mode', whatsappOptIn: 'whatsapp_opt_in' } as const;
     const keys = Object.keys(b) as Array<keyof typeof map>;
     await this.db.query(`update users set ${keys.map((k, i) => `${map[k]} = $${i + 2}`).join(', ')} where id = $1`, [p.userId, ...keys.map((k) => b[k])]);
     return { ok: true };

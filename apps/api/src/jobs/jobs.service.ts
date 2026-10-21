@@ -7,6 +7,7 @@ import { Db } from '../core/db';
 import { notify } from '../reports/shared';
 import { BillingService } from '../citizen/billing.service';
 import { FinesService } from '../citizen/fines.service';
+import { StationService } from '../dashboards/station.service';
 import { WithdrawalsService } from '../wallet/withdrawals.service';
 
 const EVERY_MS = 5 * 60 * 1000;
@@ -22,6 +23,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     @Inject(WithdrawalsService) private readonly withdrawals: WithdrawalsService,
     @Inject(FinesService) private readonly fines: FinesService,
     @Inject(BillingService) private readonly billing: BillingService,
+    @Inject(StationService) private readonly station: StationService,
   ) {}
 
   onModuleInit() {
@@ -36,7 +38,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async runAll() {
-    return { fixSilence: await this.fixSilence(), bountyRelease: await this.bountyRelease(), withdrawalsReleased: await this.withdrawals.releaseHeld(), falseAlarmsConfirmed: await this.fines.autoConfirm(), plansBilled: await this.billing.billDue(), dunningMoved: await this.billing.advanceDunning() };
+    return { fixSilence: await this.fixSilence(), bountyRelease: await this.bountyRelease(), withdrawalsReleased: await this.withdrawals.releaseHeld(), falseAlarmsConfirmed: await this.fines.autoConfirm(), plansBilled: await this.billing.billDue(), dunningMoved: await this.billing.advanceDunning(), messagesTexted: await this.station.smsFallback() };
   }
 
   /** Public issues: no reporter said "not fixed" within FIX_SILENCE_DAYS of the fix, so it is fixed. */

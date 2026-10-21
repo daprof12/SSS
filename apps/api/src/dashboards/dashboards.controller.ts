@@ -20,7 +20,20 @@ const Message = z.object({
   urgent: z.boolean().default(false),
   needsConfirm: z.boolean().default(false),
   test: z.boolean().default(false),
+  sms: z.enum(['off', 'now', 'unread']).optional(),
+  smsAfterMinutes: z.number().int().min(1).max(240).optional(),
+  whatsapp: z.boolean().default(false),
 });
+const RosterReq = z.object({
+  kind: z.enum(['swap', 'leave']),
+  otherOfficerId: z.string().uuid().optional(),
+  myDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  otherDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  note: z.string().max(500).optional(),
+});
+const Decide = z.object({ decision: z.enum(['approve', 'decline']), reason: z.string().max(500).optional() });
 const Settings = z.object({
   phone: z.string().max(20).optional(),
   acceptWindowSeconds: z.number().int().optional(),
@@ -100,6 +113,33 @@ export class DashboardsController {
   @Post('me/station/roster/publish')
   publish(@CurrentUser() p: Principal, @Body(new ZodPipe(WeekBody)) b: z.infer<typeof WeekBody>) {
     return this.station.publish(p, b.week);
+  }
+
+  @Get('me/station/roster/requests')
+  rosterRequests(@CurrentUser() p: Principal) {
+    return this.station.stationRequests(p);
+  }
+
+  @Post('me/station/roster/requests/:id')
+  @HttpCode(200)
+  decideRequest(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(Decide)) b: z.infer<typeof Decide>) {
+    return this.station.decide(p, id, b);
+  }
+
+  @Get('me/officer/roster-requests')
+  myRequests(@CurrentUser() p: Principal) {
+    return this.station.myRequests(p);
+  }
+
+  @Post('me/officer/roster-requests')
+  askRoster(@CurrentUser() p: Principal, @Body(new ZodPipe(RosterReq)) b: z.infer<typeof RosterReq>) {
+    return this.station.request(p, b);
+  }
+
+  @Post('me/officer/roster-requests/:id/withdraw')
+  @HttpCode(200)
+  withdraw(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.station.withdraw(p, id);
   }
 
   @Get('me/station/messages')

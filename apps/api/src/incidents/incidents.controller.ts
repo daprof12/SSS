@@ -29,6 +29,8 @@ const ActBody = z.object({
   etaMinutes: z.number().int().min(0).max(240).optional(),
 });
 const DeclineBody = z.object({ reason: z.string() });
+const Other = z.object({ otherId: z.string().uuid() });
+const SplitBody = z.object({ reportId: z.string().uuid() });
 const AssignBody = z.object({ officerId: z.string().uuid() });
 const RATING_TAGS = ['fast', 'polite', 'clear', 'professional', 'slow', 'rude', 'unclear'] as const;
 const RatingBody = z.object({
@@ -104,6 +106,26 @@ export class IncidentsController {
       createdAt: x.created_at,
       updatedAt: x.updated_at,
     }));
+  }
+
+  @Get('incidents/:id/duplicates')
+  duplicates(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.incidents.duplicates(p, id);
+  }
+
+  @Post('incidents/:id/merge')
+  merge(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(Other)) b: z.infer<typeof Other>) {
+    return this.incidents.mergeIn(p, id, b.otherId);
+  }
+
+  @Post('incidents/:id/keep-separate')
+  keep(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(Other)) b: z.infer<typeof Other>) {
+    return this.incidents.keepSeparate(p, id, b.otherId);
+  }
+
+  @Post('incidents/:id/split')
+  split(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(SplitBody)) b: z.infer<typeof SplitBody>) {
+    return this.incidents.split(p, id, b.reportId);
   }
 
   @Get('incidents/:id/offer')

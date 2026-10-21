@@ -4,10 +4,13 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Audit } from '../core/audit';
 import { hasRole, type Principal } from '../core/auth';
 import { Bus } from '../core/bus';
-import { Db } from '../core/db';
+import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
 import { notify } from '../reports/shared';
+import { SMS, type SmsAdapter } from '../adapters/sms';
+import { WHATSAPP, type WhatsAppAdapter } from '../adapters/whatsapp';
 
+type Kind = 'day' | 'night' | 'off' | 'leave';
 const OPEN = `('received', 'offered', 'escalated', 'accepted', 'en_route', 'reassigning', 'transferred', 'on_scene', 'closing')`;
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -30,6 +33,8 @@ export class StationService {
     @Inject(Db) private readonly db: Db,
     @Inject(Audit) private readonly audit: Audit,
     @Inject(Bus) private readonly bus: Bus,
+    @Inject(SMS) private readonly sms: SmsAdapter,
+    @Inject(WHATSAPP) private readonly whatsapp: WhatsAppAdapter,
   ) {}
 
   /** The station this person heads or dispatches for (the first, when several). */
@@ -254,7 +259,7 @@ export class StationService {
       [incidentId],
     );
     const reports = await this.db.query(
-      `select r.role, r.source, r.type_chosen, r.answers, r.created_at, u.display_name, coalesce(t.band, 'normal') as band
+      `select r.id, r.role, r.source, r.type_chosen, r.answers, r.created_at, u.display_name, coalesce(t.band, 'normal') as band
          from incident_reports r left join users u on u.id = r.reporter_id left join trust_scores t on t.user_id = r.reporter_id
         where r.incident_id = $1 order by r.created_at`,
       [incidentId],
@@ -276,6 +281,7 @@ export class StationService {
         declineReason: u.decline_reason,
       })),
       reports: reports.rows.map((r, i) => ({
+        id: r.id,
         role: r.role,
         source: r.source,
         type: r.type_chosen,
@@ -390,23 +396,134 @@ export class StationService {
   }
 
   /** One cell of the roster: an officer's day, night, off or leave on a date. */
-  async setShift(p: Principal, b: { officerId: string; date: string; kind: 'day' | 'night' | 'off' | 'leave' }) {
+  async setShift(p: Principal, b: { officerId: string; date: string; kind: Kind }) {
     const sid = this.station(p, true);
     const o = await this.db.query(`select 1 from officers where user_id = $1 and station_id = $2`, [b.officerId, sid]);
     if (!o.rowCount) throw new AppError(404, 'not_found', 'Officer not found at your station.');
-    const s = (await this.db.query(`select settings from stations where id = $1`, [sid])).rows[0].settings;
-    await this.db.tx(async (c) => {
-      await c.query(`delete from duty_shifts where officer_id = $1 and (starts_at at time zone 'Africa/Lagos')::date = $2::date`, [b.officerId, b.date]);
-      if (b.kind === 'off') return;
-      const startT = b.kind === 'night' ? s.nightStart : s.dayStart;
-      const endT = b.kind === 'night' ? s.dayStart : s.nightStart;
-      await c.query(
-        `insert into duty_shifts (officer_id, starts_at, ends_at, kind) values ($1, ($2::date + $3::time) at time zone 'Africa/Lagos',
-           (($2::date + case when $4 = 'night' then 1 else 0 end) + $5::time) at time zone 'Africa/Lagos', $4)`,
-        [b.officerId, b.date, b.kind === 'leave' ? '00:00' : startT, b.kind, b.kind === 'leave' ? '23:59' : endT],
-      );
-    });
+    await this.db.tx((c) => this.applyShift(c, sid, b.officerId, b.date, b.kind));
     return { ok: true };
+  }
+
+  private async applyShift(c: Queryable, sid: string, officerId: string, date: string, kind: Kind) {
+    const s = (await c.query(`select settings from stations where id = $1`, [sid])).rows[0].settings;
+    await c.query(`delete from duty_shifts where officer_id = $1 and (starts_at at time zone 'Africa/Lagos')::date = $2::date`, [officerId, date]);
+    if (kind === 'off') return;
+    const startT = kind === 'night' ? s.nightStart : s.dayStart;
+    const endT = kind === 'night' ? s.dayStart : s.nightStart;
+    await c.query(
+      `insert into duty_shifts (officer_id, starts_at, ends_at, kind) values ($1, ($2::date + $3::time) at time zone 'Africa/Lagos',
+         (($2::date + case when $4 = 'night' then 1 else 0 end) + $5::time) at time zone 'Africa/Lagos', $4)`,
+      [officerId, date, kind === 'leave' ? '00:00' : startT, kind, kind === 'leave' ? '23:59' : endT],
+    );
+  }
+
+  private async kindOn(c: Queryable, officerId: string, date: string): Promise<Kind> {
+    return ((await c.query(`select kind from duty_shifts where officer_id = $1 and (starts_at at time zone 'Africa/Lagos')::date = $2::date limit 1`, [officerId, date])).rows[0]?.kind ?? 'off') as Kind;
+  }
+
+  // ---------------------------------------------------------------- swap and leave requests
+
+  /** Officer side: ask to swap a shift with a teammate, or for leave. The station head decides. */
+  async request(p: Principal, b: { kind: 'swap' | 'leave'; otherOfficerId?: string; myDate?: string; otherDate?: string; fromDate?: string; toDate?: string; note?: string }) {
+    const me = (await this.db.query(`select station_id from officers where user_id = $1`, [p.userId])).rows[0];
+    if (!me) throw new AppError(403, 'not_officer', 'For officers.');
+    const today = new Date().toISOString().slice(0, 10);
+    if (b.kind === 'swap') {
+      if (!b.otherOfficerId || !b.myDate || !b.otherDate) throw new AppError(422, 'validation_failed', 'Choose the teammate and both dates.');
+      if (b.otherOfficerId === p.userId) throw new AppError(422, 'validation_failed', 'Choose a teammate.');
+      const mate = await this.db.query(`select 1 from officers where user_id = $1 and station_id = $2`, [b.otherOfficerId, me.station_id]);
+      if (!mate.rowCount) throw new AppError(422, 'validation_failed', 'Choose a teammate from your station.');
+      if (b.myDate < today || b.otherDate < today) throw new AppError(422, 'validation_failed', 'Choose dates from today on.');
+    } else {
+      if (!b.fromDate || !b.toDate || b.toDate < b.fromDate) throw new AppError(422, 'validation_failed', 'Choose the first and last day of leave.');
+      if (b.fromDate < today) throw new AppError(422, 'validation_failed', 'Leave starts today or later.');
+    }
+    const r = await this.db.query(
+      `insert into roster_requests (station_id, officer_id, kind, other_officer_id, my_date, other_date, from_date, to_date, note) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
+      [me.station_id, p.userId, b.kind, b.otherOfficerId ?? null, b.myDate ?? null, b.otherDate ?? null, b.fromDate ?? null, b.toDate ?? null, b.note?.trim() || null],
+    );
+    const heads = (await this.db.query(`select user_id from user_roles where scope_type = 'station' and scope_id = $1 and role = 'head'`, [me.station_id])).rows.map((x) => x.user_id);
+    const who = (await this.db.query(`select display_name from users where id = $1`, [p.userId])).rows[0].display_name;
+    await notify(this.db.pool, heads, { type: 'roster_request', grp: 'team', title: b.kind === 'swap' ? 'Swap request' : 'Leave request', body: `${who} asked for ${b.kind === 'swap' ? 'a shift swap' : 'leave'}. Decide in Roster.`, link: '/station/roster' });
+    if (b.kind === 'swap') await notify(this.db.pool, [b.otherOfficerId!], { type: 'roster_request', grp: 'team', title: 'Shift swap', body: `${who} asked to swap shifts with you. The station head decides.`, link: '/officer/shifts' });
+    return { id: r.rows[0].id, message: 'Sent to your station head.' };
+  }
+
+  async myRequests(p: Principal) {
+    const r = await this.db.query(
+      `select q.*, q.my_date::text as my_date, q.other_date::text as other_date, q.from_date::text as from_date, q.to_date::text as to_date, u.display_name as other from roster_requests q left join users u on u.id = q.other_officer_id
+        where q.officer_id = $1 or q.other_officer_id = $1 order by q.created_at desc limit 20`,
+      [p.userId],
+    );
+    return r.rows.map((q) => this.describe(q, p.userId));
+  }
+
+  private describe(q: Record<string, any>, me?: string) {
+    const d = (x: string) => new Date(`${x}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'UTC' });
+    return {
+      id: q.id,
+      kind: q.kind,
+      state: q.state,
+      officer: q.officer_name ?? null,
+      other: q.other,
+      mine: me ? q.officer_id === me : undefined,
+      line: q.kind === 'swap' ? `Swap ${d(q.my_date)} for ${d(q.other_date)}${q.other ? ` with ${q.other}` : ''}` : `Leave, ${d(q.from_date)} to ${d(q.to_date)}`,
+      note: q.note,
+      declineReason: q.decline_reason,
+      at: q.created_at,
+    };
+  }
+
+  async withdraw(p: Principal, id: string) {
+    const r = await this.db.query(`update roster_requests set state = 'withdrawn' where id = $1 and officer_id = $2 and state = 'waiting'`, [id, p.userId]);
+    if (!r.rowCount) throw new AppError(404, 'not_found', 'Request not found.');
+    return { message: 'Withdrawn.' };
+  }
+
+  async stationRequests(p: Principal) {
+    const sid = this.station(p);
+    const r = await this.db.query(
+      `select q.*, q.my_date::text as my_date, q.other_date::text as other_date, q.from_date::text as from_date, q.to_date::text as to_date, u.display_name as officer_name, o.display_name as other from roster_requests q join users u on u.id = q.officer_id left join users o on o.id = q.other_officer_id
+        where q.station_id = $1 and (q.state = 'waiting' or q.decided_at > now() - interval '7 days') order by q.state = 'waiting' desc, q.created_at`,
+      [sid],
+    );
+    return r.rows.map((q) => this.describe(q));
+  }
+
+  /** Approve applies it to the roster: a swap trades the two shifts; leave marks each day. */
+  async decide(p: Principal, id: string, b: { decision: 'approve' | 'decline'; reason?: string }) {
+    const sid = this.station(p, true);
+    return this.db.tx(async (c) => {
+      const q = (await c.query(`select q.*, q.my_date::text as my_date, q.other_date::text as other_date, q.from_date::text as from_date, q.to_date::text as to_date from roster_requests q where q.id = $1 and q.station_id = $2 for update`, [id, sid])).rows[0];
+      if (!q) throw new AppError(404, 'not_found', 'Request not found.');
+      if (q.state !== 'waiting') throw new AppError(409, 'decided', 'Already decided.');
+      if (b.decision === 'decline' && (b.reason?.trim().length ?? 0) < 3) throw new AppError(422, 'validation_failed', 'Say why, so the officer knows.');
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      if (b.decision === 'approve') {
+        if (q.kind === 'swap') {
+          const myDate = q.my_date as string;
+          const otherDate = q.other_date as string;
+          const mine = await this.kindOn(c, q.officer_id, myDate);
+          const theirs = await this.kindOn(c, q.other_officer_id, otherDate);
+          await this.applyShift(c, sid, q.officer_id, myDate, 'off');
+          await this.applyShift(c, sid, q.other_officer_id, myDate, mine);
+          await this.applyShift(c, sid, q.other_officer_id, otherDate, 'off');
+          await this.applyShift(c, sid, q.officer_id, otherDate, theirs);
+        } else {
+          for (let d = new Date(`${q.from_date}T12:00:00Z`); d <= new Date(`${q.to_date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 1)) await this.applyShift(c, sid, q.officer_id, iso(d), 'leave');
+        }
+      }
+      await c.query(`update roster_requests set state = $2, decided_by = $3, decided_at = now(), decline_reason = $4 where id = $1`, [id, b.decision === 'approve' ? 'approved' : 'declined', p.userId, b.reason?.trim() || null]);
+      const told = [q.officer_id, ...(q.other_officer_id ? [q.other_officer_id] : [])];
+      await notify(c, told, {
+        type: 'roster_decided',
+        grp: 'team',
+        title: b.decision === 'approve' ? `${q.kind === 'swap' ? 'Swap' : 'Leave'} approved` : `${q.kind === 'swap' ? 'Swap' : 'Leave'} declined`,
+        body: b.decision === 'approve' ? 'The roster is updated. Check your shifts.' : `Reason: ${b.reason!.trim()}`,
+        link: '/officer/shifts',
+      });
+      return { message: b.decision === 'approve' ? 'Approved. The roster is updated.' : 'Declined. The officer is told.' };
+    });
   }
 
   async copyLastWeek(p: Principal, week: string) {
@@ -445,18 +562,20 @@ export class StationService {
     const sid = this.station(p);
     const onDuty = (await this.db.query(`select count(*)::int as n from officers where station_id = $1 and on_duty and badge_status = 'verified'`, [sid])).rows[0].n;
     const all = (await this.db.query(`select count(*)::int as n from officers where station_id = $1 and badge_status = 'verified'`, [sid])).rows[0].n;
+    const wa = (await this.db.query(`select count(*)::int as n from officers o join users u on u.id = o.user_id where o.station_id = $1 and o.badge_status = 'verified' and u.whatsapp_opt_in`, [sid])).rows[0].n;
     const r = await this.db.query(
       `select m.*, (select count(*)::int from station_broadcast_recipients x where x.message_id = m.id) as total,
               (select count(*)::int from station_broadcast_recipients x where x.message_id = m.id and x.read_at is not null) as read,
-              (select count(*)::int from station_broadcast_recipients x where x.message_id = m.id and x.confirmed_at is not null) as confirmed
+              (select count(*)::int from station_broadcast_recipients x where x.message_id = m.id and x.confirmed_at is not null) as confirmed,
+              (select count(*)::int from station_broadcast_recipients x where x.message_id = m.id and x.failed_at is not null) as failed
          from station_broadcasts m where m.station_id = $1 order by m.created_at desc limit 20`,
       [sid],
     );
     const officers = (await this.db.query(`select o.user_id as id, u.display_name as name from officers o join users u on u.id = o.user_id where o.station_id = $1 and o.badge_status = 'verified' order by u.display_name`, [sid])).rows;
     return {
-      audience: { onDuty, everyone: all },
+      audience: { onDuty, everyone: all, whatsapp: wa },
       officers,
-      recent: r.rows.map((m) => ({ id: m.id, title: m.title, body: m.body, urgent: m.urgent, needsConfirm: m.needs_confirm, audience: m.audience, total: m.total, read: m.read, confirmed: m.confirmed, at: m.created_at })),
+      recent: r.rows.map((m) => ({ id: m.id, title: m.title, body: m.body, urgent: m.urgent, needsConfirm: m.needs_confirm, audience: m.audience, channels: m.channels, total: m.total, read: m.read, confirmed: m.confirmed, failed: m.failed, at: m.created_at })),
     };
   }
 
@@ -464,11 +583,24 @@ export class StationService {
     const sid = this.station(p);
     const m = (await this.db.query(`select * from station_broadcasts where id = $1 and station_id = $2`, [id, sid])).rows[0];
     if (!m) throw new AppError(404, 'not_found', 'Message not found.');
-    const r = await this.db.query(`select x.read_at, x.confirmed_at, u.display_name, u.id from station_broadcast_recipients x join users u on u.id = x.user_id where x.message_id = $1 order by u.display_name`, [id]);
-    return { id, title: m.title, needsConfirm: m.needs_confirm, recipients: r.rows.map((x) => ({ id: x.id, name: x.display_name, readAt: x.read_at, confirmedAt: x.confirmed_at })) };
+    const r = await this.db.query(
+      `select x.read_at, x.confirmed_at, x.sms_at, x.whatsapp_at, x.failed_at, x.failure, u.display_name, u.id from station_broadcast_recipients x join users u on u.id = x.user_id where x.message_id = $1 order by u.display_name`,
+      [id],
+    );
+    return {
+      id,
+      title: m.title,
+      needsConfirm: m.needs_confirm,
+      channels: m.channels,
+      smsAfterMinutes: m.sms_after_minutes,
+      recipients: r.rows.map((x) => ({ id: x.id, name: x.display_name, readAt: x.read_at, confirmedAt: x.confirmed_at, smsAt: x.sms_at, whatsappAt: x.whatsapp_at, failedAt: x.failed_at, failure: x.failure })),
+    };
   }
 
-  async send(p: Principal, b: { audience: 'on_duty' | 'everyone' | 'officer'; officerId?: string; title: string; body: string; urgent: boolean; needsConfirm: boolean; test?: boolean }) {
+  async send(
+    p: Principal,
+    b: { audience: 'on_duty' | 'everyone' | 'officer'; officerId?: string; title: string; body: string; urgent: boolean; needsConfirm: boolean; test?: boolean; sms?: 'off' | 'now' | 'unread'; smsAfterMinutes?: number; whatsapp?: boolean },
+  ) {
     const sid = this.station(p);
     const to = b.test
       ? [p.userId]
@@ -489,9 +621,51 @@ export class StationService {
         ])
       ).rows[0];
       for (const u of to) await c.query(`insert into station_broadcast_recipients (message_id, user_id) values ($1, $2)`, [m.id, u]);
+      // Urgent always texts at once (unless SMS is off); otherwise SMS now, or later to whoever has not opened it.
+      const smsMode = b.sms ?? (b.urgent ? 'now' : 'off');
+      const channels = ['push', ...(b.whatsapp ? ['whatsapp'] : []), ...(smsMode !== 'off' ? ['sms'] : [])];
+      await c.query(`update station_broadcasts set channels = $2, sms_after_minutes = $3 where id = $1`, [m.id, channels, smsMode === 'unread' ? (b.smsAfterMinutes ?? 10) : null]);
       await notify(c, to, { type: 'station_message', grp: b.urgent ? 'dispatch' : 'team', title: b.title, body: b.body.length > 140 ? `${b.body.slice(0, 137)}…` : b.body, link: `/messages/${m.id}` });
-      return { id: m.id, sent: to.length, message: b.test ? 'Test sent to you.' : `Sent to ${to.length} ${to.length === 1 ? 'officer' : 'officers'}.` };
+      return { id: m.id, to, channels, smsMode };
+    }).then(async (r) => {
+      // Delivery after commit, so a slow provider never holds the transaction.
+      let wa = 0;
+      let sms = 0;
+      if (r.channels.includes('whatsapp')) wa = await this.deliver(r.id, 'whatsapp', `select u.id, u.phone from users u where u.id = any($1::uuid[]) and u.whatsapp_opt_in and u.phone is not null`, [r.to]);
+      if (r.smsMode === 'now') sms = await this.deliver(r.id, 'sms', `select u.id, u.phone from users u where u.id = any($1::uuid[]) and u.phone is not null`, [r.to]);
+      const extra = [wa ? `${wa} on WhatsApp` : '', sms ? `${sms} by SMS` : '', r.smsMode === 'unread' ? `SMS to anyone who has not opened it in ${b.smsAfterMinutes ?? 10} min` : ''].filter(Boolean).join(', ');
+      return { id: r.id, sent: r.to.length, channels: r.channels, message: b.test ? 'Test sent to you.' : `Sent to ${r.to.length} ${r.to.length === 1 ? 'officer' : 'officers'}${extra ? ` (${extra})` : ''}.` };
     });
+  }
+
+  /** Sends one channel to the recipients the query returns; each send or failure is recorded on the recipient. */
+  private async deliver(messageId: string, channel: 'sms' | 'whatsapp', sql: string, args: unknown[]): Promise<number> {
+    const m = (await this.db.query(`select m.title, m.body, m.urgent, s.name from station_broadcasts m join stations s on s.id = m.station_id where m.id = $1`, [messageId])).rows[0];
+    const text = `${m.name}: ${m.title}. ${m.body}`;
+    let ok = 0;
+    for (const u of (await this.db.query(sql, args)).rows) {
+      try {
+        if (channel === 'sms') await this.sms.send({ to: u.phone, body: text, urgent: m.urgent });
+        else await this.whatsapp.send({ to: u.phone, body: text });
+        await this.db.query(`update station_broadcast_recipients set ${channel === 'sms' ? 'sms_at' : 'whatsapp_at'} = now() where message_id = $1 and user_id = $2`, [messageId, u.id]);
+        ok++;
+      } catch (e) {
+        await this.db.query(`update station_broadcast_recipients set failed_at = now(), failure = $3 where message_id = $1 and user_id = $2`, [messageId, u.id, `${channel}: ${(e as Error).message}`]);
+      }
+    }
+    return ok;
+  }
+
+  /** Job: "SMS if not opened in n min". */
+  async smsFallback(): Promise<number> {
+    const due = await this.db.query(
+      `select m.id, array_agg(x.user_id) as users from station_broadcasts m join station_broadcast_recipients x on x.message_id = m.id
+        where m.sms_after_minutes is not null and m.created_at + make_interval(mins => m.sms_after_minutes) <= now() and m.created_at > now() - interval '1 day'
+          and x.read_at is null and x.sms_at is null and x.failed_at is null group by m.id`,
+    );
+    let n = 0;
+    for (const m of due.rows) n += await this.deliver(m.id, 'sms', `select u.id, u.phone from users u where u.id = any($1::uuid[]) and u.phone is not null`, [m.users]);
+    return n;
   }
 
   /** "Resend to unread". */
