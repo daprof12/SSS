@@ -241,6 +241,16 @@ export class OfficerWorkService {
     ).rows[0].k;
     const bank = (await this.db.query(`select bank_name, last_four, verified_at from bank_accounts where owner_type = 'user' and owner_id = $1 and removed_at is null order by created_at desc limit 1`, [p.userId])).rows[0];
     const tips = (await this.db.query(`select count(*)::int as n from tips where user_id = $1`, [p.userId])).rows[0].n;
+    // Acceptance rate, last 30 days: only offers declined or missed count against it.
+    const offers = (
+      await this.db.query(
+        `select count(*) filter (where accepted_at is not null)::int as accepted, count(*) filter (where state = 'declined')::int as declined,
+                count(*) filter (where state = 'expired')::int as missed
+           from incident_units where officer_id = $1 and offered_at > now() - interval '30 days'`,
+        [p.userId],
+      )
+    ).rows[0];
+    const answered = offers.accepted + offers.declined + offers.missed;
     return {
       name: o.display_name as string,
       agency: o.agency_name as string,
@@ -254,6 +264,7 @@ export class OfficerWorkService {
       rewardsAndDonationsKobo: Number(earned),
       bank: bank ? { name: bank.bank_name as string, lastFour: bank.last_four as string, verified: !!bank.verified_at } : null,
       tips: tips as number,
+      acceptance: { ratePct: answered ? Math.round((offers.accepted / answered) * 100) : null, accepted: offers.accepted, declined: offers.declined, missed: offers.missed },
       onDuty: o.on_duty as boolean,
     };
   }

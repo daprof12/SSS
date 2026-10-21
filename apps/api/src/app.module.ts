@@ -17,6 +17,11 @@ import { CONFIG, type AppConfig } from './core/config';
 import { Db } from './core/db';
 import { ErrorFilter } from './core/http';
 import { DevController } from './dev/dev.controller';
+import { AdminFinesController, CitizenController } from './citizen/citizen.controller';
+import { DonationsService } from './citizen/donations.service';
+import { FinesService } from './citizen/fines.service';
+import { AdminRepairsController, HomeController } from './citizen/home.controller';
+import { HomeService } from './citizen/home.service';
 import { IncidentRepo } from './incidents/incident.repo';
 import { IncidentsController } from './incidents/incidents.controller';
 import { IncidentsService } from './incidents/incidents.service';
@@ -65,6 +70,10 @@ export class AppModule {
       module: AppModule,
       controllers: [
         HealthController,
+        CitizenController,
+        AdminFinesController,
+        HomeController,
+        AdminRepairsController,
         AuthController,
         IncidentsController,
         WalletController,
@@ -86,6 +95,9 @@ export class AppModule {
       ],
       providers: [
         { provide: CONFIG, useValue: config },
+        DonationsService,
+        FinesService,
+        HomeService,
         Db,
         Bus,
         Audit,

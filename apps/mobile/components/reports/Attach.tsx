@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { haptic } from '@/lib/client';
 
-export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'field_report';
+export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'field_report' | 'fine' | 'repair';
 export interface Picked {
   key: string;
   file: File;

@@ -14,6 +14,9 @@ import { AppError } from '../core/http';
 
 export { WALLET_LIMITS } from './limits';
 import { WALLET_LIMITS } from './limits';
+import { creditDonation } from '../citizen/donations.service';
+import { markPaid } from '../citizen/fines.service';
+import { receiptNo } from '../citizen/money';
 
 @Injectable()
 export class WalletService {
@@ -125,7 +128,7 @@ export class WalletService {
 
   async paymentStatus(p: Principal, reference: string) {
     const r = await this.db.query(
-      `select provider_ref, state, amount_kobo, method, failure_reason, paid_at, created_at from payments where provider_ref = $1 and user_id = $2`,
+      `select provider_ref, purpose, purpose_ref, receipt_no, state, amount_kobo, method, failure_reason, paid_at, created_at from payments where provider_ref = $1 and user_id = $2`,
       [reference, p.userId],
     );
     const x = r.rows[0];
@@ -133,11 +136,11 @@ export class WalletService {
     const message: Record<string, string> = {
       pending: 'Confirming your payment.',
       initiated: 'Confirming your payment.',
-      succeeded: `${formatNaira(x.amount_kobo)} was added to your wallet.`,
+      succeeded: x.purpose === 'wallet_fund' ? `${formatNaira(x.amount_kobo)} was added to your wallet.` : x.purpose === 'donation' ? `Thank you. Your donation of ${formatNaira(x.amount_kobo)} was received.` : `Paid ${formatNaira(x.amount_kobo)}.`,
       failed: 'Your card was not charged. Try again or use another card.',
       abandoned: 'Payment not finished.',
     };
-    return { reference: x.provider_ref, state: x.state, amountKobo: x.amount_kobo, method: x.method, reason: x.failure_reason, paidAt: x.paid_at, message: message[x.state] ?? '' };
+    return { reference: x.provider_ref, purpose: x.purpose, purposeRef: x.purpose_ref, receiptNo: x.receipt_no, state: x.state, amountKobo: x.amount_kobo, method: x.method, reason: x.failure_reason, paidAt: x.paid_at, message: message[x.state] ?? '' };
   }
 
   /** Step 4: signed webhook → ledger. Idempotent on Paystack event id and reference. */
@@ -167,6 +170,8 @@ export class WalletService {
         // Credit what actually arrived (transfers can differ from the amount typed).
         const amount = charge.data.amount;
         await c.query(`update payments set state = 'succeeded', paid_at = now(), amount_kobo = $2, method = coalesce(method, $3) where id = $1`, [pay.id, amount, mapChannel(charge.data.channel)]);
+        // Every citizen payment gets a receipt (Payments and receipts, PAY-3).
+        if (pay.user_id) await c.query(`update payments set receipt_no = coalesce(receipt_no, $2) where id = $1`, [pay.id, await receiptNo(c)]);
         if (pay.purpose === 'wallet_fund') {
           const userWallet = await this.walletId(pay.user_id, c);
           const platform = (await c.query(`select id from wallets where owner_type = 'platform' and owner_id is null`)).rows[0].id;
@@ -184,6 +189,15 @@ export class WalletService {
           await this.agencyBilling.onPaystackSuccess(c, pay, amount);
         } else if (pay.purpose === 'bounty_pool') {
           await creditPool(c, pay, amount, randomUUID(), { card: 'card', bank_transfer: 'bank transfer', ussd: 'USSD' }[mapChannel(charge.data.channel)]);
+        } else if (pay.purpose === 'donation') {
+          // Money in from Paystack: the platform wallet is the contra leg, then the receivers are credited.
+          const journal = randomUUID();
+          const platform = (await c.query(`select id from wallets where owner_type = 'platform' and owner_id is null`)).rows[0].id;
+          await c.query(`insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values ($1, 'donation_out', $2, $3, $4, 'Donation by Paystack')`, [platform, -amount, pay.provider_ref, journal]);
+          await c.query(`update donations set payment_id = $2, amount_kobo = $3 where id = $1`, [pay.purpose_ref, pay.id, amount]);
+          await creditDonation(c, pay.purpose_ref, pay.provider_ref, journal);
+        } else if (pay.purpose === 'fine') {
+          await markPaid(c, pay.purpose_ref, pay.id);
         }
         await this.audit.write({ actorId: null, actorRole: 'system', action: 'payment.succeeded', entity: 'payment', entityId: pay.id, payload: { amount, reference: pay.provider_ref } }, c);
       } else if (charge.event === 'charge.failed' && pay.state !== 'succeeded') {
@@ -192,6 +206,12 @@ export class WalletService {
           await this.agencyBilling.onPaystackFailed(c, pay);
         } else if (pay.purpose === 'bounty_pool') {
           await poolFundFailed(c, pay);
+        } else if (pay.purpose === 'donation' || pay.purpose === 'fine') {
+          if (pay.purpose === 'donation') await c.query(`update donations set state = 'failed' where id = $1`, [pay.purpose_ref]);
+          await c.query(
+            `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'payment_failed', 'money', 'in_app', 'Payment failed', 'Your card was not charged. Try again or use another card.', $2)`,
+            [pay.user_id, pay.purpose === 'fine' ? `/fines/${pay.purpose_ref}` : '/donate'],
+          );
         } else {
           await c.query(
             `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'wallet_fund_failed', 'money', 'in_app', 'Funding failed', 'Your card was not charged. Try again or use another card.', '/wallet')`,

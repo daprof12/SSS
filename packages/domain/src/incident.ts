@@ -91,6 +91,8 @@ export const incidentSideEvents = [
   'split',
   'eta_changed',
   'statement_requested',
+  'drone_requested',
+  'transfer_requested',
 ] as const;
 export type IncidentSideEvent = (typeof incidentSideEvents)[number];
 
@@ -104,6 +106,8 @@ export const sideEventAllowedIn: Record<IncidentSideEvent, readonly IncidentStat
   split: [...live],
   eta_changed: ['accepted', 'en_route'],
   statement_requested: ['on_scene', 'closing', 'resolved'],
+  drone_requested: ['accepted', 'en_route', 'on_scene'],
+  transfer_requested: ['on_scene', 'closing'],
 };
 
 export const incidentTimers = {

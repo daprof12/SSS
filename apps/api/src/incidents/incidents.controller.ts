@@ -37,7 +37,7 @@ const RatingBody = z.object({
   comment: z.string().max(1000, 'Keep it under 1000 characters.').optional(),
 });
 const SideBody = z.object({
-  kind: z.enum(['add_info', 'note', 'reinforce', 'officer_panic', 'panic_cleared']),
+  kind: z.enum(['add_info', 'note', 'reinforce', 'officer_panic', 'panic_cleared', 'drone_requested', 'transfer_requested']),
   text: z.string().trim().max(500).optional(),
   reason: z.string().trim().max(500).optional(),
 });
@@ -104,6 +104,11 @@ export class IncidentsController {
       createdAt: x.created_at,
       updatedAt: x.updated_at,
     }));
+  }
+
+  @Get('incidents/:id/offer')
+  offer(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.incidents.offerStatus(p, id);
   }
 
   @Get('incidents/:id')

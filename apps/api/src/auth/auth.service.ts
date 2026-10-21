@@ -169,7 +169,7 @@ export class AuthService {
   // ---------------------------------------------------------------- codes for a signed-in person
 
   /** Sends a 6-digit code to the account's own phone for a sensitive change (e.g. PIN reset). */
-  async sendAccountCode(userId: string, purpose: 'pin_reset', body: (code: string) => string, ip?: string) {
+  async sendAccountCode(userId: string, purpose: 'pin_reset' | 'mfa_setup', body: (code: string) => string, ip?: string) {
     const u = (await this.db.query(`select phone from users where id = $1`, [userId])).rows[0];
     if (!u?.phone) throw new AppError(409, 'no_phone', 'Add a phone number to your account first.');
     const last = (await this.db.query(`select created_at from otp_challenges where phone = $1 and purpose = $2 order by created_at desc limit 1`, [u.phone, purpose])).rows[0];
@@ -189,7 +189,7 @@ export class AuthService {
   }
 
   /** Checks and uses up a code sent by sendAccountCode. Wrong tries count even if the caller rolls back. */
-  async useAccountCode(userId: string, purpose: 'pin_reset', code: string, c: Queryable) {
+  async useAccountCode(userId: string, purpose: 'pin_reset' | 'mfa_setup', code: string, c: Queryable) {
     if (!/^\d{6}$/.test(code)) throw new AppError(422, 'validation_failed', 'Enter the 6-digit code.', { fields: [{ field: 'code', message: 'Enter the 6-digit code.' }] });
     const u = (await this.db.query(`select phone from users where id = $1`, [userId])).rows[0];
     const ch = (await this.db.query(`select * from otp_challenges where phone = $1 and purpose = $2 and consumed_at is null order by created_at desc limit 1`, [u.phone, purpose])).rows[0];

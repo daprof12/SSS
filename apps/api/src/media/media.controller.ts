@@ -5,7 +5,7 @@ import { CurrentUser, type Principal } from '../core/auth';
 import { AppError, ZodPipe } from '../core/http';
 import { MAX_BYTES, MediaService } from './media.service';
 
-const Owner = z.enum(['tip', 'issue_case', 'incident', 'learn_post', 'field_report']);
+const Owner = z.enum(['tip', 'issue_case', 'incident', 'learn_post', 'field_report', 'fine', 'repair']);
 const RegisterBody = z.object({
   ownerType: Owner,
   ownerId: z.string().uuid(),

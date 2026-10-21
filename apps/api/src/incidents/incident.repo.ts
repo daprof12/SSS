@@ -86,7 +86,11 @@ export class IncidentRepo {
         [id],
       ),
       this.db.query(`select distinct reporter_id from incident_reports where incident_id = $1 and role = 'joined' and reporter_id is not null`, [id]),
-      this.db.query(`select id, kind, to_state, payload, public, actor_id, at from incident_events where incident_id = $1 order by id`, [id]),
+      this.db.query(
+        `select e.id, e.kind, e.to_state, e.payload, e.public, e.actor_id, e.actor_kind, e.at, u.display_name as actor_name
+           from incident_events e left join users u on u.id = e.actor_id where e.incident_id = $1 order by e.id`,
+        [id],
+      ),
       this.db.query(`select stars, comment from ratings where incident_id = $1 and reporter_id = $2`, [id, i.reporter_id]),
       // Officer History: whoever accepted a report can open it after it closes (to see the outcome and rating).
       // While it is live, only the current team can.
@@ -116,6 +120,7 @@ export class IncidentRepo {
       // Events logged without a readable label fall back to staff wording, never a raw code.
       label: (e.payload?.label && e.payload.label !== e.kind ? e.payload.label : null) ?? INTERNAL_LABELS[e.kind] ?? e.kind.replace(/_/g, ' '),
       public: e.public,
+      by: e.actor_kind === 'system' || !e.actor_name ? 'System' : e.actor_kind === 'station' ? `${e.actor_name}, station` : e.actor_kind === 'reporter' ? 'Reporter' : e.actor_name,
     }));
 
     const building = i.postcode

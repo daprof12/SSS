@@ -349,3 +349,40 @@ When a citizen rates a closed response, the platform rewards pool pays the offic
 - **Donation shares:** the agency also sets how future donations split between officer, station and agency (must total 100%). Gifts to a named officer go to that officer.
 
 API: `GET /agencies/:id/rewards`, `PUT /agencies/:id/reward-rule`, `PUT /agencies/:id/donation-shares`. The dev seed sets a ₦5,000 police rule and funds the pool with ₦500,000. Tests: `apps/api/test/rewards.e2e.test.ts`.
+
+## Citizen profile and home
+
+Migration 018. API in `apps/api/src/citizen/`; tests in `apps/api/test/citizen.e2e.test.ts`.
+
+- **Security** (`/profile/security`):
+  - Two-step login on and off with an SMS code.
+  - 10 recovery codes, shown once.
+  - The 4-digit PIN, set or changed, with a forgotten-PIN reset.
+  - Face or fingerprint choices; payments always ask.
+  - Trusted devices and active sessions.
+- **Discreet mode** and **Language** save to the account. Screens are still English; translations are not in yet.
+- **Help and support**: answers, 112, and messages to the team with an `S-` reference.
+- **Donations** (`/donate`):
+  - To an agency, a station or an officer who helped you; ₦500, ₦1,000, ₦2,000 or another amount.
+  - Pay from the wallet (PIN) or by Paystack card, transfer or USSD.
+  - Gifts to an officer are held 7 days.
+  - A station gift is split by the agency's donation shares: the officer part shared between the station's officers, the rest to the station and agency wallets.
+- **Payments and receipts** (`/payments`): every payment with an `R-` receipt. Paystack payments wait for the webhook.
+- **Fines and appeals** (B8):
+  - A report closed as unfounded gives the reporter a warning first (trust −5).
+  - The next one within 180 days is a ₦5,000 fine (trust −10), appealable within 14 days. Appeals need at least 20 characters and can include photos.
+  - Pay from the wallet or by Paystack, but not while an appeal is open.
+  - Admin → Fines and appeals waives (trust given back), reduces or upholds, each with a reason.
+- **Home** (`/profile/home`):
+  - **Household:** invite by phone, with what members may do (live cameras, alerts, report for the home). Someone already in a household is refused by name.
+  - **Devices:** live status, the offline-camera checklist, camera settings and clips, and the street-light "light up for 1 hour" (2 a night).
+  - **Repairs:** report a device problem; damage is urgent and the nearest station is told.
+  - **Repair status:** received → fault confirmed → visit booked → fixed (the owner confirms).
+  - The admin Installation team page confirms the fault, books a technician and window, and marks it fixed.
+  - The dev seed gives Ada a Household plan with 2 cameras and 2 street lights.
+- **Officer dispatch:**
+  - Offers never go back to an officer who declined or missed one.
+  - `GET /incidents/:id/offer` says whether an offer is open, accepted, declined, missed, taken or withdrawn.
+  - Missed and declined offers count in the acceptance rate shown on the officer profile.
+  - The response log shows who did each step.
+  - Officers can add notes and photos (staff-only), request a drone or a transfer (the station head is told), and hand a report over before arriving.

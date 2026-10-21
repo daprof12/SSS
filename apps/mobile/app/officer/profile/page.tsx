@@ -23,6 +23,7 @@ interface Profile {
   rewardsAndDonationsKobo: number;
   bank: { name: string; lastFour: string; verified: boolean } | null;
   tips: number;
+  acceptance: { ratePct: number | null; accepted: number; declined: number; missed: number };
   onDuty: boolean;
 }
 const naira = (k: number) => formatNaira(k).replace(/\.00$/, '');
@@ -97,6 +98,15 @@ export default function OfficerProfile() {
         {bar('Arrival speed', p?.rating.arrival ?? null)}
         {bar('Care and manner', p?.rating.care ?? null)}
         {bar('Communication', p?.rating.communication ?? null)}
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--color-divider)', marginTop: 12, paddingTop: 12 }}>
+          <span className="muted">Acceptance, last 30 days</span>
+          <strong>{p ? (p.acceptance.ratePct == null ? 'No offers yet' : `${p.acceptance.ratePct}%`) : ''}</strong>
+        </div>
+        {p && (p.acceptance.declined > 0 || p.acceptance.missed > 0) && (
+          <span className="muted" style={{ fontSize: 'var(--text-sm)' }}>
+            {p.acceptance.accepted} accepted, {p.acceptance.declined} declined, {p.acceptance.missed} missed
+          </span>
+        )}
       </div>
 
       <Link href="/officer/team" className="card team-card">

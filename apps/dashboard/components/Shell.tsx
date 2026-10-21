@@ -27,6 +27,8 @@ const ADMIN_BUILT: Record<string, NavItem> = {
   Donations: { label: 'Donations and payouts', href: '/admin/payouts', built: true },
   Settings: { label: 'Settings', href: '/admin/settings', built: true },
   'Learn feed': { label: 'Learn feed', href: '/admin/learn', built: true },
+  'Fines and appeals': { label: 'Fines and appeals', href: '/admin/fines', built: true },
+  'Installation team': { label: 'Installation team', href: '/admin/repairs', built: true },
 };
 
 // Sidebar orders from the Public Issues doc: Settings last, Messaging above it.

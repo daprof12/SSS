@@ -3,154 +3,235 @@
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useRouter } from 'next/navigation';
 import { use, useEffect, useRef, useState } from 'react';
-import { Header } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
-import { api, ApiError, haptic, typeInfo } from '@/lib/client';
+import { MiniMap } from '@/components/MiniMap';
+import { api, ApiError, haptic, locate, typeInfo } from '@/lib/client';
 
-interface Offer {
-  id: string;
-  type: string;
-  postcode: string | null;
-  area_label: string;
-  distance_m: number | null;
+interface OfferStatus {
+  state: 'offered' | 'accepted' | 'declined' | 'expired' | 'taken' | 'withdrawn';
   secondsLeft: number;
+  windowSeconds: number;
+  report: { type: string; label: string; postcode: string | null; address: string | null; area: string | null };
+  distanceM: number | null;
+  takenBy: { name: string; badgeNo: string | null; station: string } | null;
+  counted: boolean;
 }
 interface OfficerView {
   reporter: { trustBand: string };
-  building: { address: string; areaLabel: string };
+  building: { address: string; areaLabel: string; postcode: string; location: { lat: number; lng: number } };
   reportCount: number;
   brief?: { summary: string; confidence: string };
+  clipIds?: string[];
 }
 
-const C = 2 * Math.PI * 90;
 const DECLINE = [
-  ['busy', 'Busy'],
-  ['too_far', 'Too far'],
-  ['off_duty', 'Off duty'],
+  ['busy', 'Busy on another incident'],
+  ['too_far', 'Too far away'],
+  ['off_duty', 'Going off duty'],
   ['other', 'Other'],
 ] as const;
 const etaFor = (m: number | null) => (m == null ? undefined : Math.max(1, Math.round((m / 1000 / 30) * 60)));
+const TRUST: Record<string, string> = { high: 'success', normal: 'neutral', low: 'warning' };
 
-/** Dispatch offer (Wireframe 4; boards "Officer dispatch offer", "offer expired", "decline reason"). */
+/** Boards "Officer dispatch offer", "Officer offer expired", "Officer decline reason". */
 export default function OfferPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const [offer, setOffer] = useState<Offer | null | undefined>(undefined);
+  const [o, setO] = useState<OfferStatus | null | undefined>(undefined);
   const [detail, setDetail] = useState<OfficerView | null>(null);
+  const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const [left, setLeft] = useState(0);
-  const [total, setTotal] = useState(25);
-  const [ended, setEnded] = useState<'expired' | 'taken' | null>(null);
   const [declining, setDeclining] = useState(false);
   const [busy, setBusy] = useState(false);
   const deadline = useRef(0);
 
+  // The offer's own state, polled: another unit may take it, or the station may pull it.
   useEffect(() => {
-    void (async () => {
-      const home = await api<{ tabs: { offers: { items: Offer[] } } }>('/me/officer/home').catch(() => null);
-      const o = home?.tabs.offers.items.find((x) => x.id === id) ?? null;
-      setOffer(o);
-      if (!o) return setEnded('expired');
-      deadline.current = Date.now() + o.secondsLeft * 1000;
-      setLeft(o.secondsLeft);
-      setTotal(Math.max(o.secondsLeft, 1));
-      haptic([200, 100, 200]);
-      api<OfficerView>(`/incidents/${id}`).then(setDetail).catch(() => {});
-    })();
-  }, [id]);
+    let stop = false;
+    let first = true;
+    const poll = async () => {
+      const x = await api<OfferStatus>(`/incidents/${id}/offer`).catch(() => null);
+      if (stop) return;
+      setO(x);
+      if (x?.state === 'offered') {
+        deadline.current = Date.now() + x.secondsLeft * 1000;
+        if (first) {
+          haptic([200, 100, 200]);
+          api<OfficerView>(`/incidents/${id}`).then(setDetail).catch(() => {});
+          locate(5000).then(setMe).catch(() => {});
+        }
+        first = false;
+        setTimeout(poll, 2000);
+      }
+      if (x?.state === 'accepted') router.replace(`/officer/incidents/${id}`);
+    };
+    void poll();
+    return () => {
+      stop = true;
+    };
+  }, [id, router]);
 
   useEffect(() => {
-    if (!offer || ended) return;
+    if (o?.state !== 'offered') return;
     const t = setInterval(() => {
       const s = Math.max(0, Math.ceil((deadline.current - Date.now()) / 1000));
       setLeft(s);
       if (s === 0) {
         clearInterval(t);
-        setEnded('expired');
+        setO((x) => (x ? { ...x, state: 'expired' } : x));
+        // Then ask the server who took it, for the expired screen.
+        setTimeout(() => api<OfferStatus>(`/incidents/${id}/offer`).then((x) => x.state !== 'offered' && setO(x)).catch(() => {}), 1500);
       }
     }, 250);
     return () => clearInterval(t);
-  }, [offer, ended]);
+  }, [o?.state, id]);
 
   const accept = async () => {
     setBusy(true);
     try {
-      await api(`/incidents/${id}/actions`, { method: 'POST', body: JSON.stringify({ event: 'accept', etaMinutes: etaFor(offer?.distance_m ?? null) }) });
+      await api(`/incidents/${id}/actions`, { method: 'POST', body: JSON.stringify({ event: 'accept', etaMinutes: etaFor(o?.distanceM ?? null) }) });
       haptic([60, 40, 60]);
       router.replace(`/officer/incidents/${id}`);
     } catch (e) {
       setBusy(false);
-      if (e instanceof ApiError && (e.code === 'offer_expired' || e.status === 409)) setEnded(e.message.includes('Another') ? 'taken' : 'expired');
+      if (e instanceof ApiError && e.status === 409) setO(await api<OfferStatus>(`/incidents/${id}/offer`).catch(() => null));
     }
   };
 
-  if (ended) {
-    return (
-      <main className="app bare center">
-        <div className="check" style={{ background: 'var(--color-surface-raised)', color: 'var(--color-text-secondary)' }}>
-          <Icon name="history" size={40} />
-        </div>
-        <h1>{ended === 'taken' ? 'Taken by another unit' : 'Offer expired'}</h1>
-        <p className="muted">{ended === 'taken' ? 'Another unit accepted this report.' : 'This offer expired and passed to the next team. Nothing was recorded against you.'}</p>
-        <button className="btn block signal" type="button" onClick={() => router.replace('/officer')}>
-          Back to Home
-        </button>
-      </main>
-    );
-  }
-  if (!offer) return <main className="app bare">{offer === undefined && <div className="skeleton" style={{ height: 300 }} />}</main>;
+  if (o === undefined) return <main className="app bare">{<div className="skeleton" style={{ height: 300 }} />}</main>;
+  if (!o || o.state !== 'offered') return <Ended o={o} onHome={() => router.replace('/officer')} />;
 
-  const info = typeInfo(offer.type);
-  const cls = left <= 5 ? 'last' : left <= 10 ? 'hurry' : '';
-  const eta = etaFor(offer.distance_m);
+  const info = typeInfo(o.report.type);
+  const eta = etaFor(o.distanceM);
+  const pct = Math.max(0, Math.min(1, left / Math.max(1, o.windowSeconds)));
+  const hurry = left <= 10;
+  const where = detail?.building.address ?? o.report.address;
   return (
-    <main className="app bare offer">
-      <Header back="/officer" />
-      <div className="kicker">NEW INCIDENT</div>
-      <h1>{info.label}</h1>
-      <p style={{ margin: 0, fontWeight: 700 }}>
-        {offer.postcode ?? 'GPS location'}, {offer.area_label}
-      </p>
-      <p className="muted" style={{ marginTop: 4 }}>
-        {offer.distance_m != null ? `${(offer.distance_m / 1000).toFixed(1)} km` : ''}
-        {eta ? ` · about ${eta} min` : ''}
-      </p>
-
-      <div className={`ring offer-ring ${cls}`} role="timer" aria-live="polite" aria-label={`${left} seconds to accept`} style={{ width: 160, height: 160 }}>
-        <svg viewBox="0 0 200 200" width="160" height="160" aria-hidden>
-          <circle className="track" cx="100" cy="100" r="90" fill="none" strokeWidth="12" />
-          <circle className="bar" cx="100" cy="100" r="90" fill="none" strokeWidth="12" strokeDasharray={C} strokeDashoffset={C * (1 - left / total)} />
-        </svg>
-        <div className="count" style={{ fontSize: 44 }}>
-          {left}
-          <small>to accept</small>
-        </div>
+    <main className="app bare" style={{ paddingBottom: 120 }}>
+      <div style={{ height: 4, borderRadius: 2, background: 'var(--color-surface-raised)', margin: '4px 0 16px', overflow: 'hidden' }} aria-hidden>
+        <div style={{ width: `${pct * 100}%`, height: '100%', background: hurry ? 'var(--color-emergency)' : 'var(--color-warning)', transition: 'width 250ms linear' }} />
       </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <span className="chip critical" style={{ fontWeight: 800 }}>
+          <span className="rec-dot" aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-emergency)', display: 'inline-block', marginRight: 6 }} />
+          New incident
+        </span>
+        <strong role="timer" aria-live="polite" aria-label={`Escalates in ${left} seconds`} style={{ color: hurry ? 'var(--color-emergency-text)' : 'var(--color-warning-text)' }}>
+          Escalates in {left} s
+        </strong>
+      </div>
+      <h1 style={{ fontSize: 'var(--text-xxl)', margin: '12px 0 4px' }}>{info.label}</h1>
+      <p className="muted" style={{ margin: 0, fontWeight: 600 }}>
+        {where ? `${where}, ` : ''}
+        {o.report.postcode ? `postcode ${o.report.postcode}` : 'GPS location'}
+      </p>
+      {o.distanceM != null && (
+        <p style={{ margin: '4px 0 12px', color: 'var(--color-signal-text)', fontWeight: 700 }}>
+          {(o.distanceM / 1000).toFixed(1)} km away{eta ? `, about ${eta} min` : ''}
+        </p>
+      )}
+      {detail && (
+        <div style={{ margin: '8px 0 12px' }}>
+          <MiniMap building={detail.building.location} unit={me ?? undefined} label="Route to the incident" />
+        </div>
+      )}
 
-      <div className="card" style={{ textAlign: 'left' }}>
-        <div className="row" style={{ padding: 0, minHeight: 40 }}>
-          <span className="grow">
-            <span className="sub">Reporter trust</span>
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+          <strong>Brief</strong>
+          <span className="muted" style={{ fontSize: 'var(--text-sm)' }}>
+            {detail?.brief ? `AI summary, ${detail.brief.confidence} confidence` : 'From the report'}
           </span>
-          <span className={`chip ${detail?.reporter.trustBand === 'high' ? 'success' : detail?.reporter.trustBand === 'low' ? 'warning' : 'neutral'}`} style={{ textTransform: 'capitalize' }}>
+        </div>
+        <div className="brief-grid">
+          <span className="k">Reports</span>
+          <strong>{detail ? (detail.reportCount > 1 ? `${detail.reportCount} people reported this` : '1 report') : '…'}</strong>
+          <span />
+          <span className="k">Summary</span>
+          <span>{detail?.brief ? detail.brief.summary : 'No brief yet. It follows when ready; the plain report is enough to go.'}</span>
+          <span />
+        </div>
+        <div style={{ borderTop: '1px solid var(--color-divider)', marginTop: 12, paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="muted">Reporter trust</span>
+          <span className={`chip ${TRUST[detail?.reporter.trustBand ?? ''] ?? 'neutral'}`} style={{ textTransform: 'capitalize' }}>
             {detail?.reporter.trustBand ?? '…'}
           </span>
         </div>
-        {detail && detail.reportCount > 1 && <p style={{ margin: '8px 0 0' }}>{detail.reportCount} people reported this.</p>}
-        <p className="muted" style={{ margin: '8px 0 0' }}>
-          {detail?.brief ? detail.brief.summary : 'No brief yet. It follows when ready; the plain report is enough to go.'}
-        </p>
       </div>
 
-      <div style={{ display: 'grid', gap: 8 }}>
-        <button className="btn block signal" type="button" onClick={accept} disabled={busy} style={{ minHeight: 72, fontSize: 'var(--text-lg)' }}>
-          {busy ? 'Accepting…' : 'Accept'}
+      <div className="btn-row">
+        <button className="btn" type="button" disabled={!detail?.clipIds?.length} title={detail?.clipIds?.length ? undefined : 'No clips for this report'}>
+          Watch clips
         </button>
-        <button className="btn block" type="button" onClick={() => setDeclining(true)} disabled={busy}>
+        <a
+          className="btn"
+          href={detail ? `https://www.google.com/maps/dir/?api=1&destination=${detail.building.location.lat},${detail.building.location.lng}` : undefined}
+          target="_blank"
+          rel="noreferrer"
+          aria-disabled={!detail}
+        >
+          Open map
+        </a>
+      </div>
+
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, padding: '12px 16px calc(12px + env(safe-area-inset-bottom))', background: 'var(--color-bg)', maxWidth: 520, margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 8 }}>
+        <button className="btn" type="button" onClick={() => setDeclining(true)} disabled={busy} style={{ minHeight: 64 }}>
           Decline
+        </button>
+        <button className="btn primary" type="button" onClick={accept} disabled={busy} style={{ minHeight: 64, fontSize: 'var(--text-lg)' }}>
+          {busy ? 'Accepting…' : 'Accept'}
         </button>
       </div>
 
       {declining && <DeclineSheet id={id} onClose={() => setDeclining(false)} onDone={() => router.replace('/officer')} />}
+    </main>
+  );
+}
+
+/** Board "Officer offer expired": what happened, who took it, and that nothing counts against a taken offer. */
+function Ended({ o, onHome }: { o: OfferStatus | null; onHome: () => void }) {
+  const taken = o?.state === 'taken';
+  const declined = o?.state === 'declined';
+  return (
+    <main className="app bare center" style={{ paddingTop: '18vh', paddingBottom: 140 }}>
+      <div className="check" style={{ background: 'var(--color-surface-raised)', color: 'var(--color-text-secondary)', width: 96, height: 96 }}>
+        <Icon name="history" size={44} />
+      </div>
+      <h1 style={{ margin: '16px 0 8px' }}>{declined ? 'You declined this offer' : o?.state === 'withdrawn' ? 'This offer was withdrawn' : 'This offer expired'}</h1>
+      <p className="muted" style={{ marginTop: 0 }}>
+        {taken
+          ? 'Another unit accepted this report. Nothing was recorded against you.'
+          : o?.state === 'withdrawn'
+            ? 'The report was cancelled or moved before you answered. Nothing was recorded against you.'
+            : declined
+              ? 'It went to the next unit.'
+              : 'You did not answer in time, so it passed to the next unit.'}
+      </p>
+      {o && (
+        <div className="facts-list" style={{ textAlign: 'left' }}>
+          <div>
+            <span className="muted">Report</span>
+            <strong>{o.report.label}</strong>
+          </div>
+          {o.takenBy && (
+            <div>
+              <span className="muted">Taken by</span>
+              <strong>
+                {o.takenBy.badgeNo ? `${o.takenBy.badgeNo}, ` : `${o.takenBy.name}, `}
+                {o.takenBy.station}
+              </strong>
+            </div>
+          )}
+        </div>
+      )}
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, padding: '12px 16px calc(12px + env(safe-area-inset-bottom))', background: 'var(--color-bg)', maxWidth: 520, margin: '0 auto' }}>
+        <button className="btn block signal" type="button" onClick={onHome} style={{ minHeight: 56 }}>
+          Back to home
+        </button>
+        <p className="muted center" style={{ margin: '8px 0 0', fontSize: 'var(--text-sm)' }}>
+          Your acceptance rate counts only offers you declined or missed.
+        </p>
+      </div>
     </main>
   );
 }
@@ -163,43 +244,62 @@ function DeclineSheet({ id, onClose, onDone }: { id: string; onClose: () => void
     <Sheet
       open
       title="Why are you declining?"
-      description="The report goes straight to the next officer."
       onClose={onClose}
       busy={busy}
       footer={
-        <>
-          <button className="btn" type="button" onClick={onClose} disabled={busy}>
-            Back to the offer
-          </button>
-          <button
-            className="btn primary"
-            type="button"
-            disabled={busy}
-            onClick={async () => {
-              if (!reason) return setErr('A reason is required: busy, too far, off duty, other.');
-              setBusy(true);
-              try {
-                await api(`/incidents/${id}/decline`, { method: 'POST', body: JSON.stringify({ reason }) });
-                onDone();
-              } catch (e) {
-                setErr(e instanceof ApiError ? e.message : 'Could not decline. Try again.');
-                setBusy(false);
-              }
-            }}
-          >
-            Decline offer
-          </button>
-        </>
+        <div style={{ display: 'grid', gap: 8, width: '100%' }}>
+          {err && (
+            <span className="field-error" role="alert">
+              {err}
+            </span>
+          )}
+          <div className="btn-row">
+            <button className="btn" type="button" onClick={onClose} disabled={busy}>
+              Go back
+            </button>
+            <button
+              className={`btn ${reason ? 'primary' : ''}`}
+              type="button"
+              disabled={busy}
+              aria-disabled={!reason}
+              onClick={async () => {
+                if (!reason) return setErr('Choose a reason to continue.');
+                setBusy(true);
+                try {
+                  await api(`/incidents/${id}/decline`, { method: 'POST', body: JSON.stringify({ reason }) });
+                  onDone();
+                } catch (e) {
+                  setErr(e instanceof ApiError ? e.message : 'Could not decline. Try again.');
+                  setBusy(false);
+                }
+              }}
+            >
+              {busy ? 'Declining…' : 'Decline'}
+            </button>
+          </div>
+          <span className="muted center" style={{ fontSize: 'var(--text-sm)' }}>
+            The report goes to the next unit. Declines count in your acceptance rate.
+          </span>
+        </div>
       }
     >
-      <div className="chips" role="group" aria-label="Reason">
+      <div role="radiogroup" aria-label="Reason">
         {DECLINE.map(([k, l]) => (
-          <button key={k} type="button" aria-pressed={reason === k} onClick={() => setReason(k)}>
-            {l}
+          <button
+            key={k}
+            className="choice"
+            type="button"
+            role="radio"
+            aria-checked={reason === k}
+            aria-pressed={reason === k}
+            onClick={() => (setReason(k), setErr(null))}
+            style={{ minHeight: 60, border: '1px solid var(--color-divider)', background: reason === k ? 'var(--color-emergency-soft)' : 'var(--color-bg)' }}
+          >
+            <span className="radio-dot" data-on={reason === k} />
+            <strong>{l}</strong>
           </button>
         ))}
       </div>
-      {err && <span className="field-error">{err}</span>}
     </Sheet>
   );
 }

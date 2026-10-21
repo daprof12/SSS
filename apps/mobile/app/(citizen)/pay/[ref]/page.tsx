@@ -18,7 +18,9 @@ export default function MockCheckout({ params }: { params: Promise<{ ref: string
   const finish = async (outcome: 'success' | 'failed') => {
     setBusy(true);
     await api(`/dev/paystack/complete/${encodeURIComponent(ref)}?outcome=${outcome}`, { method: 'POST' }).catch(() => {});
-    router.replace(`/wallet/confirm/${encodeURIComponent(ref)}`);
+    // Wallet top-ups go back to the wallet; donations and fines to their receipt.
+    const p = await api<{ purpose: string }>(`/me/payments/${encodeURIComponent(ref)}`).catch(() => null);
+    router.replace(!p || p.purpose === 'wallet_fund' ? `/wallet/confirm/${encodeURIComponent(ref)}` : `/payments/${encodeURIComponent(ref)}?thanks=${p.purpose === 'donation' ? 1 : 0}`);
   };
 
   if (process.env.NODE_ENV === 'production') {
@@ -31,7 +33,7 @@ export default function MockCheckout({ params }: { params: Promise<{ ref: string
   }
   return (
     <main className="app bare">
-      <Header title="Test checkout" back="/wallet/fund" />
+      <Header title="Test checkout" />
       <div className="banner warning">
         <strong>Test mode</strong>
         This screen stands in for Paystack while payments are mocked. No money moves.
@@ -47,7 +49,7 @@ export default function MockCheckout({ params }: { params: Promise<{ ref: string
         <button className="btn block" type="button" disabled={busy} onClick={() => finish('failed')}>
           Card declined (test)
         </button>
-        <button className="btn block" type="button" disabled={busy} onClick={() => router.replace('/wallet')}>
+        <button className="btn block" type="button" disabled={busy} onClick={() => router.back()}>
           Close checkout
         </button>
       </div>

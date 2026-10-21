@@ -20,6 +20,7 @@ import { Bus } from '../core/bus';
 import { CONFIG, type AppConfig } from '../core/config';
 import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
+import { FinesService } from '../citizen/fines.service';
 import { IncidentRepo, type IncidentRow } from './incident.repo';
 
 /** Citizen-facing timeline labels; events not listed here stay internal. */
@@ -41,6 +42,8 @@ const PUBLIC_LABELS: Partial<Record<string, string>> = {
   report_joined: 'Someone else reported this too',
   reinforce: 'More help is coming',
 };
+
+const DECLINE_LABELS: Record<string, string> = { busy: 'Busy on another incident', too_far: 'Too far away', off_duty: 'Going off duty', other: 'Other' };
 
 const MERGE_RADIUS_M = 100;
 const MERGE_WINDOW_MIN = 15;
@@ -68,6 +71,7 @@ export class IncidentsService implements OnModuleDestroy {
     @Inject(POSTCODE) private readonly postcode: PostcodeAdapter,
     @Inject(SMS) private readonly sms: SmsAdapter,
     @Inject(RewardsService) private readonly rewards: RewardsService,
+    @Inject(FinesService) private readonly fines: FinesService,
   ) {}
 
   onModuleDestroy() {
@@ -266,6 +270,9 @@ export class IncidentsService implements OnModuleDestroy {
   async route(id: string, exclude: string[] = []): Promise<void> {
     const row = await this.repo.row(id);
     if (!row || !['received', 'escalated', 'reassigning', 'transferred'].includes(row.state)) return;
+    // Anyone who already declined it or let it expire is skipped, whatever path brought it back here.
+    const passed = await this.db.query(`select distinct officer_id::text as id from incident_units where incident_id = $1 and state in ('declined', 'expired')`, [id]);
+    exclude = [...new Set([...exclude, ...passed.rows.map((r) => r.id as string)])];
 
     const station = row.station_id
       ? { id: row.station_id }
@@ -413,13 +420,16 @@ export class IncidentsService implements OnModuleDestroy {
       reinforce: ['officer', 'station'],
       officer_panic: ['officer'],
       panic_cleared: ['officer', 'station'],
+      drone_requested: ['officer'],
+      transfer_requested: ['officer'],
     };
     if (!who[kind]) throw new AppError(400, 'unsupported_event', 'That action is not available here.');
     const { row, actor } = await this.pickActor(p, id, kind, who[kind]!);
     if (!sideEventAllowedIn[kind].includes(row.state)) throw new AppError(409, 'invalid_transition', 'That action is not available at this stage.');
     if ((kind === 'note' || kind === 'add_info') && !payload.text?.trim()) throw new AppError(422, 'text_required', 'Write a note before saving.');
     if (kind === 'reinforce' && !payload.reason?.trim()) throw new AppError(422, 'reason_required', 'Say why you need help.');
-    const label = kind === 'officer_panic' ? 'Officer needs help' : PUBLIC_LABELS[kind] ?? kind;
+    if (kind === 'transfer_requested' && !payload.reason?.trim()) throw new AppError(422, 'reason_required', 'Say why it should move.');
+    const label = kind === 'officer_panic' ? 'Officer needs help' : kind === 'drone_requested' ? 'Drone requested' : kind === 'transfer_requested' ? 'Transfer requested' : PUBLIC_LABELS[kind] ?? kind;
     await this.logEvent(this.db.pool, id, p.userId, actor, kind, null, null, { ...payload, label }, kind === 'reinforce');
     if (kind === 'officer_panic') {
       await this.audit.write({ actorId: p.userId, actorRole: 'officer', action: 'incident.officer_panic', entity: 'incident', entityId: id });
@@ -436,8 +446,78 @@ export class IncidentsService implements OnModuleDestroy {
         );
       });
     }
+    if ((kind === 'reinforce' || kind === 'drone_requested' || kind === 'transfer_requested') && row.station_id) {
+      // The station head assigns the second unit or the drone, or moves the report (board "Officer incident log").
+      await this.db.tx(async (c) => {
+        const who = (await c.query(`select u.display_name, l.postcode, i.type from users u, incidents i left join locations l on l.id = i.location_id where u.id = $1 and i.id = $2`, [p.userId, id])).rows[0];
+        const what = { reinforce: 'asks for reinforcement', drone_requested: 'asks for a drone', transfer_requested: 'asks to transfer' }[kind];
+        const title = { reinforce: 'Reinforcement requested', drone_requested: 'Drone requested', transfer_requested: 'Transfer requested' }[kind];
+        await this.notifyStationHeads(
+          c,
+          row.station_id!,
+          kind === 'reinforce' ? 'reinforcement_requested' : kind,
+          title,
+          `${who?.display_name ?? 'An officer'} ${what} at ${cap(who?.type ?? 'the incident')}, ${who?.postcode ?? 'GPS location'}${payload.reason ? `: ${payload.reason}` : '.'}`,
+          id,
+        );
+      });
+    }
     this.publish(id, kind);
     return { ok: true };
+  }
+
+  /**
+   * What happened to an offer, for the officer who got it (boards "Officer dispatch offer" and
+   * "Officer offer expired"): still open, expired, declined, or taken by another unit.
+   */
+  async offerStatus(p: Principal, id: string) {
+    const u = (
+      await this.db.query(
+        `select u.state, u.accepted_at, u.decline_reason, greatest(0, extract(epoch from (u.offer_expires_at - now())))::int as seconds_left, u.offered_at,
+                (select accept_window_seconds from stations where id = u.station_id) as window_s
+           from incident_units u where u.incident_id = $1 and u.officer_id = $2 order by u.offered_at desc limit 1`,
+        [id, p.userId],
+      )
+    ).rows[0];
+    if (!u) throw new AppError(404, 'not_found', 'This offer could not be found.');
+    const i = (
+      await this.db.query(
+        `select i.type, i.state, l.postcode, l.address_text, l.area_label, st_distance(o.last_location, i.geom) as distance_m
+           from incidents i left join locations l on l.id = i.location_id left join officers o on o.user_id = $2 where i.id = $1`,
+        [id, p.userId],
+      )
+    ).rows[0];
+    const taker = (
+      await this.db.query(
+        `select ou.display_name, o.badge_no, s.name as station from incident_units x
+           join users ou on ou.id = x.officer_id left join officers o on o.user_id = x.officer_id join stations s on s.id = x.station_id
+          where x.incident_id = $1 and x.officer_id <> $2 and x.accepted_at is not null order by x.accepted_at desc limit 1`,
+        [id, p.userId],
+      )
+    ).rows[0];
+    const open = u.state === 'offered' && u.seconds_left > 0;
+    // Missed (timed out) and declined offers count in the acceptance rate. An offer pulled before it
+    // timed out, because another unit took the report or it was cancelled or moved, does not.
+    const state = open
+      ? 'offered'
+      : u.accepted_at
+        ? 'accepted'
+        : u.state === 'declined'
+          ? 'declined'
+          : u.state === 'expired' || u.state === 'offered'
+            ? 'expired'
+            : taker
+              ? 'taken'
+              : 'withdrawn';
+    return {
+      state,
+      secondsLeft: open ? u.seconds_left : 0,
+      windowSeconds: u.window_s,
+      report: { type: i.type, label: `${cap(i.type)}, ${i.postcode ?? 'GPS location'}`, postcode: i.postcode, address: i.address_text, area: i.area_label },
+      distanceM: i.distance_m == null ? null : Math.round(i.distance_m),
+      takenBy: taker ? { name: taker.display_name, badgeNo: taker.badge_no, station: taker.station } : null,
+      counted: state === 'declined' || state === 'expired',
+    };
   }
 
   // ---------------------------------------------------------------- responder actions
@@ -511,6 +591,8 @@ export class IncidentsService implements OnModuleDestroy {
           await c.query(`update tracking_links set expires_at = now() + make_interval(hours => $2) where incident_id = $1`, [id, incidentTimers.contactLinkTtlHoursAfterClose]);
           return { outcomeCode: body.outcomeCode };
         }, { outcome_code: body.outcomeCode });
+        // B8: a warning first, then a fine, for the person who sent it (never joiners).
+        if (event === 'close_unfounded') await this.fines.onUnfounded(id);
         return to;
       }
     }
@@ -635,7 +717,8 @@ export class IncidentsService implements OnModuleDestroy {
     );
     if (!u.rowCount) throw new AppError(409, 'offer_expired', 'This offer expired. Nothing was recorded against you.');
     clearTimeout(this.timers.get(`offer:${id}:${p.userId}`));
-    await this.db.query(`insert into incident_events (incident_id, actor_id, actor_kind, kind, payload) values ($1, $2, 'officer', 'declined', $3)`, [id, p.userId, { reason }]);
+    const label = `Declined: ${DECLINE_LABELS[reason]}`;
+    await this.db.query(`insert into incident_events (incident_id, actor_id, actor_kind, kind, payload) values ($1, $2, 'officer', 'declined', $3)`, [id, p.userId, { reason, label }]);
     await this.transition(id, 'offer_timeout', 'system', null);
     await this.route(id, [p.userId]);
     return { ok: true };

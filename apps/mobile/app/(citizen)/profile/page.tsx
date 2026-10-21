@@ -13,6 +13,7 @@ interface Me {
   kyc: { status: string };
   trust: { score: number; band: string };
   preferences: { theme: string; locale: string; discreetMode: boolean };
+  security: { mfaEnabled: boolean };
 }
 
 const LANG: Record<string, string> = { en: 'English', ha: 'Hausa', yo: 'Yoruba', ig: 'Igbo', pcm: 'Pidgin' };
@@ -92,27 +93,27 @@ export default function Profile() {
       <p className="section-label">Money</p>
       <div className="list">
         <Row href="/wallet" icon="wallet" label="Wallet" end={wallet} />
-        <Row icon="heart" label="Donations" soon />
+        <Row href="/donate" icon="heart" label="Donations" />
         <Row href="/tips" icon="tip" label="My tips and bounties" />
-        <Row icon="activity" label="Payments and receipts" soon />
+        <Row href="/payments" icon="activity" label="Payments and receipts" />
       </div>
 
       <p className="section-label">Safety</p>
       <div className="list">
         <Row href="/profile/contacts" icon="contacts" label="Emergency contacts" end={contacts == null ? '' : `${contacts} of 3`} />
-        <Row href="/profile/home" icon="home" label="Home and saved places" />
+        <Row href="/profile/home" icon="home" label="Home, devices and household" />
         <Row href="/issues" icon="road" label="My public issues" />
-        <Row icon="lock" label="Security" soon />
-        <Row icon="eye" label="Discreet mode" soon />
-        <Row icon="activity" label="Fines and appeals" soon />
+        <Row href="/profile/security" icon="lock" label="Security" end={me ? (me.security.mfaEnabled ? '2FA on' : '2FA off') : ''} />
+        <Row href="/profile/discreet" icon="eye" label="Discreet mode" end={me ? (me.preferences.discreetMode ? 'On' : 'Off') : ''} />
+        <Row href="/fines" icon="flag" label="Fines and appeals" />
       </div>
 
       <p className="section-label">App</p>
       <div className="list">
         <Row href="/profile/appearance" icon="sun" label="Appearance" end={me ? me.preferences.theme[0]!.toUpperCase() + me.preferences.theme.slice(1) : ''} />
         <Row href="/notifications" icon="bell" label="Notifications" />
-        <Row icon="globe" label="Language" soon />
-        <Row icon="help" label="Help and support" soon />
+        <Row href="/profile/language" icon="globe" label="Language" end={LANG[me?.preferences.locale ?? 'en']} />
+        <Row href="/help" icon="help" label="Help and support" />
       </div>
 
       <div className="list">
@@ -134,7 +135,6 @@ export default function Profile() {
           </span>
         </button>
       </div>
-      <p className="muted center">Language: {LANG[me?.preferences.locale ?? 'en']}</p>
     </main>
   );
 }

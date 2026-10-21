@@ -9,7 +9,7 @@ import { Bus } from '../core/bus';
 import { Db } from '../core/db';
 import { AppError } from '../core/http';
 
-export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'learn_post' | 'field_report';
+export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'learn_post' | 'field_report' | 'fine' | 'repair';
 export const MAX_BYTES = 10 * 1024 * 1024; // States doc: up to [10] MB
 const TYPES: Record<string, 'photo' | 'video' | 'voice'> = {
   'image/jpeg': 'photo',
@@ -108,6 +108,22 @@ export class MediaService {
       if (forUpload) return null;
       return hasRole(p, 'head', f.station_id) || hasRole(p, 'dispatcher', f.station_id) ? 'staff' : null;
     }
+    if (ownerType === 'fine') {
+      // Evidence for an appeal: the fined person adds it while the fine is open; platform staff review it.
+      const f = (await this.db.query(`select user_id, state from fines where id = $1`, [ownerId])).rows[0];
+      if (!f) return null;
+      if (f.user_id === p.userId) return forUpload && !['open', 'appealed'].includes(f.state) ? null : 'self';
+      return !forUpload && hasRole(p, 'platform_admin') ? 'staff' : null;
+    }
+    if (ownerType === 'repair') {
+      // A photo of the faulty device: the home's owner and members; platform staff and the technician see it.
+      const j = (await this.db.query(`select j.property_id, j.technician_id, j.confirmed_at from install_jobs j where j.id = $1 and j.kind = 'repair'`, [ownerId])).rows[0];
+      if (!j) return null;
+      const home = await this.db.query(`select 1 from properties where id = $1 and owner_id = $2 union all select 1 from property_members where property_id = $1 and user_id = $2`, [j.property_id, p.userId]);
+      if (home.rowCount) return forUpload && j.confirmed_at ? null : 'self';
+      if (forUpload) return null;
+      return hasRole(p, 'platform_admin') || j.technician_id === p.userId ? 'staff' : null;
+    }
     if (ownerType === 'learn_post') {
       // Platform team uploads to drafts; once live, anyone signed in can watch (no audit for public lessons).
       const lp = (await this.db.query(`select state from learn_posts where id = $1`, [ownerId])).rows[0];
@@ -121,7 +137,9 @@ export class MediaService {
     if (!i) return null;
     const live = !['resolved', 'unfounded', 'cancelled', 'merged'].includes(i.state);
     if (i.reporter_id === p.userId) return forUpload && !live ? null : 'self';
-    if (forUpload) return null;
+    // The officers on it add photos to the response log while it is live (board "Officer incident log").
+    const onIt = await this.db.query(`select 1 from incident_units where incident_id = $1 and officer_id = $2 and state in ('accepted', 'en_route', 'on_scene')`, [ownerId, p.userId]);
+    if (forUpload) return onIt.rowCount && live ? 'staff' : null;
     const officer = await this.db.query(`select 1 from incident_units where incident_id = $1 and officer_id = $2 and (state in ('accepted', 'en_route', 'on_scene') or accepted_at is not null)`, [ownerId, p.userId]);
     if (officer.rowCount) return 'staff';
     if (i.station_id && (hasRole(p, 'head', i.station_id) || hasRole(p, 'dispatcher', i.station_id))) return 'staff';
@@ -162,10 +180,16 @@ export class MediaService {
       await c.query(`update media set state = 'ready', size_bytes = $2, sha256 = $3 where id = $1`, [id, clean.length, createHash('sha256').update(clean).digest('hex')]);
       // Tell whoever handles it that evidence arrived.
       if (m.owner_type === 'incident') {
-        await c.query(`insert into incident_events (incident_id, actor_id, actor_kind, kind, payload, public) values ($1, $2, 'reporter', 'add_info', $3, true)`, [
+        // An officer's photo goes in the staff log only; the reporter's shows on their timeline too.
+        const reporter = (await c.query(`select 1 from incidents where id = $1 and reporter_id = $2`, [m.owner_id, p.userId])).rowCount;
+        const what = m.kind === 'photo' ? 'Photo added' : m.kind === 'voice' ? 'Voice note added' : 'Video added';
+        await c.query(`insert into incident_events (incident_id, actor_id, actor_kind, kind, payload, public) values ($1, $2, $3, $4, $5, $6)`, [
           m.owner_id,
           p.userId,
-          { label: m.kind === 'photo' ? 'Photo added' : m.kind === 'voice' ? 'Voice note added' : 'Video added', mediaId: id },
+          reporter ? 'reporter' : 'officer',
+          reporter ? 'add_info' : 'officer_media',
+          { label: reporter ? what : `Officer: ${what.toLowerCase()}`, mediaId: id },
+          !!reporter,
         ]);
       }
     });
@@ -177,8 +201,10 @@ export class MediaService {
     const who = await this.access(p, ownerType, ownerId);
     if (!who) throw new AppError(404, 'not_found', 'Not found.');
     const r = await this.db.query(
-      `select id, kind, content_type, size_bytes, duration_s, created_at, uploader_id = $3 as mine from media where owner_type = $1 and owner_id = $2 and state = 'ready' order by created_at`,
-      [ownerType, ownerId, p.userId],
+      `select id, kind, content_type, size_bytes, duration_s, created_at, uploader_id = $3 as mine from media
+        where owner_type = $1 and owner_id = $2 and state = 'ready' and ($4 = false or uploader_id = $3) order by created_at`,
+      // A reporter sees their own files on an incident, never the officers' evidence photos.
+      [ownerType, ownerId, p.userId, who === 'self' && ownerType === 'incident'],
     );
     return r.rows.map((m) => ({ id: m.id, kind: m.kind, contentType: m.content_type, sizeBytes: m.size_bytes, durationS: m.duration_s, mine: m.mine, at: m.created_at, url: `/media/${m.id}/content` }));
   }
@@ -188,7 +214,7 @@ export class MediaService {
     const m = (await this.db.query(`select * from media where id = $1 and state = 'ready'`, [id])).rows[0];
     if (!m) throw new AppError(404, 'not_found', 'Not found.');
     const who = await this.access(p, m.owner_type, m.owner_id);
-    if (!who) throw new AppError(404, 'not_found', 'Not found.');
+    if (!who || (who === 'self' && m.owner_type === 'incident' && m.uploader_id !== p.userId)) throw new AppError(404, 'not_found', 'Not found.');
     if (who === 'staff') {
       await this.audit.write({ actorId: p.userId, action: 'media.view', entity: 'media', entityId: id, payload: { ownerType: m.owner_type, ownerId: m.owner_id } });
     }

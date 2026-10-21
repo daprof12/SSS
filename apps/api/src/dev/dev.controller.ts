@@ -149,6 +149,30 @@ export class DevController {
           [ids[k], l.rows[0].id],
         );
       }
+      // Ada's home: Household plan, two cameras and two street lights (boards "My home devices" and onward).
+      const home = (await c.query(`select location_id from saved_places where user_id = $1 and is_home`, [ids.citizen])).rows[0].location_id;
+      const prop =
+        (await c.query(`select id from properties where owner_id = $1`, [ids.citizen])).rows[0]?.id ??
+        (await c.query(`insert into properties (owner_id, location_id, ownership, verified) values ($1, $2, 'owner', true) returning id`, [ids.citizen, home])).rows[0].id;
+      await c.query(
+        `insert into subscriptions (owner_id, property_id, plan_code, state, period_start, next_bill_at)
+         select $1, $2, 'household', 'active', now() - interval '10 days', now() + interval '20 days'
+          where not exists (select 1 from subscriptions where property_id = $2)`,
+        [ids.citizen, prop],
+      );
+      for (const [serial, type, name, status, seenMin, battery] of [
+        ['CAM-DEMO-FRONT', 'camera', 'Front gate camera', 'online', 0, null],
+        ['CAM-DEMO-BACK', 'camera', 'Back gate camera', 'offline', 300, null],
+        ['SL-DEMO-MAPLE', 'street_light', 'Street light, Maple Road', 'online', 4, 86],
+        ['SL-DEMO-JUNC', 'street_light', 'Street light, junction', 'low_power', 6, 18],
+      ] as const) {
+        await c.query(
+          `insert into devices (property_id, location_id, type, serial, name, status, last_seen, battery_pct, lit_hours, last_motion_at, created_at)
+           values ($1, $2, $3, $4, $5, $6, now() - make_interval(mins => $7), $8, case when $3 = 'street_light' then 11.5 end, case when $3 = 'camera' then now() - interval '40 minutes' end, clock_timestamp())
+           on conflict (serial) do nothing`,
+          [prop, home, type, serial, name, status, seenMin, battery],
+        );
+      }
       // Demo receiving agencies for tips (NAPTIP, with a funded bounty pool) and public issues (FERMA, roads).
       const demoAgency = async (name: string, kind: string) => {
         const id =

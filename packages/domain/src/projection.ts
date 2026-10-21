@@ -14,6 +14,8 @@ export interface TimelineEntry {
   label: string;
   /** Shown to reporters, joiners and contacts only when true. */
   public: boolean;
+  /** Who did it, for staff views: "System", an officer's name, or "[Name], station". */
+  by?: string;
 }
 
 /** Full server-side record. Never serialised directly. */
@@ -57,7 +59,7 @@ export class ForbiddenView extends Error {
   }
 }
 
-const publicTimeline = (r: IncidentRecord) => r.timeline.filter((t) => t.public);
+const publicTimeline = (r: IncidentRecord) => r.timeline.filter((t) => t.public).map(({ by: _by, ...t }) => t);
 
 /** Contacts see 4 states only (A4). */
 function contactState(s: IncidentState): 'finding_team' | 'on_the_way' | 'arrived' | 'closed' {

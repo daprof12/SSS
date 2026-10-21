@@ -111,7 +111,7 @@ export class WithdrawalsService {
   }
 
   /** Wrong tries are counted outside any transaction so a rollback cannot erase them. */
-  private async verifyPin(userId: string, pin: string) {
+  async verifyPin(userId: string, pin: string) {
     const u = (await this.db.query(`select pin_hash, pin_failed, pin_locked_until from users where id = $1`, [userId])).rows[0];
     if (!u.pin_hash) throw new AppError(409, 'pin_not_set', 'Set a withdrawal PIN first.');
     if (u.pin_locked_until && new Date(u.pin_locked_until) > new Date()) {
