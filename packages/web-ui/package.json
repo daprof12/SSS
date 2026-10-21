@@ -17,7 +17,8 @@
     "./Avatar": "./src/Avatar.tsx",
     "./Rating": "./src/Rating.tsx",
     "./StreetMap": "./src/StreetMap.tsx",
-    "./IncidentMap": "./src/IncidentMap.tsx"
+    "./IncidentMap": "./src/IncidentMap.tsx",
+    "./typeGlyphs": "./src/typeGlyphs.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

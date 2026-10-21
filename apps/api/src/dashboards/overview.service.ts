@@ -18,6 +18,8 @@ export type Kind = 'emergency' | 'tip' | 'issue';
 export interface LiveItem {
   id: string;
   kind: Kind;
+  /** Report type code, emergencies only (the map shows its icon). */
+  type?: string;
   label: string;
   state: string;
   lat: number;
@@ -427,6 +429,7 @@ export class OverviewService {
         items.push({
           id: i.id,
           kind: 'emergency',
+          type: i.type,
           label: `${cap(i.type)}, ${i.postcode ?? 'GPS'}`,
           state: i.state,
           lat: i.lat,

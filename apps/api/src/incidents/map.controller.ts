@@ -61,7 +61,7 @@ export class IncidentMapController {
     const route = from && !['on_scene', 'closing', 'resolved', 'unfounded', 'cancelled', 'merged'].includes(i.state) ? await this.routing.route(from, incident) : null;
 
     return {
-      incident: { ...incident, label: `${cap(i.type)}, ${i.postcode ?? 'GPS location'}`, address: i.address_text, state: i.state },
+      incident: { ...incident, type: i.type as string, label: `${cap(i.type)}, ${i.postcode ?? 'GPS location'}`, address: i.address_text, state: i.state },
       you,
       youDistanceM: you ? Math.round(metresBetween(you, incident)) : null,
       unit,

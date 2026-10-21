@@ -135,7 +135,7 @@ export class StationService {
       // Without a saved building the map centres on the reports, and the station square and zone are not drawn.
       stationPlaced: s?.lat != null,
       zoneRadiusM: 5000,
-      incidents: incidents.rows.map((i) => ({ id: i.id, label: `${cap(i.type)}, ${i.postcode ?? 'GPS'}`, state: i.state, severity: i.severity, reports: i.report_count, lat: i.lat, lng: i.lng })),
+      incidents: incidents.rows.map((i) => ({ id: i.id, type: i.type, label: `${cap(i.type)}, ${i.postcode ?? 'GPS'}`, state: i.state, severity: i.severity, reports: i.report_count, lat: i.lat, lng: i.lng })),
       units: units.rows.map((u) => ({
         id: u.id,
         name: u.name,

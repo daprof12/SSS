@@ -7,7 +7,7 @@ import { api } from './api';
 import { StreetMap, type MapPoint } from './StreetMap';
 
 interface MapView {
-  incident: MapPoint & { label: string; address: string | null; state: string };
+  incident: MapPoint & { type: string; label: string; address: string | null; state: string };
   you: MapPoint | null;
   youDistanceM: number | null;
   unit: (MapPoint & { name: string; state: string; updatedAt: string | null; isYou: boolean }) | null;

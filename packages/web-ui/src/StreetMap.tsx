@@ -3,6 +3,7 @@
 // between the unit (or you) and the report. Street tiles, zoom buttons, drag to pan, and "fit" to
 // bring everything back into view. Works with a mouse and a finger.
 import { useEffect, useRef, useState } from 'react';
+import { TYPE_COLOURS, TYPE_GLYPHS } from './typeGlyphs';
 
 export interface MapPoint {
   lat: number;
@@ -32,7 +33,8 @@ export function StreetMap({
   height = 260,
   label,
 }: {
-  incident: MapPoint & { label?: string };
+  /** `type` is the report type code (fire, medical, ...): the pin shows its icon and colour. */
+  incident: MapPoint & { label?: string; type?: string };
   you?: MapPoint | null;
   unit?: (MapPoint & { name?: string; isYou?: boolean }) | null;
   /** [lat, lng] points of the route. */
@@ -93,6 +95,7 @@ export function StreetMap({
     setView((v) => (v ? { ...v, z: Math.max(3, Math.min(19, v.z + d)) } : v));
   };
   const inc = at(incident);
+  const pin = TYPE_COLOURS[incident.type ?? ''] ?? '#dc2626';
   const path = (line ?? []).map(([lat, lng]) => at({ lat, lng }));
   const me = you ? at(you) : null;
   const un = unit ? at(unit) : null;
@@ -142,14 +145,16 @@ export function StreetMap({
           </g>
         )}
         <g>
-          <circle className="ui-pulse" cx={inc.x} cy={inc.y} r="22" fill="#dc2626" fillOpacity="0.2" />
-          <path d={`M${inc.x} ${inc.y} c-9 -11 -12 -15 -12 -21 a12 12 0 1 1 24 0 c0 6 -3 10 -12 21z`} fill="#dc2626" stroke="#fff" strokeWidth="2.5" />
-          <circle cx={inc.x} cy={inc.y - 21} r="4.5" fill="#fff" />
+          <circle className="ui-pulse" cx={inc.x} cy={inc.y} r="24" fill={pin} fillOpacity="0.22" />
+          <path d={`M${inc.x} ${inc.y} l-7 -10 a17 17 0 1 1 14 0 z`} fill={pin} stroke="#fff" strokeWidth="2.5" strokeLinejoin="round" />
+          <g transform={`translate(${inc.x - 9.6} ${inc.y - 34.6}) scale(0.8)`} fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+            {TYPE_GLYPHS[incident.type ?? ''] ?? TYPE_GLYPHS.other}
+          </g>
         </g>
       </svg>
       <div className="ui-map-legend">
         <span>
-          <i style={{ background: '#dc2626' }} /> Report
+          <i style={{ background: pin }} /> {incident.label?.split(',')[0] ?? 'Report'}
         </span>
         {you && (
           <span>

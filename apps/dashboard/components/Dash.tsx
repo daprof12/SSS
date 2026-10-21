@@ -2,6 +2,7 @@
 // Shared dashboard pieces: the zone map (boards "Station dashboard", "Station map", "Admin live
 // incident map"), horizontal bar charts (Reports, Overview) and small formatters.
 import { formatNaira } from '@erp/domain';
+import { TYPE_GLYPHS } from '@erp/web-ui/typeGlyphs';
 import { useEffect, useRef, useState } from 'react';
 
 export const mmss = (s: number | null | undefined) => (s == null ? '—' : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`);
@@ -32,6 +33,8 @@ export interface MapIncident extends Pt {
   label: string;
   state: string;
   severity?: number;
+  /** Report type code (fire, medical, ...): the marker shows its icon. */
+  type?: string;
   /** Marker colour; defaults by state (emergencies). Tips and public issues pass their own. */
   color?: string;
 }
@@ -220,7 +223,12 @@ export function ZoneMap({
           const g = (
             <g key={i.id} data-pin style={{ cursor: onSelect || link ? 'pointer' : 'default' }} onClick={() => onSelect?.(i.id)}>
               <circle cx={p.x} cy={p.y} r={on ? 22 : 17} fill={incColor(i)} fillOpacity="0.25" />
-              <circle cx={p.x} cy={p.y} r="9" fill={incColor(i)} stroke="#fff" strokeWidth="2.5" />
+              <circle cx={p.x} cy={p.y} r={i.type ? 13 : 9} fill={incColor(i)} stroke="#fff" strokeWidth="2.5" />
+              {i.type && (
+                <g transform={`translate(${p.x - 7.2} ${p.y - 7.2}) scale(0.6)`} fill="none" stroke="#fff" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+                  {TYPE_GLYPHS[i.type] ?? TYPE_GLYPHS.other}
+                </g>
+              )}
               <g transform={`translate(${p.x + 14}, ${p.y - 11})`}>
                 <rect width={i.label.length * 6.6 + 12} height="22" rx="6" fill="rgba(0,0,0,0.75)" />
                 <text x="6" y="15" fill="#fff" fontSize="12" fontWeight="700">
