@@ -1,6 +1,7 @@
 'use client';
 // Board "Agency stations": every station, its head, who is on duty and how it is rated.
 import { api, ApiError } from '@erp/web-ui/api';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AgencySwitcher, WithAgency, type MyAgency } from '@/components/Agency';
 
@@ -72,7 +73,9 @@ function Stations({ agency }: { agency: MyAgency }) {
               {list.map((s) => (
                 <tr key={s.id}>
                   <td>
-                    <strong>{s.name}</strong>
+                    <Link href={`/agency/stations/${s.id}`}>
+                      <strong>{s.name}</strong>
+                    </Link>
                     <div className="muted">{s.postcode ?? 'No building yet'}</div>
                   </td>
                   <td>{s.head ?? '—'}</td>

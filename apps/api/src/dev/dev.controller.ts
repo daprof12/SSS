@@ -22,6 +22,12 @@ const PEOPLE = [
   { key: 'platformAdmin', phone: '+2348030000006', name: 'Platform Admin', kyc: true },
   { key: 'technician', phone: '+2348030000007', name: 'Tunde Tech', kyc: true },
   { key: 'neighbour', phone: '+2348030000008', name: 'Chidi Neighbour', kyc: true },
+  // Staff with narrower roles, to show role-based access on the dashboards.
+  { key: 'dispatcher', phone: '+2348030000009', name: 'Amaka Dispatch', kyc: true },
+  { key: 'agencyFinance', phone: '+2348030000010', name: 'Kemi Finance', kyc: true },
+  { key: 'platformFinance', phone: '+2348030000011', name: 'Femi Ledger', kyc: true },
+  { key: 'platformSupport', phone: '+2348030000012', name: 'Ifeoma Support', kyc: true },
+  { key: 'platformOps', phone: '+2348030000013', name: 'Sani Field Ops', kyc: true },
 ] as const;
 
 @Public()
@@ -128,6 +134,11 @@ export class DevController {
         [ids.head!, 'head', 'station', station],
         [ids.agencyAdmin!, 'agency_admin', 'agency', agency],
         [ids.platformAdmin!, 'platform_admin', 'platform', null],
+        [ids.dispatcher!, 'dispatcher', 'station', station],
+        [ids.agencyFinance!, 'agency_finance', 'agency', agency],
+        [ids.platformFinance!, 'platform_finance', 'platform', null],
+        [ids.platformSupport!, 'platform_support', 'platform', null],
+        [ids.platformOps!, 'platform_ops', 'platform', null],
         [ids.technician!, 'technician', 'platform', null],
       ];
       for (const [u, role, st, sid] of grants) {
@@ -137,7 +148,7 @@ export class DevController {
           [u, role, st, sid],
         );
       }
-      await c.query(`update users set mfa_enabled = true where id = any($1::uuid[])`, [[ids.officer, ids.officer2, ids.head, ids.agencyAdmin, ids.platformAdmin, ids.technician]]);
+      await c.query(`update users set mfa_enabled = true where id = any($1::uuid[])`, [[ids.officer, ids.officer2, ids.head, ids.agencyAdmin, ids.platformAdmin, ids.technician, ids.dispatcher, ids.agencyFinance, ids.platformFinance, ids.platformSupport, ids.platformOps]]);
       await c.query(
         `insert into plans (code, audience, name, price_kobo, install_fee_kobo, interval, devices_included) values
           ('household', 'household', 'Household', 1500000, 7500000, 'month', '{"camera":1,"street_light":1}'),

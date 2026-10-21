@@ -1,4 +1,5 @@
 // Agency onboarding — UX Gap Analysis §10 stages 1–3, 6, 7 and 11.
+import { requirePerm } from '../core/auth';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import {
@@ -187,7 +188,7 @@ export class AgenciesService {
   // ---------------------------------------------------------------- 3 review (platform)
 
   async adminList(p: Principal, status?: string) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.agencies');
     const r = await this.db.query(
       `select id, name, kind, status, email_evidence, submitted_at, created_at from agencies
         where ($1::text is null and status in ('documents_submitted', 'in_review')) or status = $1 order by submitted_at nulls last, created_at`,
@@ -197,7 +198,7 @@ export class AgenciesService {
   }
 
   async adminCard(p: Principal, agencyId: string) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.agencies');
     const view = await this.present(agencyId, 'platform_admin');
     return { ...view, approveConfirm: agencyCopy.approveConfirm(view.name) };
   }
@@ -208,7 +209,7 @@ export class AgenciesService {
     agencyId: string,
     b: { decision: 'approve' | 'ask_more' | 'reject'; comment?: string; reason?: string; documents?: Array<{ id: string; status: 'accepted' | 'rejected'; note?: string }> },
   ) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.agencies');
     return this.db.tx(async (c) => {
       let a = await this.life.lock(c, agencyId);
       // Opening the review card moves Submitted → In review.
@@ -466,7 +467,7 @@ export class AgenciesService {
 
   /** Admin: approve, move routing away (stations paused, officers off duty), archive. */
   async completeOffboard(p: Principal, agencyId: string) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.agencies');
     return this.db.tx(async (c) => {
       await this.life.lock(c, agencyId);
       const b = await this.offboardBlockers(c, agencyId);

@@ -41,6 +41,23 @@ export const STATEMENT_LANGUAGES = [
 export const languageName = (code: string) => STATEMENT_LANGUAGES.find((l) => l.code === code)?.label ?? code;
 export const STATEMENT_RULES = { minChars: 20, maxChars: 8000, shareDays: 7, lowConfidence: 0.75 } as const;
 
+/** Who a statement is from (traditional statement processing): each has its own heading on the form. */
+export const STATEMENT_ROLES = [
+  { code: 'complainant', label: 'Complainant', form: 'Statement of complainant' },
+  { code: 'victim', label: 'Victim', form: 'Statement of victim' },
+  { code: 'witness', label: 'Witness', form: 'Statement of witness' },
+  { code: 'suspect', label: 'Suspect', form: 'Cautionary statement' },
+  { code: 'officer', label: 'Officer', form: "Officer's statement" },
+] as const;
+export type StatementRole = (typeof STATEMENT_ROLES)[number]['code'];
+export const statementForm = (role: string) => STATEMENT_ROLES.find((r) => r.code === role)?.form ?? 'Statement';
+export const statementRoleLabel = (role: string) => STATEMENT_ROLES.find((r) => r.code === role)?.label ?? role;
+/** Read to a suspect before a cautionary statement (Administration of Criminal Justice Act 2015, s.17 and s.6). */
+export const STATEMENT_CAUTION =
+  'You are not obliged to say anything unless you wish to do so, but whatever you say will be taken down in writing and may be given in evidence. You may have a lawyer or a person of your choice present.';
+/** In person: the person confirms what was taken down with a code sent to their phone. */
+export const STATEMENT_CODE = { digits: 6, minutes: 15, tries: 5 } as const;
+
 export type FalseAlarmOutcome = { kind: 'warning'; trustDelta: number } | { kind: 'fine'; trustDelta: number; amountKobo: number };
 
 /** What a false alarm costs, given how many the person had inside the window. Joiners are never fined. */

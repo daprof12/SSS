@@ -7,7 +7,7 @@ import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { z } from 'zod';
 import { AuthService } from '../auth/auth.service';
 import { Audit } from '../core/audit';
-import { CurrentUser, type Principal } from '../core/auth';
+import { CurrentUser, type Principal, requirePerm } from '../core/auth';
 import { CONFIG, type AppConfig } from '../core/config';
 import { Db } from '../core/db';
 import { AppError, ZodPipe } from '../core/http';
@@ -334,7 +334,7 @@ export class AdminSupportController {
   ) {}
 
   private admin(p: Principal) {
-    if (!p.roles.some((r) => r.role === 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
+    requirePerm(p, 'platform.support');
   }
 
   @Get()

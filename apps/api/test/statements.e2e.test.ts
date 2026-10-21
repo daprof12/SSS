@@ -79,7 +79,7 @@ describe('statements', () => {
     expect(r.number).toMatch(/^ST-\d{6}$/);
     expect((await http.post(`/incidents/${incident}/statements`).set(as('head')).send({}).expect(409)).body.message).toMatch(/^A statement was already asked for: ST-\d{6}\./);
     const note = (await http.get('/me/notifications').set(as('citizen'))).body.items.find((x: any) => x.type === 'statement_requested');
-    expect(note.body).toBe('Station 4 Ikeja asked for your statement about your robbery report. Speak or type it in the language you are most comfortable in.');
+    expect(note.body).toBe('Station 4 Ikeja asked for your statement as complainant on a robbery report. Speak or type it in the language you are most comfortable in.');
     expect((await http.get('/me/statements').set(as('citizen'))).body[0]).toMatchObject({ id: sid, state: 'requested', stateLabel: 'Waiting for you', report: 'Robbery, AB12C' });
     expect((await view('citizen', incident)).timeline.find((e: any) => e.label === 'Statement requested')).toBeTruthy();
   });
@@ -105,7 +105,7 @@ describe('statements', () => {
     await expect(db.query(`update statement_versions set english_text = 'x' where statement_id = $1`, [sid])).rejects.toThrow();
     await http.put(`/me/statements/${sid}/draft`).set(as('citizen')).send({ language: 'en', original: 'changed my mind' }).expect(409);
     const head = (await http.get('/me/notifications').set(as('head'))).body.items.find((x: any) => x.type === 'statement_signed');
-    expect(head.body).toMatch(/^ST-\d{6} for Robbery, AB12C was signed\.$/);
+    expect(head.body).toMatch(/^ST-\d{6}, statement of complainant for Robbery, AB12C, was signed\.$/);
   });
 
   it('the station reads it (logged), downloads the PDF, asks for more; the reporter signs version 2 and v1 stays', async () => {
@@ -180,5 +180,74 @@ describe('help replies', () => {
     const mine = (await http.get('/me/support').set(as('citizen'))).body.tickets.find((x: any) => x.id === tk.id);
     expect(mine).toMatchObject({ state: 'answered', reply: 'It was sent today; banks take up to 24 hours.' });
     expect((await http.get('/me/notifications').set(as('citizen'))).body.items.find((x: any) => x.type === 'support_reply').body).toMatch(/^About S-\d{6}: It was sent today/);
+  });
+});
+
+describe('statements from anyone on a report', () => {
+  let incident = '';
+  let lead = '';
+  const lastSms = async (to: string) => ((await http.get('/dev/sms')).body as any[]).filter((m) => m.to === to).pop();
+
+  it('lists who can be asked: the reporter, people who joined, the officers on it', async () => {
+    ({ id: incident, lead } = await onScene('citizen'));
+    const r = (await http.get(`/incidents/${incident}/statement-parties`).set(as('head')).expect(200)).body;
+    expect(r.parties.map((x: any) => x.role)).toEqual(['complainant', 'officer']);
+    await http.get(`/incidents/${incident}/statement-parties`).set(as('neighbour')).expect(404);
+  });
+
+  it('the agency asks a witness who is not on the app; they are created and texted', async () => {
+    const r = (
+      await http.post(`/incidents/${incident}/statements`).set(as('agencyAdmin')).send({ role: 'witness', phone: '+2348035550101', name: 'Musa Bello', note: 'You saw the car leave.' }).expect(201)
+    ).body;
+    expect(r.message).toBe('Asked. They were sent a text to sign in and give it.');
+    expect((await lastSms('+2348035550101')).body).toMatch(/asked for your statement \(ST-\d{6}\)/);
+    await http.post(`/incidents/${incident}/statements`).set(as('agencyAdmin')).send({ role: 'witness', phone: '+2348035550101' }).expect(409);
+  });
+
+  it('an officer writes their own statement and signs it with their PIN', async () => {
+    const r = (await http.post(`/incidents/${incident}/statements`).set(as(lead)).send({ role: 'officer', userId: users[lead] }).expect(201)).body;
+    expect(r.message).toBe('Your statement is ready to write.');
+    await http.put(`/me/statements/${r.id}/draft`).set(as(lead)).send({ language: 'en', original: 'I arrived at 10:05 and found the gate open and the car gone.' }).expect(200);
+    await http.put('/me/pin').set(as(lead)).send({ pin: '5821' }).expect(200);
+    await http.post(`/me/statements/${r.id}/sign`).set(as(lead)).send({ pin: '5821', confirm: true }).expect(201);
+    const v = (await http.get(`/statements/${r.id}`).set(as('head')).expect(200)).body;
+    expect(v).toMatchObject({ role: 'officer', form: "Officer's statement", state: 'signed' });
+  });
+
+  it('a suspect: taken in person after the caution, with someone present, confirmed with a code to their phone', async () => {
+    const bad = (await http.post(`/incidents/${incident}/statements`).set(as(lead)).send({ role: 'suspect', phone: '+2348035550202', name: 'Tunde Ade' }).expect(422)).body;
+    expect(bad.fields[0].field).toBe('presentName');
+    const r = (
+      await http
+        .post(`/incidents/${incident}/statements`)
+        .set(as(lead))
+        .send({ role: 'suspect', phone: '+2348035550202', name: 'Tunde Ade', presentName: 'Barr. Ngozi Eze', presentRelation: 'Lawyer', place: 'Station 4 Ikeja' })
+        .expect(201)
+    ).body;
+    expect(r.mode).toBe('in_person');
+    await http.put(`/statements/${r.id}/in-person/draft`).set(as(lead)).send({ language: 'pcm', original: 'I no dey there that night, I dey my sister house for Yaba.' }).expect(200);
+    expect((await http.post(`/statements/${r.id}/in-person/send-code`).set(as(lead)).expect(422)).body.code).toBe('caution_first');
+    await http.post(`/statements/${r.id}/in-person/caution`).set(as(lead)).expect(201);
+    expect((await http.post(`/statements/${r.id}/in-person/send-code`).set(as(lead)).expect(201)).body.message).toMatch(/ending 0202/);
+    const code = (await lastSms('+2348035550202')).body.match(/is (\d{6})/)[1];
+    const wrong = code === '000000' ? '111111' : '000000';
+    await http.post(`/statements/${r.id}/in-person/confirm`).set(as(lead)).send({ code: wrong, confirm: true }).expect(422);
+    expect((await http.post(`/statements/${r.id}/in-person/confirm`).set(as(lead)).send({ code, confirm: true }).expect(201)).body.version).toBe(1);
+    const v = (await http.get(`/statements/${r.id}`).set(as('agencyAdmin')).expect(200)).body;
+    expect(v).toMatchObject({ form: 'Cautionary statement', mode: 'in_person', present: { name: 'Barr. Ngozi Eze', relation: 'Lawyer' } });
+    expect(v.caution.givenAt).toBeTruthy();
+    expect(v.versions[0]).toMatchObject({ signedWith: 'phone_code', present: 'Barr. Ngozi Eze' });
+    const pdf = await http.get(`/statements/${r.id}/statement.pdf`).set(as('head')).buffer(true).expect(200);
+    expect(pdf.headers['content-type']).toBe('application/pdf');
+  });
+
+  it('the station and the agency list every statement on their reports, filtered by role and place', async () => {
+    const s = (await http.get('/me/station/statements').set(as('head')).expect(200)).body;
+    expect(s.items.filter((x: any) => x.report.id === incident).map((x: any) => x.role).sort()).toEqual(['officer', 'suspect', 'witness']);
+    expect((await http.get('/me/station/statements?role=suspect').set(as('head'))).body.items.every((x: any) => x.role === 'suspect')).toBe(true);
+    const a = (await http.get(`/agencies/${(await db.query(`select agency_id from stations where id = $1`, [stationId])).rows[0].agency_id}/statements?lga=LA-IKJ`).set(as('agencyAdmin')).expect(200)).body;
+    expect(a.counts.signed).toBeGreaterThanOrEqual(2);
+    await http.get('/me/station/statements').set(as('officer')).expect(403);
+    await http.get('/me/station/statements?state=FC').set(as('head')).expect(200);
   });
 });

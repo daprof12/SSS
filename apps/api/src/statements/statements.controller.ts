@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post, Put, Res } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { CurrentUser, Public, type Principal } from '../core/auth';
-import { ZodPipe } from '../core/http';
+import { AppError, ZodPipe } from '../core/http';
+import { LocationQuery } from '../core/location-filter';
+import { hasRole } from '../core/auth';
 import { StatementsService } from './statements.service';
 
 const Note = z.object({ note: z.string().max(1000).default('') });
@@ -13,6 +15,23 @@ const Draft = z.object({
   audioId: z.string().uuid().optional(),
 });
 const Sign = z.object({ pin: z.string(), confirm: z.boolean(), method: z.enum(['pin', 'biometric']).default('pin') });
+const Ask = z.object({
+  note: z.string().trim().max(1000).optional(),
+  role: z.enum(['complainant', 'victim', 'witness', 'suspect', 'officer']).optional(),
+  userId: z.string().uuid().optional(),
+  phone: z.string().trim().max(20).optional(),
+  name: z.string().trim().max(120).optional(),
+  mode: z.enum(['self', 'in_person']).optional(),
+  presentName: z.string().trim().max(120).optional(),
+  presentRelation: z.string().trim().max(80).optional(),
+  place: z.string().trim().max(160).optional(),
+});
+const Code = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code.'), confirm: z.boolean() });
+const ListQ = LocationQuery.extend({
+  status: z.enum(['requested', 'draft', 'signed', 'change_requested']).optional(),
+  role: z.enum(['complainant', 'victim', 'witness', 'suspect', 'officer']).optional(),
+  q: z.string().max(60).optional(),
+});
 const Token = z.string().regex(/^[A-Za-z0-9_-]{20,64}$/, 'This link is not valid.');
 
 function sendPdf(res: Response, f: { filename: string; bytes: Buffer }) {
@@ -26,8 +45,48 @@ export class StatementsController {
 
   // Staff: officers on the incident, the station head and dispatchers.
   @Post('incidents/:id/statements')
-  request(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(Note)) b: z.infer<typeof Note>) {
-    return this.statements.request(p, id, b.note);
+  request(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(Ask)) b: z.infer<typeof Ask>) {
+    return this.statements.request(p, id, b);
+  }
+
+  @Get('incidents/:id/statement-parties')
+  parties(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.statements.parties(p, id);
+  }
+
+  // Taken in person by an officer: write it down, caution a suspect, send the code, confirm.
+  @Put('statements/:id/in-person/draft')
+  takeDraft(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(Draft)) b: z.infer<typeof Draft>) {
+    return this.statements.takeDraft(p, id, b);
+  }
+
+  @Post('statements/:id/in-person/caution')
+  caution(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.statements.caution(p, id);
+  }
+
+  @Post('statements/:id/in-person/send-code')
+  sendCode(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.statements.sendCode(p, id);
+  }
+
+  @Post('statements/:id/in-person/confirm')
+  confirm(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(Code)) b: z.infer<typeof Code>) {
+    return this.statements.confirmCode(p, id, b);
+  }
+
+  // Lists: the station's and the agency's statements.
+  @Get('me/station/statements')
+  stationList(@CurrentUser() p: Principal, @Query(new ZodPipe(ListQ)) q: z.infer<typeof ListQ>) {
+    const sid = p.roles.find((r) => (r.role === 'head' || r.role === 'dispatcher') && r.scopeType === 'station')?.scopeId;
+    if (!sid) throw new AppError(403, 'forbidden', 'This is for the station head and dispatchers.');
+    return this.statements.list(p, { stationId: sid }, { ...q, state: q.status });
+  }
+
+  @Get('agencies/:id/statements')
+  agencyList(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Query(new ZodPipe(ListQ)) q: z.infer<typeof ListQ>) {
+    if (!hasRole(p, 'agency_admin', id)) throw new AppError(404, 'not_found', 'Agency not found.');
+    return this.statements.list(p, { agencyId: id }, { ...q, state: q.status });
   }
 
   @Get('incidents/:id/statements')

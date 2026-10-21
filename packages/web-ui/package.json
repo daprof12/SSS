@@ -9,7 +9,8 @@
     "./Sheet": "./src/Sheet.tsx",
     "./ThemeSwitch": "./src/ThemeSwitch.tsx",
     "./StateChip": "./src/StateChip.tsx",
-    "./CloseReportSheet": "./src/CloseReportSheet.tsx"
+    "./CloseReportSheet": "./src/CloseReportSheet.tsx",
+    "./HelpChat": "./src/HelpChat.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

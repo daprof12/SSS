@@ -1,5 +1,6 @@
 // Agency side of bounties (board "Agency bounties"): the pool the agency funds in
 // advance, its rates per tip category, and what it has paid.
+import { requirePerm } from '../core/auth';
 import { agencyHandles, BOUNTY_FEE_SUGGESTED, BOUNTY_VERIFIED_WHEN, bountyFee, checkFeeSettings, effectiveFeeBps, formatNaira, percent, POOL_FUND_LIMITS, tipCategory, type BountyFeeSettings } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { newReference, PAYMENTS, type PaymentsAdapter, type PayMethod } from '../adapters/payments';
@@ -195,7 +196,7 @@ export class BountiesService {
   }
 
   async getFeeSettings(p: Principal) {
-    this.agencies.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.settings');
     const s = await feeSettings(this.db.pool);
     const agencies = (
       await this.db.query(`select id, name, bounty_fee_bps from agencies where bounty_fee_bps is not null and status not in ('rejected', 'offboarded') order by name`)
@@ -211,7 +212,7 @@ export class BountiesService {
 
   /** Platform admin: the suggestion new agencies get and the range agencies can choose within. */
   async setFeeSettings(p: Principal, s: BountyFeeSettings) {
-    this.agencies.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.settings');
     const check = checkFeeSettings(s);
     if (!check.ok) throw new AppError(422, 'validation_failed', check.message, { fields: [{ field: check.field, message: check.message }] });
     const before = await feeSettings(this.db.pool);

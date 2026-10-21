@@ -1,6 +1,7 @@
 // Money out to an agency's verified bank account (e.g. its bounty pool at offboarding).
 // approved → processing (Paystack transfer queued) → paid | failed, from the signed webhook.
 // The source wallet is debited at approval; a failed transfer puts the money back.
+import { requirePerm } from '../core/auth';
 import { formatNaira, transferFee } from '@erp/domain';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
@@ -110,7 +111,7 @@ export class PayoutsService {
 
   /** Platform admin: send a failed payout again (after the agency fixed its account). */
   async retry(p: Principal, payoutId: string) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.money');
     await this.db.tx(async (c) => {
       const po = (await c.query(`select * from payouts where id = $1 for update`, [payoutId])).rows[0];
       if (!po) throw new AppError(404, 'not_found', 'Payout not found.');
@@ -126,7 +127,7 @@ export class PayoutsService {
 
   /** Platform admin queue ("Donations and payouts" → Payouts) with everything the Payout detail shows. */
   async list(p: Principal, state?: string, thresholdKobo = 0) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.money');
     const r = await this.db.query(
       `select p.*, a.name as agency, b.bank_name, b.last_four, b.account_name, b.verified_at is not null and b.name_match as bank_ok,
               (select display_name from users where id = p.requested_by) as requested_by_name
@@ -164,7 +165,7 @@ export class PayoutsService {
 
   /** "Hold needs a note": stops a payout before it is sent, e.g. while a dispute is checked. */
   async hold(p: Principal, payoutId: string, note: string) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.money');
     const r = await this.db.query(`update payouts set state = 'held', hold_note = $2 where id = $1 and state in ('pending', 'awaiting_second_approval', 'failed') returning id`, [payoutId, note]);
     if (!r.rowCount) throw new AppError(409, 'invalid_transition', 'Only a payout that has not been sent can be held.');
     await this.audit.write({ actorId: p.userId, actorRole: 'platform_admin', action: 'payout.hold', entity: 'payout', entityId: payoutId, reason: note });
@@ -173,7 +174,7 @@ export class PayoutsService {
 
   /** Back to the approval queue; earlier approvals no longer count. */
   async release(p: Principal, payoutId: string) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.money');
     const r = await this.db.query(`update payouts set state = 'pending', approved_by = '{}', hold_note = null where id = $1 and state = 'held' returning id`, [payoutId]);
     if (!r.rowCount) throw new AppError(409, 'invalid_transition', 'This payout is not held.');
     await this.audit.write({ actorId: p.userId, actorRole: 'platform_admin', action: 'payout.release', entity: 'payout', entityId: payoutId });

@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { streamUrl } from '@erp/web-ui/api';
 import { StateChip } from '@erp/web-ui/StateChip';
-import { Duplicates, FalseAlarmReview, ReinforceSheet, StatementCard } from '@/components/IncidentExtras';
+import { Duplicates, FalseAlarmReview, ReinforceSheet } from '@/components/IncidentExtras';
+import { StatementsCard } from '@/components/Statements';
 import { api, ApiError } from '@erp/web-ui/api';
 import { StationActions } from '@/components/StationActions';
 
@@ -262,7 +263,7 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
         </section>
         <div style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
           {live && <Duplicates incidentId={v.id} version={version} onDone={setToast} />}
-          <StatementCard incidentId={v.id} state={v.state} onDone={setToast} />
+          <StatementsCard incidentId={v.id} state={v.state} onDone={setToast} />
         </div>
       </div>
 

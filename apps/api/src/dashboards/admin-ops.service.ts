@@ -3,9 +3,9 @@
 // filter; every view of a camera and every control action is written to the audit log.
 import { randomInt } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { DONATION_RULES, donationFee, problemLabel } from '@erp/domain';
+import { DONATION_RULES, donationFee, problemLabel, ROLE_LABEL, ROLE_SCOPE_NOTE, type Role } from '@erp/domain';
 import { Audit } from '../core/audit';
-import { hasRole, type Principal } from '../core/auth';
+import { requirePerm, type Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
 import { coveringStation } from '../core/jurisdiction';
@@ -64,14 +64,10 @@ export class AdminOpsService {
     @Inject(Audit) private readonly audit: Audit,
   ) {}
 
-  private admin(p: Principal) {
-    if (!hasRole(p, 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
-  }
-
   // ---------------------------------------------------------------- coverage map
 
   async coverage(p: Principal, b: { type?: string; status?: string } & LocationFilter) {
-    this.admin(p);
+    requirePerm(p, 'platform.devices');
     const args: unknown[] = [];
     const where = locationWhere(b, args);
     const rows = (
@@ -153,7 +149,7 @@ export class AdminOpsService {
 
   /** "Send technician": opens a repair ticket the installation team books. */
   async sendTechnician(p: Principal, id: string, note?: string) {
-    this.admin(p);
+    requirePerm(p, 'platform.devices');
     return this.db.tx(async (c) => {
       const d = await this.deviceAt(c, id);
       if (!d.property_id) throw new AppError(422, 'no_household', 'This device is not linked to a household, so there is no one to book a visit with.');
@@ -173,7 +169,7 @@ export class AdminOpsService {
 
   /** "Alert nearest station": the station whose area covers the device, else the nearest. */
   async alertStation(p: Principal, id: string) {
-    this.admin(p);
+    requirePerm(p, 'platform.devices');
     return this.db.tx(async (c) => {
       const d = await this.deviceAt(c, id);
       if (!d.loc_id) throw new AppError(422, 'no_location', 'This device has no location yet.');
@@ -202,7 +198,7 @@ export class AdminOpsService {
   // ---------------------------------------------------------------- device wall
 
   async deviceWall(p: Principal, b: { tab?: string } & LocationFilter) {
-    this.admin(p);
+    requirePerm(p, 'platform.devices');
     const args: unknown[] = [];
     const where = locationWhere(b, args);
     const tab = b.tab ?? 'all';
@@ -264,7 +260,7 @@ export class AdminOpsService {
 
   /** The camera and street light modal for one household. */
   async household(p: Principal, id: string) {
-    this.admin(p);
+    requirePerm(p, 'platform.devices');
     const h = (
       await this.db.query(
         `select pr.id, ow.display_name as owner, l.postcode, l.address_text, l.area_label, l.lga_id,
@@ -309,7 +305,7 @@ export class AdminOpsService {
 
   /** Platform staff live view: a reason is required; it is logged with their name and the owner sees it. */
   async liveView(p: Principal, id: string, reason: string) {
-    this.admin(p);
+    requirePerm(p, 'platform.devices.live_view');
     if (reason.trim().length < 3) throw new AppError(422, 'validation_failed', 'A reason is required. It is logged with your name.', { fields: [{ field: 'reason', message: 'A reason is required. It is logged with your name.' }] });
     return this.db.tx(async (c) => {
       const d = await this.deviceAt(c, id);
@@ -325,7 +321,7 @@ export class AdminOpsService {
 
   /** Street light: "Turn on now" (one hour) or "Flash test". Both logged. */
   async light(p: Principal, id: string, action: 'on' | 'flash') {
-    this.admin(p);
+    requirePerm(p, 'platform.devices');
     return this.db.tx(async (c) => {
       const d = await this.deviceAt(c, id);
       if (d.type !== 'street_light') throw new AppError(422, 'not_light', 'Only street lights can do this.');
@@ -339,7 +335,7 @@ export class AdminOpsService {
 
   /** "Schedule visit" for a household: a booked field visit the installation team sees. */
   async scheduleVisit(p: Principal, propertyId: string, b: { date: string; window: 'morning' | 'afternoon'; note?: string }) {
-    this.admin(p);
+    requirePerm(p, 'platform.devices');
     const at = new Date(`${b.date}T${b.window === 'morning' ? '09:00' : '13:00'}:00+01:00`);
     if (Number.isNaN(+at) || at < new Date()) throw new AppError(422, 'validation_failed', 'Choose a day from tomorrow.', { fields: [{ field: 'date', message: 'Choose a day from tomorrow.' }] });
     return this.db.tx(async (c) => {
@@ -363,7 +359,7 @@ export class AdminOpsService {
   // ---------------------------------------------------------------- inventory
 
   async inventory(p: Principal, f: LocationFilter) {
-    this.admin(p);
+    requirePerm(p, 'platform.devices');
     const args: unknown[] = [];
     const where = locationWhere(f, args);
     const stores = (
@@ -409,7 +405,7 @@ export class AdminOpsService {
   }
 
   async addStock(p: Principal, b: { storeId: string; item: StockItem; quantity: number; note?: string }) {
-    this.admin(p);
+    requirePerm(p, 'platform.devices');
     return this.db.tx(async (c) => {
       const s = (await c.query(`select name from stores where id = $1`, [b.storeId])).rows[0];
       if (!s) throw new AppError(404, 'not_found', 'Store not found.');
@@ -421,7 +417,7 @@ export class AdminOpsService {
   }
 
   async transferStock(p: Principal, b: { from: string; to: string; item: StockItem; quantity: number; note?: string }) {
-    this.admin(p);
+    requirePerm(p, 'platform.devices');
     if (b.from === b.to) throw new AppError(422, 'validation_failed', 'Choose two different stores.', { fields: [{ field: 'to', message: 'Choose a different store.' }] });
     return this.db.tx(async (c) => {
       const names = (await c.query(`select id, name from stores where id = any($1::uuid[])`, [[b.from, b.to]])).rows;
@@ -442,7 +438,7 @@ export class AdminOpsService {
   // ---------------------------------------------------------------- agencies and stations
 
   async agencies(p: Principal, b: { kind?: string } & LocationFilter) {
-    this.admin(p);
+    requirePerm(p, 'platform.agencies');
     const aargs: unknown[] = [b.kind ?? null];
     const awhere = locationWhere(b, aargs);
     const agencies = (
@@ -512,7 +508,7 @@ export class AdminOpsService {
 
   /** Location of the receiving station: the station itself, an officer's station, or the agency's address. */
   async donations(p: Principal, f: LocationFilter) {
-    this.admin(p);
+    requirePerm(p, 'platform.money');
     const args: unknown[] = [];
     const where = locationWhere(f, args);
     const base = `from donations d
@@ -560,7 +556,7 @@ export class AdminOpsService {
 
   /** "Run payout": queued gifts go to their recipients' wallets now (the weekly run does the same). */
   async runDonationPayout(p: Principal) {
-    this.admin(p);
+    requirePerm(p, 'platform.money');
     return this.db.tx(async (c) => {
       const r = await c.query(`update donations set payout_state = 'paid', paid_out_at = now() where state = 'paid' and payout_state in ('queued', 'failed') returning amount_kobo`);
       const total = r.rows.reduce((a, x) => a + Number(x.amount_kobo), 0);
@@ -568,4 +564,54 @@ export class AdminOpsService {
       return { count: r.rowCount ?? 0, message: r.rowCount ? `Paid out ${r.rowCount} ${r.rowCount === 1 ? 'gift' : 'gifts'}.` : 'Nothing is waiting for payout.' };
     });
   }
+
+  // ---------------------------------------------------------------- platform team (role-based access)
+
+  async team(p: Principal) {
+    requirePerm(p, 'platform.team');
+    const r = await this.db.query(
+      `select u.id, u.display_name as name, u.phone, ur.role, ur.created_at from user_roles ur join users u on u.id = ur.user_id
+        where ur.role = any($1::text[]) order by ur.role, u.display_name`,
+      [PLATFORM_ROLES],
+    );
+    return {
+      roles: PLATFORM_ROLES.map((role) => ({ role, label: ROLE_LABEL[role], note: ROLE_SCOPE_NOTE[role] ?? '', n: r.rows.filter((x) => x.role === role).length })),
+      members: r.rows.map((x) => ({ id: x.id, name: x.name, phone: x.phone ? `•••• ${String(x.phone).slice(-4)}` : null, role: x.role, roleLabel: ROLE_LABEL[x.role as Role], isMe: x.id === p.userId })),
+    };
+  }
+
+  async inviteStaff(p: Principal, b: { phone: string; name?: string; role: (typeof PLATFORM_ROLES)[number] }) {
+    requirePerm(p, 'platform.team');
+    return this.db.tx(async (c) => {
+      const phone = b.phone.replace(/\s+/g, '');
+      if (!/^\+234\d{10}$/.test(phone)) throw new AppError(422, 'validation_failed', 'Enter a Nigerian phone number.', { fields: [{ field: 'phone', message: 'Enter a Nigerian phone number.' }] });
+      let u = (await c.query(`select id from users where phone = $1`, [phone])).rows[0]?.id as string | undefined;
+      if (!u) {
+        if (!b.name?.trim()) throw new AppError(422, 'validation_failed', 'Enter their full name.', { fields: [{ field: 'name', message: 'Enter their full name.' }] });
+        u = (await c.query(`insert into users (phone, display_name) values ($1, $2) returning id`, [phone, b.name.trim()])).rows[0].id as string;
+      }
+      if ((await c.query(`select 1 from user_roles where user_id = $1 and role = $2`, [u, b.role])).rowCount) throw new AppError(409, 'already_member', 'They already have this role.');
+      await c.query(`insert into user_roles (user_id, role, scope_type) values ($1, $2, 'platform')`, [u, b.role]);
+      await c.query(`update users set mfa_enabled = true where id = $1`, [u]);
+      await notify(c, [u], { type: 'team_invite', grp: 'team', title: 'You were given platform access', body: `${ROLE_LABEL[b.role]}: ${ROLE_SCOPE_NOTE[b.role] ?? ''}`, link: '/' });
+      await this.audit.write({ actorId: p.userId, actorRole: 'platform_admin', action: 'team.invite', entity: 'user', entityId: u, payload: { role: b.role } }, c);
+      return { message: `${ROLE_LABEL[b.role]} added. They sign in to the dashboard with their phone.` };
+    });
+  }
+
+  async removeStaff(p: Principal, userId: string, role: string) {
+    requirePerm(p, 'platform.team');
+    if (!(PLATFORM_ROLES as readonly string[]).includes(role)) throw new AppError(422, 'validation_failed', 'Not a platform role.');
+    if (userId === p.userId && role === 'platform_admin') throw new AppError(422, 'self', 'You cannot remove your own admin access.');
+    if (role === 'platform_admin') {
+      const n = (await this.db.query(`select count(*)::int as n from user_roles where role = 'platform_admin'`)).rows[0].n;
+      if (n <= 1) throw new AppError(422, 'last_admin', 'There must always be one platform admin.');
+    }
+    const r = await this.db.query(`delete from user_roles where user_id = $1 and role = $2`, [userId, role]);
+    if (!r.rowCount) throw new AppError(404, 'not_found', 'Not found.');
+    await this.audit.write({ actorId: p.userId, actorRole: 'platform_admin', action: 'team.remove', entity: 'user', entityId: userId, payload: { role } });
+    return { message: 'Access removed.' };
+  }
 }
+
+export const PLATFORM_ROLES = ['platform_admin', 'platform_finance', 'platform_support', 'platform_ops'] as const;

@@ -8,9 +8,11 @@ import { use, useEffect, useState } from 'react';
 import { Header, Toast, useToast } from '@/components/AppFrame';
 import { Attachments } from '@/components/reports/Attach';
 import { api, ApiError } from '@/lib/client';
+import { TakeInPerson, type InPersonView } from '@/components/OfficerStatements';
 
-interface View {
-  id: string;
+interface View extends InPersonView {
+  form: string;
+  mode: 'self' | 'in_person';
   number: string;
   state: string;
   stateLabel: string;
@@ -50,17 +52,18 @@ export default function OfficerStatement({ params }: { params: Promise<{ id: str
   const last = v.versions[v.versions.length - 1];
   return (
     <main className="app bare">
-      <Header title={`Statement ${v.number}`} back={`/officer/incidents/${v.report.id}`}>
+      <Header title={`${v.form} ${v.number}`} back={`/officer/incidents/${v.report.id}`}>
         <span className={`chip ${v.state === 'signed' ? 'success' : 'warning'}`}>{v.state === 'signed' ? 'Signed' : v.state === 'change_requested' ? 'More asked' : 'Waiting'}</span>
       </Header>
       <p className="muted" style={{ marginTop: -8 }}>
-        {v.report.label}, from {v.reporter}
+        {v.report.label}, from {v.maker}
         {last ? `, version ${last.version} of ${v.versions.length}` : ''}
       </p>
-      {!last && (
+      {v.mode === 'in_person' && v.state !== 'signed' && <TakeInPerson v={v} onChange={() => void load()} onToast={setToast} />}
+      {!last && v.mode === 'self' && (
         <div className="banner info">
           <strong>Not signed yet</strong>
-          {v.state === 'change_requested' ? `You asked: "${v.changeNote}". ` : ''}You will be told when the reporter signs.
+          {v.state === 'change_requested' ? `You asked: "${v.changeNote}". ` : ''}You will be told when they sign.
         </div>
       )}
       {last && (
@@ -72,7 +75,7 @@ export default function OfficerStatement({ params }: { params: Promise<{ id: str
           {last.language !== 'en' && (
             <div className="card">
               <span className="section-label" style={{ margin: 0 }}>
-                Reporter original, {last.languageName}
+                {v.maker}, original, {last.languageName}
               </span>
               <p style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap' }}>{last.original}</p>
             </div>

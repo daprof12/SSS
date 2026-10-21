@@ -141,6 +141,7 @@ export default function OfficerProfile() {
       <div className="list">
         {row('/officer/badge', 'shield', 'Documents and badge', p?.badge.status === 'verified' ? 'Verified' : 'Check')}
         {row('/officer/shifts', 'history', 'Duty and shifts', p ? (p.onDuty ? 'On duty' : 'Off duty') : '')}
+        {row('/officer/statements', 'history', 'My statements', '')}
         {row('/officer/notifications', 'bell', 'Dispatch alerts')}
         <div className="row" style={{ cursor: 'default' }}>
           <span className="grow">

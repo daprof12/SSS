@@ -149,6 +149,127 @@ export default function AdminSettings() {
           )}
         </section>
       </div>
+      <PlatformTeam onToast={setToast} />
     </>
+  );
+}
+
+interface Team {
+  roles: { role: string; label: string; note: string; n: number }[];
+  members: { id: string; name: string; phone: string | null; role: string; roleLabel: string; isMe: boolean }[];
+}
+
+/** Platform team: who holds which platform role (role-based access). Only platform admins change it. */
+function PlatformTeam({ onToast }: { onToast: (m: string) => void }) {
+  const [t, setT] = useState<Team | null>(null);
+  const [f, setF] = useState({ phone: '+234', name: '', role: 'platform_support' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const load = () =>
+    api<Team>('/admin/team')
+      .then(setT)
+      .catch(() => setT(null));
+  useEffect(() => {
+    void load();
+  }, []);
+  const invite = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      onToast((await api<{ message: string }>('/admin/team', { method: 'POST', body: JSON.stringify({ phone: f.phone.replace(/\s+/g, ''), name: f.name || undefined, role: f.role }) })).message);
+      setF({ ...f, phone: '+234', name: '' });
+      void load();
+    } catch (e) {
+      setErr(e instanceof ApiError ? (e.fields?.[0]?.message ?? e.message) : 'Could not add them.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async (m: Team['members'][number]) => {
+    if (!window.confirm(`Remove ${m.name}'s ${m.roleLabel.toLowerCase()} access?`)) return;
+    try {
+      onToast((await api<{ message: string }>(`/admin/team/${m.id}/${m.role}`, { method: 'DELETE' })).message);
+      void load();
+    } catch (e) {
+      onToast(e instanceof ApiError ? e.message : 'Could not remove.');
+    }
+  };
+  if (!t) return null;
+  return (
+    <div className="grid two">
+      <section className="card" aria-labelledby="pt">
+        <h2 id="pt" style={{ marginTop: 0 }}>
+          Platform team
+        </h2>
+        {t.roles.map((r) => (
+          <div className="row" key={r.role}>
+            <div className="label">
+              <strong>{r.label}</strong>
+              <span>{r.note}</span>
+            </div>
+            <strong>{r.n}</strong>
+          </div>
+        ))}
+        <details style={{ marginTop: 8 }}>
+          <summary className="muted" style={{ cursor: 'pointer' }}>
+            Who has access
+          </summary>
+          {t.members.map((m) => (
+            <div className="row" key={`${m.id}:${m.role}`}>
+              <div className="label">
+                <strong>
+                  {m.name}
+                  {m.isMe ? ' (you)' : ''}
+                </strong>
+                <span>
+                  {m.roleLabel}
+                  {m.phone ? `, ${m.phone}` : ''}
+                </span>
+              </div>
+              {!m.isMe && (
+                <button className="btn small" type="button" onClick={() => remove(m)}>
+                  Remove
+                </button>
+              )}
+            </div>
+          ))}
+        </details>
+      </section>
+      <section className="card" aria-labelledby="ptadd">
+        <h2 id="ptadd" style={{ marginTop: 0 }}>
+          Add a team member
+        </h2>
+        {err && (
+          <div className="banner critical" role="alert" style={{ margin: '0 0 8px' }}>
+            {err}
+          </div>
+        )}
+        <label className="field">
+          <span>Role</span>
+          <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
+            {t.roles.map((r) => (
+              <option key={r.role} value={r.role}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+          <small className="muted">{t.roles.find((r) => r.role === f.role)?.note}</small>
+        </label>
+        <label className="field">
+          <span>Phone</span>
+          <input type="text" inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>Full name (if they are new)</span>
+          <input type="text" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} maxLength={120} />
+        </label>
+        <button className="btn primary" type="button" onClick={invite} disabled={busy}>
+          {busy ? 'Adding…' : 'Add'}
+        </button>
+        <p className="muted" style={{ marginBottom: 0 }}>
+          Staff must use two-step login. Every change is in the audit log.
+        </p>
+      </section>
+    </div>
   );
 }

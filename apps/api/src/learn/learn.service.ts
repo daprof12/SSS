@@ -15,7 +15,7 @@ import {
 } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { Audit } from '../core/audit';
-import { hasRole, type Principal } from '../core/auth';
+import { hasRole, type Principal, can, requirePerm } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
 
@@ -204,7 +204,7 @@ export class LearnService {
   }
 
   async post(p: Principal, id: string) {
-    const admin = hasRole(p, 'platform_admin');
+    const admin = can(p, 'platform.learn');
     const row = (await this.db.query(`${this.SELECT} where p.id = $1`, [id])).rows[0];
     if (!row || (row.state !== 'live' && !admin)) throw new AppError(404, 'not_found', 'This lesson is no longer available.');
     const [out] = await this.present(this.db.pool, [row], p.userId);
@@ -260,7 +260,7 @@ export class LearnService {
   // ---------------------------------------------------------------- platform team
 
   private requireAdmin(p: Principal) {
-    if (!hasRole(p, 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
+    requirePerm(p, 'platform.learn');
   }
 
   /** Agency staff post for their own agency, in the topics it handles; the platform team reviews. */

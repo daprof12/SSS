@@ -1,9 +1,10 @@
 // Agency overview and stations (boards "Agency overview", "Agency stations"), and the platform admin
 // overview, users, subscriptions, KYC queue and live incident map (boards "Admin overview",
 // "Admin users and add user", "Admin subscriptions", "Admin KYC queue", "Admin live incident map").
+import type { Permission } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { Audit } from '../core/audit';
-import { hasRole, type Principal } from '../core/auth';
+import { hasRole, requirePerm, type Principal } from '../core/auth';
 import { Db } from '../core/db';
 import { AppError } from '../core/http';
 import { notify } from '../reports/shared';
@@ -41,8 +42,8 @@ export class OverviewService {
     }
   }
 
-  private admin(p: Principal) {
-    if (!hasRole(p, 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
+  private admin(p: Principal, perm: Permission) {
+    requirePerm(p, perm);
   }
 
   // ---------------------------------------------------------------- agency
@@ -135,7 +136,7 @@ export class OverviewService {
   // ---------------------------------------------------------------- platform admin
 
   async adminOverview(p: Principal, f?: LocationFilter) {
-    this.admin(p);
+    this.admin(p, 'platform.overview');
     const q = async (sql: string, args: unknown[] = []) => (await this.db.query(sql, args)).rows[0];
     // Every place-bound number follows "Filter by location": incidents by their building, devices
     // and subscriptions by the home they belong to.
@@ -207,7 +208,7 @@ export class OverviewService {
   }
 
   async users(p: Principal, b: { role: string; q?: string } & LocationFilter) {
-    this.admin(p);
+    this.admin(p, 'platform.users');
     const roleFilter: Record<string, string> = {
       all: 'true',
       citizens: `not exists (select 1 from user_roles r where r.user_id = u.id and r.role <> 'citizen')`,
@@ -261,7 +262,7 @@ export class OverviewService {
   }
 
   async subscriptions(p: Principal, state: string, f?: LocationFilter) {
-    this.admin(p);
+    this.admin(p, 'platform.money');
     const largs: unknown[] = [];
     const place = locationWhere(f, largs);
     const filter: Record<string, string> = {
@@ -317,7 +318,7 @@ export class OverviewService {
   }
 
   async subscriptionAction(p: Principal, id: string, b: { action: 'remind' | 'pause' | 'resume' | 'change_plan'; planCode?: string; reason?: string }) {
-    this.admin(p);
+    this.admin(p, 'platform.money');
     const s = (await this.db.query(`select s.*, pr.owner_id, pl.name, pl.price_kobo from subscriptions s join properties pr on pr.id = s.property_id join plans pl on pl.code = s.plan_code where s.id = $1`, [id])).rows[0];
     if (!s) throw new AppError(404, 'not_found', 'Subscription not found.');
     if (b.action === 'remind') {
@@ -352,7 +353,7 @@ export class OverviewService {
   }
 
   async kycQueue(p: Principal, f?: LocationFilter) {
-    this.admin(p);
+    this.admin(p, 'platform.kyc');
     const args: unknown[] = [];
     const home = locationWhere(f, args);
     const station = locationWhere(f, args);
@@ -382,7 +383,7 @@ export class OverviewService {
   }
 
   async kycDecide(p: Principal, id: string, b: { decision: 'approve' | 'reject' | 'more'; reason?: string }) {
-    this.admin(p);
+    this.admin(p, 'platform.kyc');
     if (b.decision !== 'approve' && (!b.reason || b.reason.trim().length < 5)) throw new AppError(422, 'validation_failed', 'Give a reason the person will read.', { fields: [{ field: 'reason', message: 'Give a reason.' }] });
     const k = (await this.db.query(`select * from kyc_verifications where id = $1`, [id])).rows[0];
     if (!k) throw new AppError(404, 'not_found', 'Case not found.');
@@ -409,7 +410,7 @@ export class OverviewService {
    */
   async live(p: Principal, scope: { agencyId: string | null }, kinds: Kind[], f?: LocationFilter) {
     if (scope.agencyId) await this.agencyStaff(p, scope.agencyId);
-    else this.admin(p);
+    else this.admin(p, 'platform.live');
     const want = new Set(kinds.length ? kinds : (['emergency', 'tip', 'issue'] as Kind[]));
     const items: LiveItem[] = [];
     if (want.has('emergency')) {

@@ -730,12 +730,12 @@ export class IncidentsService implements OnModuleDestroy {
             ranked as (
               select s.id, s.name,
                      (select min(rr.priority) from routing_rules rr, place
-                       where rr.station_id = s.id and rr.incident_type = $2 and rr.area_id in (place.area_id, place.district_id, place.lga_id)) as area_rule,
-                     exists (select 1 from routing_rules rr where rr.station_id = $4 and rr.incident_type = $2 and rr.next_station_id = s.id) as fallback,
+                       where rr.active and rr.station_id = s.id and rr.incident_type = $2 and rr.area_id in (place.area_id, place.district_id, place.lga_id)) as area_rule,
+                     exists (select 1 from routing_rules rr where rr.active and rr.station_id = $4 and rr.incident_type = $2 and rr.next_station_id = s.id) as fallback,
                      (coalesce(st_covers(s.zone, inc.geom), false) or exists (
                         select 1 from station_areas sa, place where sa.station_id = s.id
                            and ((sa.level = 'area' and sa.area_id = place.area_id) or (sa.level = 'district' and sa.area_id = place.district_id) or (sa.level = 'lga' and sa.area_id = place.lga_id)))) as covers,
-                     (select min(rr.priority) from routing_rules rr where rr.station_id = s.id and rr.incident_type = $2 and rr.area_id is null) as rule,
+                     (select min(rr.priority) from routing_rules rr where rr.active and rr.station_id = s.id and rr.incident_type = $2 and rr.area_id is null) as rule,
                      st_distance(coalesce(s.zone::geometry, (select geom::geometry from locations where id = s.location_id))::geography, inc.geom) as d
                 from stations s
                 join agencies a on a.id = s.agency_id and a.status = any($5::text[])

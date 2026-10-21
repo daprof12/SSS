@@ -1,5 +1,6 @@
 'use client';
 
+import { HelpChat } from '@erp/web-ui/HelpChat';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -12,6 +13,7 @@ type Surface = 'citizen' | 'officer';
 
 /** Signs the person in to the right surface, applies their saved appearance, draws the tab bar. */
 // Full-screen flows (reporting, live status, payment, offers) hide the tab bar.
+const OFFICER_QUESTIONS = ['How do I take a statement in person?', 'How do I swap a shift?', 'How are rewards shared?', 'What if I miss an offer?'];
 const NO_BAR = ['/welcome', '/statements/', '/profile/home/', '/fines/', '/donate', '/payments/', '/learn/interests', '/tips/', '/issues/', '/officer/tips/', '/officer/issues/', '/report', '/reports/', '/pay/', '/wallet/fund', '/wallet/confirm', '/wallet/withdraw', '/wallet/bank', '/officer/wallet/withdraw', '/officer/wallet/bank', '/officer/offers/', '/officer/incidents/', '/officer/statements/'];
 
 export function AppFrame({ surface, children }: { surface: Surface; children: React.ReactNode }) {
@@ -45,6 +47,8 @@ export function AppFrame({ surface, children }: { surface: Surface; children: Re
     <>
       {children}
       {bar && (surface === 'citizen' ? <CitizenBar /> : <OfficerBar />)}
+      {/* Help chat floats above the tab bar; hidden on full-screen flows (reporting, paying, statements). */}
+      {bar && <HelpChat bottom={88} suggestions={surface === 'officer' ? OFFICER_QUESTIONS : undefined} />}
     </>
   );
 }

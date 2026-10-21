@@ -8,7 +8,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { randomInt } from 'node:crypto';
 import { PAYMENTS, type PaymentsAdapter } from '../adapters/payments';
 import { Audit } from '../core/audit';
-import { hasRole, type Principal } from '../core/auth';
+import { hasRole, type Principal, requirePerm } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
 import { notify } from '../reports/shared';
@@ -241,7 +241,7 @@ export class BillingService {
   // ---------------------------------------------------------------- platform admin: installs
 
   private admin(p: Principal) {
-    if (!hasRole(p, 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
+    requirePerm(p, 'platform.devices');
   }
 
   async installs(p: Principal, f?: LocationFilter) {

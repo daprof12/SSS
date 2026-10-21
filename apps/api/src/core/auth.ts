@@ -1,6 +1,7 @@
 // Bearer-token auth. Tokens are HS256 JWTs for now; production swaps the
 // verifier for the OIDC provider (TRD: Keycloak) without touching guards.
 import {
+  HttpException,
   createParamDecorator,
   Inject,
   Injectable,
@@ -12,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { jwtVerify, SignJWT } from 'jose';
-import { mfaRequired, type Role } from '@erp/domain';
+import { holds, mfaRequired, type Permission, type Role } from '@erp/domain';
 import { CONFIG, type AppConfig } from './config';
 import { Db } from './db';
 
@@ -96,4 +97,21 @@ export const CurrentUser = createParamDecorator((_d: unknown, ctx: ExecutionCont
 
 export function hasRole(p: Principal, role: Role, scopeId?: string | null): boolean {
   return p.roles.some((r) => r.role === role && (scopeId === undefined || r.scopeId === scopeId));
+}
+
+/** Role-based access: does this person hold the permission (for this agency or station)? */
+export function can(p: Principal, perm: Permission, scopeId?: string | null): boolean {
+  return holds(p.roles, perm, scopeId);
+}
+
+/**
+ * Refuses unless the person holds the permission. Platform pages answer 403; an agency or station
+ * someone does not belong to answers 404, so its existence is not revealed.
+ */
+export function requirePerm(p: Principal, perm: Permission, scopeId?: string | null): void {
+  if (can(p, perm, scopeId)) return;
+  if (perm.startsWith('platform.')) throw new HttpException({ code: 'forbidden', message: 'Your role does not include this. Ask a platform admin for access.' }, 403);
+  const member = p.roles.some((r) => r.scopeId === scopeId);
+  if (member) throw new HttpException({ code: 'forbidden', message: 'Your role does not include this. Ask your admin for access.' }, 403);
+  throw new HttpException({ code: 'not_found', message: 'Not found.' }, 404);
 }

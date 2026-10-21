@@ -6,11 +6,9 @@ import Link from 'next/link';
 import { use, useCallback, useEffect, useState } from 'react';
 import { dateTime, useToast } from '@/components/Agency';
 import { Evidence } from '@/components/Evidence';
+import { TakeInPerson, type StatementView } from '@/components/Statements';
 
-interface View {
-  id: string;
-  number: string;
-  state: string;
+interface View extends StatementView {
   stateLabel: string;
   report: { id: string; label: string };
   station: string | null;
@@ -18,7 +16,7 @@ interface View {
   requestNote: string | null;
   changeNote: string | null;
   translatorCheck: { state: string; note: string } | null;
-  versions: { version: number; language: string; languageName: string; original: string; english: string; confidence: number | null; flagged: string[]; signedWith: string; signedAt: string; seal: string }[];
+  versions: { version: number; language: string; languageName: string; original: string; english: string; confidence: number | null; flagged: string[]; signedWith: string; signedAt: string; seal: string; takenBy: string | null; present: string | null }[];
   latest: { version: number; of: number; seal: string; signedAt: string } | null;
   access: { action: string; by: string; note: string | null; at: string }[];
 }
@@ -29,7 +27,10 @@ const ACTION: Record<string, string> = {
   translator_check: 'asked for a translator check',
   shared: 'shared a view-only copy',
   shared_opened: 'opened the shared copy',
+  code_sent: 'sent the confirmation code',
+  taken_in_person: 'took it down in person',
 };
+const SIGNED_WITH: Record<string, string> = { pin: 'PIN', biometric: 'face check', phone_code: 'code sent to their phone' };
 
 export default function StatementView({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -82,9 +83,11 @@ export default function StatementView({ params }: { params: Promise<{ id: string
       {toast}
       <div className="page-head">
         <div>
-          <h1>Statement {v.number}</h1>
+          <h1>
+            {v.form} {v.number}
+          </h1>
           <p className="lede">
-            {v.report.label}, {ver ? `signed by ${v.reporter} ${dateTime(ver.signedAt)}, version ${ver.version} of ${v.versions.length}` : `asked of ${v.reporter}, not signed yet`}
+            {v.report.label}, {ver ? `signed by ${v.maker} ${dateTime(ver.signedAt)}, version ${ver.version} of ${v.versions.length}` : `${v.mode === 'in_person' ? 'being taken from' : 'asked of'} ${v.maker}, not signed yet`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -99,9 +102,10 @@ export default function StatementView({ params }: { params: Promise<{ id: string
         </div>
       </div>
 
-      {!ver && (
+      {v.mode === 'in_person' && v.state !== 'signed' && <TakeInPerson v={v} onChange={load} onToast={setToast} />}
+      {!ver && v.mode === 'self' && (
         <div className="banner info">
-          <strong>Waiting for the reporter</strong>
+          <strong>Waiting for {v.maker}</strong>
           {v.changeNote ? `You asked: “${v.changeNote}”.` : v.requestNote ?? 'They are told and can answer in their own language.'}
         </div>
       )}
@@ -123,7 +127,14 @@ export default function StatementView({ params }: { params: Promise<{ id: string
       {ver && (
         <div className="grid two">
           <section className="card" aria-labelledby="orig">
-            <h2 id="orig">Reporter original, {ver.languageName}</h2>
+            <h2 id="orig">
+              {v.maker}, original, {ver.languageName}
+            </h2>
+            {v.caution && (
+              <p className="muted" style={{ fontSize: 13 }}>
+                Caution read {v.caution.givenAt ? dateTime(v.caution.givenAt) : '—'}: “{v.caution.text}”
+              </p>
+            )}
             <p style={{ whiteSpace: 'pre-wrap' }}>{ver.original}</p>
             <Evidence ownerType="statement" ownerId={v.id} />
           </section>
@@ -138,11 +149,20 @@ export default function StatementView({ params }: { params: Promise<{ id: string
                 <dd>{ver.confidence == null ? '—' : `${Math.round(ver.confidence * 100)}%, ${ver.flagged.length} ${ver.flagged.length === 1 ? 'word' : 'words'} flagged`}</dd>
               </div>
               <div>
-                <dt>Reporter confirmed</dt>
+                <dt>{v.maker.split(' ')[0]} confirmed</dt>
                 <dd className="success">
-                  Yes, {dateTime(ver.signedAt)}, {ver.signedWith === 'pin' ? 'PIN' : 'face check'}
+                  Yes, {dateTime(ver.signedAt)}, {SIGNED_WITH[ver.signedWith] ?? ver.signedWith}
                 </dd>
               </div>
+              {ver.takenBy && (
+                <div>
+                  <dt>Taken in person by</dt>
+                  <dd>
+                    {ver.takenBy}
+                    {ver.present ? `, ${ver.present} present` : ''}
+                  </dd>
+                </div>
+              )}
             </dl>
           </section>
         </div>

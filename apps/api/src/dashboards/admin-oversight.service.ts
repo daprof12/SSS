@@ -3,7 +3,7 @@
 // suggests, a person decides; marketing goes only to people who opted in.
 import { Inject, Injectable } from '@nestjs/common';
 import { Audit } from '../core/audit';
-import { hasRole, type Principal } from '../core/auth';
+import { requirePerm, type Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
 import { locationWhere, type LocationFilter } from '../core/location-filter';
@@ -85,7 +85,11 @@ export type CrmChannel = 'push' | 'sms' | 'whatsapp';
 export interface CrmAudience extends LocationFilter {
   who: Array<'citizen' | 'officer' | 'head' | 'agency_admin'>;
   agencyId?: string;
+  /** Set by the server for an agency's own campaigns: its staff, and citizens whose home is in its stations' areas. */
+  scopeAgencyId?: string;
 }
+/** An agency sending from its own Messaging page. */
+export type CrmScope = { agencyId: string } | undefined;
 
 @Injectable()
 export class AdminOversightService {
@@ -95,10 +99,6 @@ export class AdminOversightService {
     @Inject(SMS) private readonly sms: SmsAdapter,
     @Inject(WHATSAPP) private readonly whatsapp: WhatsAppAdapter,
   ) {}
-
-  private admin(p: Principal) {
-    if (!hasRole(p, 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
-  }
 
   // ---------------------------------------------------------------- audit log
 
@@ -147,7 +147,7 @@ export class AdminOversightService {
   }
 
   async auditLog(p: Principal, b: { days?: number; actor?: string; action?: string; postcode?: string }) {
-    this.admin(p);
+    requirePerm(p, 'platform.audit');
     const args: unknown[] = [];
     const where = this.auditWhere(b, args);
     const rows = (
@@ -199,7 +199,7 @@ export class AdminOversightService {
   }
 
   async auditEntry(p: Principal, id: number) {
-    this.admin(p);
+    requirePerm(p, 'platform.audit');
     const e = (
       await this.db.query(
         `select a.*, host(a.ip) as ip_text, u.display_name as person, ${this.auditPostcode} as postcode,
@@ -241,7 +241,7 @@ export class AdminOversightService {
   }
 
   async ai(p: Principal) {
-    this.admin(p);
+    requirePerm(p, 'platform.ai');
     const st = await this.aiSettings();
     const s = (
       await this.db.query(
@@ -301,7 +301,7 @@ export class AdminOversightService {
   }
 
   async saveAiSettings(p: Principal, b: Partial<Pick<AiSettings, 'provider' | 'primary' | 'fallback' | 'region' | 'monthlyLimitKobo'>>) {
-    this.admin(p);
+    requirePerm(p, 'platform.ai');
     return this.db.tx(async (c) => {
       const before = await this.aiSettings(c);
       const after = { ...before, ...b };
@@ -313,7 +313,7 @@ export class AdminOversightService {
 
   /** Safety switches: pause all AI, pause translation, or run on the fallback model. */
   async aiSwitch(p: Principal, b: { paused?: boolean; translationPaused?: boolean; useFallback?: boolean }) {
-    this.admin(p);
+    requirePerm(p, 'platform.ai');
     return this.db.tx(async (c) => {
       const before = await this.aiSettings(c);
       await c.query(`update platform_settings set value = value || $1::jsonb, updated_by = $2, updated_at = now() where key = 'ai'`, [JSON.stringify(b), p.userId]);
@@ -329,7 +329,7 @@ export class AdminOversightService {
   }
 
   async setUseCase(p: Principal, code: string, status: 'live' | 'testing' | 'paused') {
-    this.admin(p);
+    requirePerm(p, 'platform.ai');
     const r = await this.db.query(`update ai_use_cases set status = $2 where code = $1 returning name`, [code, status]);
     if (!r.rowCount) throw new AppError(404, 'not_found', 'Use case not found.');
     await this.audit.write({ actorId: p.userId, actorRole: 'platform_admin', action: 'ai.use_case', entity: 'ai_use_case', entityId: code, payload: { status } });
@@ -352,7 +352,7 @@ export class AdminOversightService {
   }
 
   async reviewQueue(p: Principal) {
-    this.admin(p);
+    requirePerm(p, 'platform.ai');
     return (await this.reviewQueueRows()).map((r) => ({
       statementId: r.id,
       number: r.number,
@@ -365,7 +365,7 @@ export class AdminOversightService {
   }
 
   async review(p: Principal, statementId: string) {
-    this.admin(p);
+    requirePerm(p, 'platform.ai');
     const st = await this.aiSettings();
     const v = (
       await this.db.query(
@@ -407,7 +407,7 @@ export class AdminOversightService {
 
   /** "Looks right" / "Add note" / "Send to translator" / "Ask reporter to re-record". The signed record never changes. */
   async decideReview(p: Principal, statementId: string, b: { decision: 'looks_right' | 'note' | 'translator' | 'rerecord'; note?: string }) {
-    this.admin(p);
+    requirePerm(p, 'platform.ai');
     const note = b.note?.trim() ?? '';
     if (b.decision !== 'looks_right' && note.length < 3) throw new AppError(422, 'validation_failed', 'A note is required.', { fields: [{ field: 'note', message: 'A note is required.' }] });
     return this.db.tx(async (c) => {
@@ -446,7 +446,8 @@ export class AdminOversightService {
   /** Everyone the campaign would reach: role, agency, place (home for citizens, station for staff). */
   private async audience(c: Queryable, a: CrmAudience, kind: 'marketing' | 'safety') {
     if (!a.who?.length) return [];
-    const args: unknown[] = [a.who, a.agencyId ?? null];
+    const scope = a.scopeAgencyId ?? null;
+    const args: unknown[] = [a.who, scope ?? a.agencyId ?? null, scope];
     const homeWhere = locationWhere(a, args, 'hl');
     const stationWhere = locationWhere(a, args, 'sl');
     const rows = (
@@ -457,7 +458,15 @@ export class AdminOversightService {
            from users u
           where u.status = 'active'
             and exists (select 1 from user_roles ur where ur.user_id = u.id and ur.role = any($1::text[])
-                          and ($2::uuid is null or (ur.scope_type = 'agency' and ur.scope_id = $2) or (ur.scope_type = 'station' and ur.scope_id in (select id from stations where agency_id = $2))))
+                          and (case when ur.role in ('citizen', 'owner')
+                                    -- An agency reaches citizens whose home is in one of its stations' areas.
+                                    then $3::uuid is null or exists (
+                                      select 1 from saved_places sp join locations h on h.id = sp.location_id
+                                        join station_areas sa on (sa.level = 'area' and sa.area_id = h.area_id) or (sa.level = 'district' and sa.area_id = h.district_id) or (sa.level = 'lga' and sa.area_id = h.lga_id)
+                                        join stations s3 on s3.id = sa.station_id and s3.agency_id = $3
+                                       where sp.user_id = u.id and sp.is_home)
+                                    else $2::uuid is null or (ur.scope_type = 'agency' and ur.scope_id = $2) or (ur.scope_type = 'station' and ur.scope_id in (select id from stations where agency_id = $2))
+                               end))
             and (exists (select 1 from saved_places sp join locations hl on hl.id = sp.location_id where sp.user_id = u.id and sp.is_home and ${homeWhere})
                  or exists (select 1 from user_roles ur join stations s on ur.scope_type = 'station' and s.id = ur.scope_id join locations sl on sl.id = s.location_id where ur.user_id = u.id and ${stationWhere})
                  or (${homeWhere === 'true' ? 'true' : 'false'}))`,
@@ -467,8 +476,20 @@ export class AdminOversightService {
     return rows.filter((r) => kind === 'safety' || !r.opted_out).map((r) => ({ ...r, opted_out: kind === 'marketing' && r.opted_out }));
   }
 
-  async audienceSize(p: Principal, a: CrmAudience & { kind?: 'marketing' | 'safety'; channels?: CrmChannel[] }) {
-    this.admin(p);
+  /** Platform CRM needs the platform permission; an agency's own messaging needs agency operations. */
+  private crmGate(p: Principal, scope: CrmScope) {
+    if (scope) requirePerm(p, 'agency.operations', scope.agencyId);
+    else requirePerm(p, 'platform.crm');
+  }
+
+  private async campaignIn(id: string, scope: CrmScope) {
+    const m = (await this.db.query(`select agency_id from crm_campaigns where id = $1`, [id])).rows[0];
+    if (!m || (scope ? m.agency_id !== scope.agencyId : m.agency_id !== null)) throw new AppError(404, 'not_found', 'Campaign not found.');
+  }
+
+  async audienceSize(p: Principal, a: CrmAudience & { kind?: 'marketing' | 'safety'; channels?: CrmChannel[] }, scope?: CrmScope) {
+    this.crmGate(p, scope);
+    a = { ...a, scopeAgencyId: scope?.agencyId };
     const kind = a.kind ?? 'marketing';
     const all = await this.audience(this.db.pool, a, kind);
     const ch = a.channels ?? ['push', 'sms'];
@@ -501,8 +522,10 @@ export class AdminOversightService {
       link?: string;
       sendAt?: string;
     },
+    scope?: CrmScope,
   ) {
-    this.admin(p);
+    this.crmGate(p, scope);
+    b = { ...b, audience: { ...b.audience, scopeAgencyId: scope?.agencyId, agencyId: scope?.agencyId ?? b.audience.agencyId } };
     if (b.channels.includes('sms') && b.body.length > 160) {
       throw new AppError(422, 'validation_failed', `SMS must be 160 characters or fewer, now ${b.body.length - 160} over.`, { fields: [{ field: 'body', message: `SMS must be 160 characters or fewer, now ${b.body.length - 160} over.` }] });
     }
@@ -533,19 +556,23 @@ export class AdminOversightService {
       const state = b.action === 'draft' ? 'draft' : b.action === 'request_approval' ? 'awaiting_approval' : sendAt ? 'scheduled' : 'sent';
       const id = (
         await c.query(
-          `insert into crm_campaigns (title, body, kind, urgent, audience, channels, languages, link, state, send_at, created_by) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id`,
-          [b.title.trim(), b.body.trim(), b.kind, !!b.urgent, b.audience, b.channels, b.languages ?? ['en'], b.link ?? null, state, sendAt, p.userId],
+          `insert into crm_campaigns (title, body, kind, urgent, audience, channels, languages, link, state, send_at, created_by, agency_id) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning id`,
+          [b.title.trim(), b.body.trim(), b.kind, !!b.urgent, b.audience, b.channels, b.languages ?? ['en'], b.link ?? null, state, sendAt, p.userId, scope?.agencyId ?? null],
         )
       ).rows[0].id;
       if (state === 'awaiting_approval') {
-        const others = (await c.query(`select user_id from user_roles where role = 'platform_admin' and user_id <> $1`, [p.userId])).rows.map((x) => x.user_id);
-        await notify(c, others, { type: 'crm_approval', grp: 'team', title: 'Message waiting for approval', body: `"${b.title.trim()}" to ${people.length} people.`, link: `/admin/crm/${id}` });
+        const others = (
+          scope
+            ? await c.query(`select user_id from user_roles where role = 'agency_admin' and scope_id = $2 and user_id <> $1`, [p.userId, scope.agencyId])
+            : await c.query(`select user_id from user_roles where role = 'platform_admin' and user_id <> $1`, [p.userId])
+        ).rows.map((x) => x.user_id);
+        await notify(c, others, { type: 'crm_approval', grp: 'team', title: 'Message waiting for approval', body: `"${b.title.trim()}" to ${people.length} people.`, link: scope ? `/agency/messaging/${id}` : `/admin/crm/${id}` });
       }
       if (state === 'sent') await this.deliver(c, id);
-      await this.audit.write({ actorId: p.userId, actorRole: 'platform_admin', action: state === 'sent' ? 'crm.sent' : `crm.${state}`, entity: 'crm_campaign', entityId: id, payload: { people: people.length, channels: b.channels, kind: b.kind } }, c);
+      await this.audit.write({ actorId: p.userId, actorRole: scope ? 'agency_admin' : 'platform_admin', action: state === 'sent' ? 'crm.sent' : `crm.${state}`, entity: 'crm_campaign', entityId: id, payload: { people: people.length, channels: b.channels, kind: b.kind, agencyId: scope?.agencyId } }, c);
       const msg =
         state === 'draft' ? 'Draft saved.'
-        : state === 'awaiting_approval' ? 'Sent to another platform admin to approve.'
+        : state === 'awaiting_approval' ? `Sent to another ${scope ? 'agency' : 'platform'} admin to approve.`
         : state === 'scheduled' ? (quiet ? 'It is quiet hours, so it goes out at 06:00. Mark it urgent to send now.' : 'Scheduled.')
         : `Sent to ${people.length} ${people.length === 1 ? 'person' : 'people'}.`;
       return { id, state, message: msg };
@@ -625,22 +652,25 @@ export class AdminOversightService {
     });
   }
 
-  async campaigns(p: Principal) {
-    this.admin(p);
+  async campaigns(p: Principal, scope?: CrmScope) {
+    this.crmGate(p, scope);
     const r = (
       await this.db.query(
         `select m.id, m.title, m.kind, m.state, m.channels, m.send_at, m.sent_at, m.created_at, u.display_name as by,
                 count(x.user_id)::int as people,
                 count(x.user_id) filter (where x.pushed_at is not null or x.sms_at is not null or x.whatsapp_at is not null)::int as reached
            from crm_campaigns m join users u on u.id = m.created_by left join crm_deliveries x on x.campaign_id = m.id
+          where m.agency_id is not distinct from $1
           group by m.id, u.display_name order by m.created_at desc limit 100`,
+        [scope?.agencyId ?? null],
       )
     ).rows;
     return r.map((m) => ({ id: m.id, title: m.title, kind: m.kind, state: m.state, channels: m.channels, sendAt: m.send_at, sentAt: m.sent_at, by: m.by, people: m.people, reachedPct: m.people ? Math.round((m.reached / m.people) * 100) : null }));
   }
 
-  async campaign(p: Principal, id: string) {
-    this.admin(p);
+  async campaign(p: Principal, id: string, scope?: CrmScope) {
+    this.crmGate(p, scope);
+    await this.campaignIn(id, scope);
     const m = (
       await this.db.query(`select m.*, u.display_name as by, a.display_name as approver from crm_campaigns m join users u on u.id = m.created_by left join users a on a.id = m.approved_by where m.id = $1`, [id])
     ).rows[0];
@@ -688,8 +718,9 @@ export class AdminOversightService {
     };
   }
 
-  async approve(p: Principal, id: string) {
-    this.admin(p);
+  async approve(p: Principal, id: string, scope?: CrmScope) {
+    this.crmGate(p, scope);
+    await this.campaignIn(id, scope);
     return this.db.tx(async (c) => {
       const m = (await c.query(`select * from crm_campaigns where id = $1 for update`, [id])).rows[0];
       if (!m) throw new AppError(404, 'not_found', 'Campaign not found.');
@@ -703,8 +734,9 @@ export class AdminOversightService {
   }
 
   /** "Resend to unreached": SMS to people nothing reached, where there is a number. */
-  async resend(p: Principal, id: string) {
-    this.admin(p);
+  async resend(p: Principal, id: string, scope?: CrmScope) {
+    this.crmGate(p, scope);
+    await this.campaignIn(id, scope);
     const rows = (
       await this.db.query(
         `select x.user_id, u.phone, m.title, m.body, m.kind, m.urgent from crm_deliveries x join users u on u.id = x.user_id join crm_campaigns m on m.id = x.campaign_id
@@ -727,19 +759,20 @@ export class AdminOversightService {
     return { message: rows.length ? `Sent again by SMS to ${n} of ${rows.length}.` : 'Everyone was reached.' };
   }
 
-  async duplicate(p: Principal, id: string) {
-    this.admin(p);
+  async duplicate(p: Principal, id: string, scope?: CrmScope) {
+    this.crmGate(p, scope);
+    await this.campaignIn(id, scope);
     const r = await this.db.query(
-      `insert into crm_campaigns (title, body, kind, urgent, audience, channels, languages, link, created_by)
-       select title, body, kind, urgent, audience, channels, languages, link, $2 from crm_campaigns where id = $1 returning id`,
+      `insert into crm_campaigns (title, body, kind, urgent, audience, channels, languages, link, created_by, agency_id)
+       select title, body, kind, urgent, audience, channels, languages, link, $2, agency_id from crm_campaigns where id = $1 returning id`,
       [id, p.userId],
     );
     if (!r.rowCount) throw new AppError(404, 'not_found', 'Campaign not found.');
     return { id: r.rows[0].id, message: 'Copied as a draft.' };
   }
 
-  async resultsCsv(p: Principal, id: string) {
-    const c = await this.campaign(p, id);
+  async resultsCsv(p: Principal, id: string, scope?: CrmScope) {
+    const c = await this.campaign(p, id, scope);
     const lines = [
       'Channel,Sent,Delivered,Read,Failed',
       ...c.channelsTable.map((r) => [r.channel, r.sent, r.delivered, r.read ?? 'n/a', r.failed].join(',')),
@@ -751,7 +784,7 @@ export class AdminOversightService {
   }
 
   async consent(p: Principal) {
-    this.admin(p);
+    requirePerm(p, 'platform.crm');
     const r = (
       await this.db.query(
         `select count(*)::int as users,

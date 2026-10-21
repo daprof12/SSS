@@ -1,5 +1,5 @@
 'use client';
-// Station incident detail extras: the false-alarm review (B8 step 1) and the statement (B7).
+// Station incident detail extras: the false-alarm review (B8 step 1), reinforcement and duplicates.
 import { api, ApiError } from '@erp/web-ui/api';
 import { Sheet } from '@erp/web-ui/Sheet';
 import Link from 'next/link';
@@ -65,66 +65,6 @@ export function FalseAlarmReview({ incidentId, onDone }: { incidentId: string; o
       <p className="muted" style={{ marginBottom: 0 }}>
         Confirming gives the reporter a warning the first time, then a fine they can appeal. People who joined a confirmed incident are never fined.
       </p>
-    </section>
-  );
-}
-
-interface St {
-  id: string;
-  number: string;
-  state: string;
-  stateLabel: string;
-  versions: number;
-  signedAt: string | null;
-}
-
-/** Ask the reporter for a statement, and open it once signed. */
-export function StatementCard({ incidentId, state, onDone }: { incidentId: string; state: string; onDone: (m: string) => void }) {
-  const [list, setList] = useState<St[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const load = useCallback(() => {
-    api<St[]>(`/incidents/${incidentId}/statements`)
-      .then(setList)
-      .catch(() => setList([]));
-  }, [incidentId]);
-  useEffect(load, [load, state]);
-  const canAsk = ['on_scene', 'closing', 'resolved'].includes(state) && list?.length === 0;
-  if (!list) return null;
-  return (
-    <section className="card" aria-labelledby="stmt">
-      <h2 id="stmt">Statement</h2>
-      {!list.length && !canAsk && <p className="muted">You can ask the reporter for a statement once a unit is on scene.</p>}
-      {list.map((s) => (
-        <div className="row" key={s.id}>
-          <div className="label">
-            <strong>
-              <Link href={`/statements/${s.id}`}>{s.number}</Link>
-            </strong>
-            <span>{s.versions ? `Signed, version ${s.versions}` : s.stateLabel === 'Waiting for you' ? 'Waiting for the reporter' : s.stateLabel}</span>
-          </div>
-          <span className={`chip ${s.versions ? 'success' : 'warning'}`}>{s.versions ? 'Signed' : 'Waiting'}</span>
-        </div>
-      ))}
-      {canAsk && (
-        <button
-          className="btn"
-          type="button"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              onDone((await api<{ message: string }>(`/incidents/${incidentId}/statements`, { method: 'POST', body: JSON.stringify({}) })).message);
-              load();
-            } catch (e) {
-              onDone(e instanceof ApiError ? e.message : 'Could not ask. Try again.');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? 'Asking…' : 'Ask the reporter for a statement'}
-        </button>
-      )}
     </section>
   );
 }

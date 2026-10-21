@@ -2,6 +2,8 @@ import { Controller, Get, Inject, Module, type DynamicModule } from '@nestjs/com
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { AdminAgenciesController, AgenciesController } from './agencies/agencies.controller';
 import { AgenciesService } from './agencies/agencies.service';
+import { AgencyOpsController } from './agencies/agency-ops.controller';
+import { AgencyOpsService } from './agencies/agency-ops.service';
 import { AgencyLifecycle } from './agencies/agency.lifecycle';
 import { AgencyBillingService } from './agencies/billing.service';
 import { PayoutsService } from './agencies/payouts.service';
@@ -25,6 +27,9 @@ import { DashboardsController } from './dashboards/dashboards.controller';
 import { OverviewService } from './dashboards/overview.service';
 import { StationService } from './dashboards/station.service';
 import { MockTranslateAdapter, TRANSLATE } from './adapters/translate';
+import { AnthropicAssistantAdapter, ASSISTANT, MockAssistantAdapter } from './adapters/assistant';
+import { AdminHelpChatController, HelpChatController } from './help/help.controller';
+import { HelpService } from './help/help.service';
 import { StatementsController } from './statements/statements.controller';
 import { StatementsService } from './statements/statements.service';
 import { AdminFinesController, AdminSupportController, CitizenController } from './citizen/citizen.controller';
@@ -84,6 +89,9 @@ export class AppModule {
         CitizenController,
         DashboardsController,
         AdminController,
+        AgencyOpsController,
+        HelpChatController,
+        AdminHelpChatController,
         StatementsController,
         AdminFinesController,
         AdminSupportController,
@@ -115,10 +123,14 @@ export class AppModule {
         StationService,
         OverviewService,
         AdminOpsService,
+        AgencyOpsService,
+        HelpService,
         AdminOversightService,
         BillingService,
         StatementsService,
         { provide: TRANSLATE, useValue: new MockTranslateAdapter() },
+        // The help assistant uses Claude when an Anthropic key is configured (never in tests).
+        { provide: ASSISTANT, useValue: config.env !== 'test' && (process.env.ANTHROPIC_API_KEY || process.env.ASSISTANT_PROVIDER === 'anthropic') ? new AnthropicAssistantAdapter() : new MockAssistantAdapter() },
         { provide: WHATSAPP, useValue: new MockWhatsAppAdapter() },
         FinesService,
         HomeService,

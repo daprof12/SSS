@@ -512,3 +512,37 @@ Migration 023. Tests: `apps/api/test/admin.e2e.test.ts`.
   - Results show reach, reads, failures and why, the fallback, and cost. You can resend to the unreached or duplicate a campaign.
 - **Donations** (Donations and payouts → Donations): gifts by the place of the receiving station, with amounts after the 30% fee. **Run payout** pays the queue.
 - **Location filter** has been added to Fines, KYC queue, Installation team (installs and repairs) and Help inbox, and the subscription numbers now follow it too. The fines and help inbox tab parameter is now `status`, so it no longer clashes with the location `state`.
+
+## Statements from anyone, agency pages, role-based access, help chat
+
+Migrations 024 to 026. Tests: `apps/api/test/statements.e2e.test.ts`, `agency-rbac.e2e.test.ts`, `help.e2e.test.ts`.
+
+- **Statements (traditional statement processing, digitised).**
+  - The station, the agency, or an officer on a report can ask for a statement on any report (except cancelled or merged ones). It can come from the complainant, a victim, a witness, a suspect (a cautionary statement), or an officer. People can be picked from the report or added by phone; a new person is created and texted.
+  - **On their phone:** the person writes it in their language and signs with their PIN. An officer's own statement works the same way (officer app: My statements, or Add statement on a report).
+  - **In person:** the officer takes it down, reads it back, and the person confirms with a 6-digit code sent to their phone (15 minutes, 5 tries). A suspect is cautioned first (ACJA wording, time recorded) and must have someone present. The PDF shows the form's heading, who took it, who was present, and the caution.
+  - Lists: Station → Statements, and Agency → Statements, each with a location filter.
+- **Agency pages:**
+  - **Officers:** ratings, rewards, invite by phone. Invited officers verify their identity before receiving reports.
+  - **Inventory:** equipment by station, billed monthly. Shows status and checks.
+  - **Routing rules:** rules by report type and area, which can be paused; defaults; "Test a postcode". Routing now skips paused rules.
+  - **Billing:** fee schedule, invoices, pay balance, CSV.
+  - **Assets:** traffic lights, street lights and cameras, with work orders and import. Remote actions need the safety plan signed and a second admin.
+  - **Messaging:** the agency's staff, and citizens whose home is in its stations' areas.
+  - **Settings:** profile (name and type changes wait for the platform), team by role, alerts, safety plan, access log.
+  - **Station detail.**
+- **Role-based access** (`PERMISSIONS` in `packages/domain/src/roles.ts`, `requirePerm` in the API, and sidebar filtering plus a "no access" page in the dashboard). New roles: platform finance, support and operations; agency finance and dispatcher are used.
+  - Platform admins add or remove platform staff in Settings → Platform team.
+  - Agency admins invite agency admin, finance, station head or dispatcher in Agency → Settings.
+  - Demo sign-in has an account for each role.
+- **Sign out** sits at the bottom of every dashboard sidebar. It also ends the session on the server.
+- **Help chat:**
+  - A floating Help button in the citizen and officer apps (above the tab bar) and on the dashboards.
+  - The assistant answers questions about the platform, agencies, and anything else. When someone may be in danger, it points to SOS or 112 first.
+  - It can hand the chat to a person. The person can also ask for a person themselves.
+  - Help inbox → Live chats lets the help team take a chat, reply, add team-only notes, hand back to the assistant, or close it. A hand-off also opens a help ticket.
+  - With `ANTHROPIC_API_KEY` set (or `ASSISTANT_PROVIDER=anthropic` with an `ant auth login` profile), the assistant is Claude Opus 5.5 (`adapters/assistant.ts`):
+    - A cached system prompt with the platform guide (`help/knowledge.ts`).
+    - Tools for agencies, Learn, the person's own reports and open items, plus web search and a hand-off tool.
+    - `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) re-runs a policy decline on Anthropic's recommended model.
+  - Without a key, and always in tests, an offline stand-in answers from the same guide and lookups. Usage appears under AI and LLM as "Help chat assistant".

@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Inject, Param, ParseIntPipe, ParseUUIDPipe, Post, Put, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, ParseIntPipe, ParseUUIDPipe, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { CurrentUser, type Principal } from '../core/auth';
 import { ZodPipe } from '../core/http';
 import { LocationQuery } from '../core/location-filter';
-import { AdminOpsService, STOCK_ITEMS } from './admin-ops.service';
+import { AdminOpsService, PLATFORM_ROLES, STOCK_ITEMS } from './admin-ops.service';
 import { AdminOversightService } from './admin-oversight.service';
 
 const Coverage = LocationQuery.extend({ type: z.enum(['camera', 'street_light', 'gateway', 'drone']).optional(), status: z.enum(['online', 'low_power', 'offline', 'needs_repair', 'tamper', 'not_covered']).optional() });
@@ -36,6 +36,7 @@ const Decide = z.object({ decision: z.enum(['looks_right', 'note', 'translator',
 const Audience = LocationQuery.extend({ who: z.array(z.enum(['citizen', 'officer', 'head', 'agency_admin'])).max(4), agencyId: z.string().uuid().optional() });
 const Channels = z.array(z.enum(['push', 'sms', 'whatsapp'])).min(1, 'Choose how it is sent.');
 const AudienceB = Audience.extend({ kind: z.enum(['marketing', 'safety']).optional(), channels: Channels.optional() });
+const Staff = z.object({ phone: z.string().trim().min(8, 'Enter a phone number.').max(20), name: z.string().trim().max(120).optional(), role: z.enum(PLATFORM_ROLES) });
 const Compose = z.object({
   action: z.enum(['draft', 'request_approval', 'schedule', 'send', 'test']),
   title: z.string().trim().min(1, 'Add a title.').max(120),
@@ -125,6 +126,23 @@ export class AdminController {
   @Post('donations/payout')
   runPayout(@CurrentUser() p: Principal) {
     return this.ops.runDonationPayout(p);
+  }
+
+  // ---------------------------------------------------------------- platform team
+
+  @Get('team')
+  team(@CurrentUser() p: Principal) {
+    return this.ops.team(p);
+  }
+
+  @Post('team')
+  inviteStaff(@CurrentUser() p: Principal, @Body(new ZodPipe(Staff)) b: z.infer<typeof Staff>) {
+    return this.ops.inviteStaff(p, b);
+  }
+
+  @Delete('team/:userId/:role')
+  removeStaff(@CurrentUser() p: Principal, @Param('userId', ParseUUIDPipe) userId: string, @Param('role') role: string) {
+    return this.ops.removeStaff(p, userId, role);
   }
 
   // ---------------------------------------------------------------- audit

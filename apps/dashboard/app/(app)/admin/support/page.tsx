@@ -6,6 +6,7 @@ import { api, ApiError } from '@erp/web-ui/api';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
 import { dateTime, useToast } from '@/components/Agency';
+import { HelpChats } from '@/components/HelpChats';
 import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface Ticket {
@@ -30,7 +31,46 @@ const TOPIC: Record<string, string> = { report: 'A report', money: 'Money', devi
 const STATE: Record<Ticket['state'], [string, string]> = { open: ['Waiting', 'warning'], answered: ['Answered', 'success'], closed: ['Closed', 'neutral'] };
 type Filter = 'open' | 'answered' | 'closed' | 'all';
 
+/** Help inbox: live chats handed over by the assistant, and written messages (tickets). */
 export default function SupportInbox() {
+  const [tab, setTab] = useState<'chats' | 'tickets'>('chats');
+  const [initial, setInitial] = useState<string | null>(null);
+  const [toast, setToast] = useToast();
+  useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get('chat');
+    if (c) setInitial(c);
+  }, []);
+  const tabs = (
+    <div className="segmented tabs" role="tablist" aria-label="Help inbox">
+      {(
+        [
+          ['chats', 'Live chats'],
+          ['tickets', 'Messages'],
+        ] as const
+      ).map(([k, l]) => (
+        <button key={k} type="button" role="tab" aria-selected={tab === k} aria-pressed={tab === k} onClick={() => setTab(k)}>
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+  if (tab === 'tickets') return <TicketsInbox tabs={tabs} />;
+  return (
+    <>
+      {toast}
+      <div className="page-head">
+        <div>
+          <h1>Help inbox</h1>
+          <p className="lede">The assistant answers first. Chats come here when someone asks for a person or the assistant cannot help.</p>
+        </div>
+      </div>
+      {tabs}
+      <HelpChats key={initial ?? 'x'} onToast={setToast} initial={initial} />
+    </>
+  );
+}
+
+function TicketsInbox({ tabs }: { tabs: React.ReactNode }) {
   const [filter, setFilter] = useState<Filter>('open');
   const [d, setD] = useState<Inbox | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +97,7 @@ export default function SupportInbox() {
           <p className="lede">Messages from citizens and officers. Reply within one working day; they see it in Help and support.</p>
         </div>
       </div>
+      {tabs}
       <LocationFilter value={loc} onChange={setLoc} />
       {error && (
         <div className="banner critical" role="alert">

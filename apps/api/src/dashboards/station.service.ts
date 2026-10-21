@@ -248,9 +248,10 @@ export class StationService {
 
   /** Units on a report and the reports merged into it (board "Station incident detail"). */
   async incidentExtras(p: Principal, incidentId: string) {
-    const sid = this.station(p);
-    const ok = await this.db.query(`select 1 from incidents where id = $1 and station_id = $2`, [incidentId, sid]);
-    if (!ok.rowCount) throw new AppError(404, 'not_found', 'This report could not be found.');
+    // The station handling it, or an admin of the agency it belongs to (read only).
+    const inc = (await this.db.query(`select station_id, agency_id from incidents where id = $1`, [incidentId])).rows[0];
+    const allowed = inc && ((inc.station_id && (hasRole(p, 'head', inc.station_id) || hasRole(p, 'dispatcher', inc.station_id))) || (inc.agency_id && hasRole(p, 'agency_admin', inc.agency_id)));
+    if (!allowed) throw new AppError(404, 'not_found', 'This report could not be found.');
     const units = await this.db.query(
       `select x.role, x.state, x.offered_at, x.accepted_at, x.offer_expires_at, x.decline_reason, u.display_name, o.badge_no,
               case when o.last_location is not null then round(st_distance(o.last_location, i.geom))::int end as distance_m

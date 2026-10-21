@@ -1,6 +1,7 @@
 // Agency billing — UX Gap Analysis §10 stages 4, 5, 8, 9 and 10.
 // Invoices are paid only by a signed Paystack webhook or by finance marking a
 // bank transfer as received. Billing state never touches live dispatch.
+import { requirePerm } from '../core/auth';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
@@ -320,7 +321,7 @@ export class AgencyBillingService {
 
   /** Finance marks an unmatched bank transfer as received (stage 5 admin). */
   async markTransferReceived(p: Principal, invoiceId: string, b: { amountKobo: number; bankReference: string; receivedOn?: string; note?: string }) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.money');
     return this.db.tx(async (c) => {
       const dupe = await c.query(`select 1 from invoice_payments where bank_reference = $1`, [b.bankReference]);
       if (dupe.rowCount) throw new AppError(409, 'already_recorded', 'This bank reference is already recorded.');
@@ -394,7 +395,7 @@ export class AgencyBillingService {
    * messaging used in the period that ended. Safe to rerun (one invoice per period).
    */
   async generateMonthly(p: Principal | null, asOf: string) {
-    if (p) this.life.requirePlatformAdmin(p);
+    if (p) requirePerm(p, 'platform.money');
     const due = await this.db.query(`select id from agencies where status in ('setting_up', 'live', 'overdue', 'offboarding') and period_end <= $1 order by created_at`, [asOf]);
     const issued: Array<{ agencyId: string; invoiceId: string; number: string; totalKobo: number }> = [];
     for (const { id } of due.rows) {
@@ -440,7 +441,7 @@ export class AgencyBillingService {
 
   /** Sends −3 d / 0 d reminders and marks unpaid invoices overdue the day after they're due. Never touches dispatch. */
   async sweepOverdue(p: Principal | null, asOf: string) {
-    if (p) this.life.requirePlatformAdmin(p);
+    if (p) requirePerm(p, 'platform.money');
     const reminded: string[] = [];
     const overdue: string[] = [];
     await this.db.tx(async (c) => {
@@ -476,7 +477,7 @@ export class AgencyBillingService {
 
   /** Admin dunning list: open invoices across agencies, overdue first. */
   async dunning(p: Principal, state?: AgencyInvoiceState) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.money');
     const r = await this.db.query(
       `select i.*, a.name as agency_name from invoices i join agencies a on a.id = i.agency_id
         where ($1::text is null and i.state in ('issued', 'overdue')) or i.state = $1
@@ -557,7 +558,7 @@ export class AgencyBillingService {
   // ---------------------------------------------------------------- admin money: overrides, waivers, payouts
 
   async setPriceOverride(p: Principal, agencyId: string, code: string, amountKobo: number, reason: string) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.agencies');
     return this.db.tx(async (c) => {
       const prices = await this.prices(c, agencyId);
       if (!prices[code]) throw new AppError(422, 'validation_failed', 'Choose a fee from the schedule.');
@@ -573,7 +574,7 @@ export class AgencyBillingService {
 
   /** Waive: reason always; above the threshold a second, different approver completes it. */
   async waive(p: Principal, invoiceId: string, reason: string) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.money');
     return this.db.tx(async (c) => {
       const inv = (await c.query(`select * from invoices where id = $1 for update`, [invoiceId])).rows[0] as InvoiceRow | undefined;
       if (!inv) throw new AppError(404, 'not_found', 'Invoice not found.');
@@ -599,7 +600,7 @@ export class AgencyBillingService {
 
   /** Payout approval: the destination account must be verified; above the threshold, two people. */
   async approvePayout(p: Principal, payoutId: string) {
-    this.life.requirePlatformAdmin(p);
+    requirePerm(p, 'platform.money');
     const result = await this.db.tx(async (c) => {
       const po = (await c.query(`select * from payouts where id = $1 for update`, [payoutId])).rows[0];
       if (!po) throw new AppError(404, 'not_found', 'Payout not found.');

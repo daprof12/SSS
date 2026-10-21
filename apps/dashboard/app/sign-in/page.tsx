@@ -7,9 +7,14 @@ import { api, setSession } from '@erp/web-ui/api';
 // Dev sign-in against the seeded demo accounts. Production replaces this page
 // with the OIDC provider (phone OTP first, then 2FA — C6 decision).
 const ACCOUNTS = [
-  { key: 'head', name: 'CSP Ngozi Eze', roleLabel: 'Station head' },
-  { key: 'agencyAdmin', name: 'Agency Admin', roleLabel: 'Agency admin' },
-  { key: 'platformAdmin', name: 'Platform Admin', roleLabel: 'Platform admin' },
+  { key: 'head', name: 'CSP Ngozi Eze', roleLabel: 'Station head', home: '/incidents' },
+  { key: 'dispatcher', name: 'Amaka Dispatch', roleLabel: 'Dispatcher', home: '/incidents' },
+  { key: 'agencyAdmin', name: 'Agency Admin', roleLabel: 'Agency admin', home: '/agency/overview' },
+  { key: 'agencyFinance', name: 'Kemi Finance', roleLabel: 'Agency finance', home: '/agency/billing' },
+  { key: 'platformAdmin', name: 'Platform Admin', roleLabel: 'Platform admin', home: '/admin/overview' },
+  { key: 'platformFinance', name: 'Femi Ledger', roleLabel: 'Platform finance', home: '/admin/overview' },
+  { key: 'platformSupport', name: 'Ifeoma Support', roleLabel: 'Platform support', home: '/admin/support' },
+  { key: 'platformOps', name: 'Sani Field Ops', roleLabel: 'Platform operations', home: '/admin/coverage' },
 ] as const;
 
 export default function SignIn() {
@@ -24,7 +29,7 @@ export default function SignIn() {
       const seed = await api<{ users: Record<string, string> }>('/dev/seed', { method: 'POST' });
       const { token } = await api<{ token: string }>('/dev/token', { method: 'POST', body: JSON.stringify({ userId: seed.users[a.key] }) });
       setSession({ token, name: a.name, roleLabel: a.roleLabel });
-      router.replace(a.key === 'head' ? '/incidents' : a.key === 'agencyAdmin' ? '/agency/overview' : '/admin/overview');
+      router.replace(a.home);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not sign in.');
       setBusy(null);

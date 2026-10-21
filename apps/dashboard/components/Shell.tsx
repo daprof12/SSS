@@ -8,6 +8,8 @@ import { NotificationBell } from './NotificationBell';
 import { ThemeSwitch } from '@erp/web-ui/ThemeSwitch';
 import { api, getSession, setSession, type Session } from '@erp/web-ui/api';
 import { applyMotion, applyTheme, onThemeChange, readTheme, type ThemeChoice } from '@erp/web-ui/theme';
+import { holds, type Permission } from '@erp/domain';
+import { HelpChat } from '@erp/web-ui/HelpChat';
 
 interface NavItem {
   label: string;
@@ -25,6 +27,14 @@ const AGENCY_BUILT: Record<string, NavItem> = {
   Bounties: { label: 'Bounties', href: '/agency/bounties', built: true, also: ['/agency/tips'] },
   'Public issues': { label: 'Public issues', href: '/agency/issues', built: true },
   Payouts: { label: 'Payouts', href: '/agency/payouts', built: true },
+  Statements: { label: 'Statements', href: '/agency/statements', built: true },
+  Officers: { label: 'Officers', href: '/agency/officers', built: true },
+  Inventory: { label: 'Inventory', href: '/agency/inventory', built: true },
+  'Routing rules': { label: 'Routing rules', href: '/agency/routing', built: true },
+  Billing: { label: 'Billing', href: '/agency/billing', built: true },
+  Assets: { label: 'Assets', href: '/agency/assets', built: true },
+  Messaging: { label: 'Messaging', href: '/agency/messaging', built: true },
+  Settings: { label: 'Settings', href: '/agency/settings', built: true },
 };
 
 const ADMIN_BUILT: Record<string, NavItem> = {
@@ -55,23 +65,61 @@ const NAV: Record<string, NavItem[]> = {
     { label: 'Map', href: '/station/map', built: true },
     { label: 'Officers', href: '/station/officers', built: true },
     { label: 'Reports', href: '/station/reports', built: true },
+    { label: 'Statements', href: '/station/statements', built: true },
     { label: 'Roster', href: '/station/roster', built: true },
     { label: 'Messages', href: '/station/messages', built: true },
     { label: 'Settings', href: '/station/settings', built: true },
   ],
   agency: [
-    'Overview', 'Live map', 'Stations', 'Officers', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Learn feed', 'Assets', 'Messaging', 'Settings',
+    'Overview', 'Live map', 'Stations', 'Officers', 'Statements', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Learn feed', 'Assets', 'Messaging', 'Settings',
   ].map((l) => AGENCY_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
   admin: [
     'Overview', 'Live incident map', 'Coverage map', 'Device wall', 'Users', 'Inventory', 'Installation team', 'Subscriptions', 'KYC queue', 'Fines and appeals', 'Help inbox', 'Donations', 'Learn feed', 'Agencies', 'Audit log', 'AI and LLM', 'CRM messaging', 'Settings',
   ].map((l) => ADMIN_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
 };
 
+/** Which permission opens each sidebar item (the API enforces the same matrix). */
+const PERM: Record<string, Permission> = {
+  // Platform
+  '/admin/overview': 'platform.overview',
+  '/admin/live': 'platform.live',
+  '/admin/coverage': 'platform.devices',
+  '/admin/devices': 'platform.devices',
+  '/admin/users': 'platform.users',
+  '/admin/inventory': 'platform.devices',
+  '/admin/repairs': 'platform.devices',
+  '/admin/subscriptions': 'platform.money',
+  '/admin/kyc': 'platform.kyc',
+  '/admin/fines': 'platform.fines',
+  '/admin/support': 'platform.support',
+  '/admin/payouts': 'platform.money',
+  '/admin/learn': 'platform.learn',
+  '/admin/agencies': 'platform.agencies',
+  '/admin/audit': 'platform.audit',
+  '/admin/ai': 'platform.ai',
+  '/admin/crm': 'platform.crm',
+  '/admin/settings': 'platform.settings',
+  // Agency
+  '/agency/overview': 'agency.view',
+  '/agency/billing': 'agency.money',
+  '/agency/payouts': 'agency.money',
+  '/agency/bounties': 'agency.money',
+  '/agency/settings': 'agency.view',
+  '/agency': 'agency.operations',
+  // Station
+  '/station': 'station.operations',
+  '/incidents': 'station.operations',
+};
+const permFor = (href: string) => PERM[Object.keys(PERM).filter((k) => href.startsWith(k)).sort((a, b) => b.length - a.length)[0] ?? ''];
+type Grant = { role: string; scopeId: string | null };
+const STAFF_QUESTIONS = ['How does routing by area work?', 'How do I take a statement in person?', 'How do I add an officer?', 'Who can see device clips?'];
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const path = usePathname();
   const [session, setS] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
+  const [roles, setRoles] = useState<Grant[] | null>(null);
 
   useEffect(() => {
     const s = getSession();
@@ -80,17 +128,34 @@ export function Shell({ children }: { children: React.ReactNode }) {
     setReady(true);
     if (!s) return;
     // The account's saved appearance wins over this browser's last choice (Public Issues doc §6).
-    api<{ preferences: { theme: ThemeChoice; reduceMotion: boolean } }>('/me')
+    api<{ preferences: { theme: ThemeChoice; reduceMotion: boolean }; roles: Grant[] }>('/me')
       .then((m) => {
         applyTheme(m.preferences.theme);
         applyMotion(m.preferences.reduceMotion);
+        setRoles(m.roles);
       })
       .catch(() => {});
   }, [router]);
 
   if (!ready || !session) return null;
-  const surface = session.roleLabel.startsWith('Platform') ? 'admin' : session.roleLabel.startsWith('Agency') ? 'agency' : 'station';
-  const items = NAV[surface]!;
+  // The surface follows the person's roles once known (a platform role wins, then agency, then station).
+  const surface = roles
+    ? roles.some((r) => r.role.startsWith('platform_'))
+      ? 'admin'
+      : roles.some((r) => r.role.startsWith('agency_'))
+        ? 'agency'
+        : 'station'
+    : session.roleLabel.startsWith('Platform')
+      ? 'admin'
+      : session.roleLabel.startsWith('Agency')
+        ? 'agency'
+        : 'station';
+  const allowed = (href: string) => {
+    const perm = permFor(href);
+    return !roles || !perm || holds(roles, perm);
+  };
+  const items = NAV[surface]!.filter((i) => !i.built || allowed(i.href));
+  const blocked = roles && !allowed(path) && !path.startsWith('/profile') && !path.startsWith('/statements');
   const current = (i: NavItem) => i.built && [i.href, ...(i.also ?? [])].some((p) => path.startsWith(p));
 
   const shell = (
@@ -108,14 +173,31 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <small>{session.roleLabel}</small>
           </div>
         </div>
-        <RailLinks items={items} current={current} gated={surface === 'agency'} />
+        <div className="rail-links">
+          <RailLinks items={items} current={current} gated={surface === 'agency'} />
+        </div>
+        <div className="rail-foot">
+          <div className="who">
+            <strong>{session.name}</strong>
+            <small>{session.roleLabel}</small>
+          </div>
+          <SignOutButton />
+        </div>
       </nav>
       <div className="main">
         <TopBar session={session} />
         <main id="main" className="content">
-          {children}
+          {blocked ? (
+            <div className="card empty" role="alert">
+              <strong>Your role does not include this page.</strong>
+              Ask your admin if you need it. <Link href={items[0]?.href ?? '/'}>Go to {items[0]?.label ?? 'home'}</Link>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
+      <HelpChat suggestions={STAFF_QUESTIONS} />
     </div>
   );
   return surface === 'agency' ? <AgencyProvider>{shell}</AgencyProvider> : shell;
@@ -136,6 +218,36 @@ function RailLinks({ items, current, gated }: { items: NavItem[]; current: (i: N
         </Link>
       ))}
     </>
+  );
+}
+
+/** Ends the session on the server too, so the token cannot be reused, then goes to sign-in. */
+async function signOut(router: ReturnType<typeof useRouter>) {
+  await api('/auth/sign-out', { method: 'POST', body: '{}' }).catch(() => {});
+  setSession(null);
+  router.replace('/sign-in');
+}
+
+function SignOutButton() {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      className="rail-signout"
+      type="button"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true);
+        void signOut(router);
+      }}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <path d="M16 17l5-5-5-5" />
+        <path d="M21 12H9" />
+      </svg>
+      {busy ? 'Signing out…' : 'Sign out'}
+    </button>
   );
 }
 
@@ -211,14 +323,7 @@ function UserMenu({ session }: { session: Session }) {
           <Link role="menuitem" href="/profile#appearance" onClick={() => setOpen(false)}>
             Appearance
           </Link>
-          <button
-            role="menuitem"
-            type="button"
-            onClick={() => {
-              setSession(null);
-              router.replace('/sign-in');
-            }}
-          >
+          <button role="menuitem" type="button" onClick={() => signOut(router)}>
             Sign out
           </button>
         </div>
