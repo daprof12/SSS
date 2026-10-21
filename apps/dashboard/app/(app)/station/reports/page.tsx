@@ -1,6 +1,8 @@
 'use client';
 // Board "Station reports": how this station is doing, by day, by type and by citizen rating; and the
 // false alarms waiting for the head to confirm (B8 step 1).
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
@@ -132,7 +134,9 @@ export default function StationReports() {
         </div>
         <div className="stat">
           <span>Average rating</span>
-          <strong>{s?.rating ?? '—'}</strong>
+          <strong>
+            <Rating value={s?.rating} size={20} empty="—" />
+          </strong>
           <small>From citizens</small>
         </div>
       </div>
@@ -186,7 +190,9 @@ export default function StationReports() {
                   <td>{x.type}</td>
                   <td>{x.postcode ?? 'GPS'}</td>
                   <td>{mmss(x.responseS)}</td>
-                  <td>{x.stars ?? '—'}</td>
+                  <td>
+                    <Rating value={x.stars} empty="—" />
+                  </td>
                   <td>
                     <strong style={{ color: OUTCOME[x.outcome] }}>{x.outcome}</strong>
                   </td>

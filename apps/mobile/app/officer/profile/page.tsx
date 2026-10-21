@@ -1,5 +1,7 @@
 'use client';
 // Board "Officer profile and rating", plus the §2.2 rows (documents, duty, alerts, security, help).
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { formatNaira } from '@erp/domain';
 import { readTheme } from '@erp/web-ui/theme';
 import Link from 'next/link';
@@ -36,6 +38,7 @@ const BADGE: Record<string, [string, string]> = {
 
 export default function OfficerProfile() {
   const router = useRouter();
+  const [signingOut, setSigningOut] = useState(false);
   const [p, setP] = useState<Profile | null>(null);
   const [theme, setTheme] = useState('System');
   const [wa, setWa] = useState<boolean | null>(null);
@@ -71,7 +74,7 @@ export default function OfficerProfile() {
       <span className="bar" aria-hidden>
         <i style={{ transform: `scaleX(${v ? v / 5 : 0})` }} />
       </span>
-      <strong>{rating(v)}</strong>
+      <Rating value={v} />
     </div>
   );
 
@@ -79,13 +82,7 @@ export default function OfficerProfile() {
     <main className="app">
       <Header back={false} />
       <div className="profile-head">
-        <span className="avatar" style={{ width: 72, height: 72, fontSize: 24, background: "var(--color-signal-soft)", color: "var(--color-signal-text)" }} aria-hidden>
-          {name
-            .split(' ')
-            .slice(-2)
-            .map((w) => w[0])
-            .join('')}
-        </span>
+        <Avatar name={name} size={72} status={p ? (p.onDuty ? 'on_duty' : 'off_duty') : null} />
         <div>
           <h1 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>{name}</h1>
           <span className="muted">{p ? `${p.agency}, ${p.station}, service no. ${p.serviceNo}` : ' '}</span>
@@ -96,9 +93,7 @@ export default function OfficerProfile() {
       <div className="card rating-card">
         <span className="muted">Rating score</span>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
-          <span className="big-number" style={{ color: 'var(--color-warning-text)' }}>
-            {rating(p?.rating.overall)}
-          </span>
+          <Rating value={p?.rating.overall} size={30} style={{ fontSize: 'var(--text-2xl, 2rem)' }} />
           <span className="muted">{p ? (p.rating.count ? `From ${p.rating.count} rated ${p.rating.count === 1 ? 'response' : 'responses'}` : 'No ratings yet') : ''}</span>
         </div>
         {bar('Arrival speed', p?.rating.arrival ?? null)}
@@ -119,7 +114,7 @@ export default function OfficerProfile() {
         <span className="grow">
           <strong>{p?.team.name ?? 'Team'}</strong>
           <span className="muted" style={{ display: 'block' }}>
-            {p ? `${p.team.officers} ${p.team.officers === 1 ? 'officer' : 'officers'}, team rating ${rating(p.team.rating)}` : ''}
+            {p ? `${p.team.officers} ${p.team.officers === 1 ? 'officer' : 'officers'}, team rating ★ ${rating(p.team.rating)}` : ''}
           </span>
         </span>
         <span className="dots" aria-hidden>
@@ -171,10 +166,14 @@ export default function OfficerProfile() {
         <button
           className="row"
           type="button"
-          disabled={p?.onDuty}
+          disabled={signingOut}
           onClick={async () => {
+            // On duty: confirm, then go off duty first so the station does not keep offering reports.
+            if (p?.onDuty && !window.confirm('You are on duty. Signing out takes you off duty. Sign out?')) return;
+            setSigningOut(true);
+            if (p?.onDuty) await api('/me/officer/duty', { method: 'PATCH', body: JSON.stringify({ onDuty: false }) }).catch(() => {});
             // Revoke on the server first, so this device's tokens stop working at once.
-            await api('/auth/sign-out', { method: 'POST' }).catch(() => {});
+            await api('/auth/sign-out', { method: 'POST', body: '{}' }).catch(() => {});
             setSession(null);
             router.replace('/sign-in');
           }}
@@ -183,8 +182,8 @@ export default function OfficerProfile() {
             <Icon name="out" />
           </span>
           <span className="grow">
-            <strong>Sign out</strong>
-            {p?.onDuty && <span className="sub">Go off duty first</span>}
+            <strong>{signingOut ? 'Signing out…' : 'Sign out'}</strong>
+            {p?.onDuty && <span className="sub">You will be taken off duty</span>}
           </span>
         </button>
       </div>

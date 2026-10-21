@@ -1,5 +1,7 @@
 'use client';
 // Board "Station officers": everyone at this station, what they are doing and how they are rated.
+import { Avatar, type PresenceStatus } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
@@ -32,12 +34,7 @@ interface Q {
   state: string;
   postcode: string | null;
 }
-const STATUS: Record<Officer['status'], [string, string]> = {
-  available: ['Available', 'var(--color-signal-text)'],
-  busy: ['Busy', 'var(--color-warning-text)'],
-  off: ['Off duty', 'var(--color-text-secondary)'],
-  invited: ['Invited', 'var(--color-warning-text)'],
-};
+const DOT: Record<Officer['status'], PresenceStatus> = { available: 'on_duty', busy: 'busy', off: 'off_duty', invited: 'invited' };
 type F = 'all' | 'on' | 'available' | 'busy' | 'off';
 
 export default function StationOfficers() {
@@ -100,7 +97,9 @@ export default function StationOfficers() {
         </div>
         <div className="stat">
           <span>Average rating</span>
-          <strong>{t?.stats.rating ?? '—'}</strong>
+          <strong>
+            <Rating value={t?.stats.rating} size={20} empty="—" />
+          </strong>
           <small>From citizens</small>
         </div>
       </div>
@@ -134,23 +133,26 @@ export default function StationOfficers() {
                   <th>Doing now</th>
                   <th>Rating</th>
                   <th>Accept time</th>
-                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {list.map((x) => (
                   <tr key={x.id} className="link" onClick={() => setSel(x.id)} aria-selected={sel === x.id} style={sel === x.id ? { background: 'var(--color-signal-soft)' } : undefined}>
                     <td>
-                      <strong>{x.name}</strong>
-                      <div className="muted">{x.badgeNo}</div>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <Avatar name={x.name} size={36} status={DOT[x.status]} />
+                        <span>
+                          <strong>{x.name}</strong>
+                          <div className="muted">{x.badgeNo}</div>
+                        </span>
+                      </span>
                     </td>
                     <td>{x.role}</td>
                     <td>{x.doingNow}</td>
-                    <td>{x.rating ?? (x.verified ? '—' : 'New')}</td>
-                    <td>{x.acceptS != null ? `${x.acceptS}s` : '—'}</td>
                     <td>
-                      <strong style={{ color: STATUS[x.status][1] }}>{STATUS[x.status][0]}</strong>
+                      <Rating value={x.rating} empty={x.verified ? '—' : 'New'} />
                     </td>
+                    <td>{x.acceptS != null ? `${x.acceptS}s` : '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -159,8 +161,9 @@ export default function StationOfficers() {
         </div>
         {o && (
           <section className="card" aria-labelledby="sel">
-            <h2 id="sel" style={{ marginTop: 0 }}>
-              Selected: {o.name}
+            <h2 id="sel" style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Avatar name={o.name} size={44} status={DOT[o.status]} />
+              {o.name}
             </h2>
             <div className="chips" style={{ marginBottom: 12 }}>
               <span className="chip neutral">{o.role}</span>
@@ -178,7 +181,9 @@ export default function StationOfficers() {
               </div>
               <div>
                 <dt>Average rating</dt>
-                <dd>{o.rating ?? '—'}</dd>
+                <dd>
+                  <Rating value={o.rating} empty="—" />
+                </dd>
               </div>
               <div>
                 <dt>Rewards earned this month</dt>

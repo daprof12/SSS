@@ -1,8 +1,10 @@
 'use client';
 // Board "Officer team": the station's officers with duty and rating; shifts; recent activity.
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/AppFrame';
-import { clockTime, Dot, mmss, rating } from '@/components/officer/work';
+import { clockTime, mmss } from '@/components/officer/work';
 import { api, ApiError } from '@/lib/client';
 
 interface Team {
@@ -48,7 +50,9 @@ export default function OfficerTeam() {
       <div className="stats">
         <div className="stat">
           <small>Team rating</small>
-          <strong style={{ color: 'var(--color-warning-text)' }}>{rating(t?.stats.rating)}</strong>
+          <strong>
+            <Rating value={t?.stats.rating} size={16} />
+          </strong>
         </div>
         <div className="stat">
           <small>Responses</small>
@@ -78,7 +82,7 @@ export default function OfficerTeam() {
         <div className="member-list" role="tabpanel">
           {t.members.map((m, i) => (
             <div key={m.id} className="member-row">
-              <Dot i={i} off={!m.onDuty} />
+              <Avatar name={m.name} status={m.onDuty ? 'on_duty' : 'off_duty'} />
               <span className="grow">
                 <strong>{m.name}</strong>
                 <span className="sub">
@@ -86,7 +90,7 @@ export default function OfficerTeam() {
                   {m.onDuty ? 'on duty' : m.backAt ? `off duty, back ${dayLabel(m.backAt).toLowerCase()} ${clockTime(m.backAt)}` : 'off duty'}
                 </span>
               </span>
-              <span className="rated">{rating(m.rating)}</span>
+              <Rating value={m.rating} />
             </div>
           ))}
         </div>

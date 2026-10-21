@@ -1,5 +1,7 @@
 'use client';
 
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { formatNaira } from '@erp/domain';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -60,9 +62,7 @@ export default function Profile() {
     <main className="app">
       <Header back={false} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-        <span className="avatar" style={{ width: 72, height: 72, fontSize: 24 }} aria-hidden>
-          {(me?.name ?? '').split(' ').map((w) => w[0]).join('').slice(0, 2)}
-        </span>
+        <Avatar name={me?.name ?? ' '} size={72} />
         <div>
           <h1 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>{me?.name ?? ' '}</h1>
           {me?.kyc.status === 'verified' ? (

@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Toast, useToast } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError, getSession, haptic, locate, typeInfo } from '@/lib/client';
 
 interface Item {
@@ -97,12 +99,24 @@ export default function OfficerHome() {
   return (
     <main className="app">
       <header className="header">
-        <span className="avatar" aria-hidden>
-          {name.split(' ').slice(-2).map((w) => w[0]).join('')}
-        </span>
+        {/* Tap your avatar to go on or off duty; the dot at its corner shows which. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!!h?.onDuty}
+          aria-label={h?.onDuty ? 'On duty. Tap to go off duty' : 'Off duty. Tap to go on duty'}
+          onClick={toggleDuty}
+          disabled={!h || busy}
+          style={{ border: 0, padding: 0, background: 'none', borderRadius: '50%', cursor: 'pointer', opacity: busy ? 0.6 : 1 }}
+        >
+          <Avatar name={name} size={56} status={h ? (h.onDuty ? 'on_duty' : 'off_duty') : null} />
+        </button>
         <div className="greeting">
           <strong style={{ fontSize: 'var(--text-lg)' }}>Hello, {first}</strong>
-          <small>Station 4 Ikeja</small>
+          <small>
+            Station 4 Ikeja ·{' '}
+            <span style={{ color: h?.onDuty ? 'var(--color-success-text)' : 'var(--color-text-secondary)', fontWeight: 600 }}>{busy ? 'Updating…' : h ? (h.onDuty ? 'On duty' : 'Off duty, tap your photo') : ''}</span>
+          </small>
         </div>
         <span className="spacer" />
         <Link href="/officer/notifications" className="round-btn" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}>
@@ -111,9 +125,6 @@ export default function OfficerHome() {
         </Link>
       </header>
 
-      <button className={`duty ${h?.onDuty ? 'on' : 'off'}`} type="button" role="switch" aria-checked={!!h?.onDuty} onClick={toggleDuty} disabled={!h || busy} style={{ marginBottom: 16 }}>
-        <i aria-hidden /> {busy ? 'Updating…' : h?.onDuty ? 'On duty' : 'Off duty'}
-      </button>
       {h?.banner && (
         <div className="banner warning" role="status">
           {h.banner}
@@ -131,7 +142,9 @@ export default function OfficerHome() {
         </div>
         <div className="stat">
           <small>Rating</small>
-          <strong style={{ color: 'var(--color-warning-text)' }}>{h?.today.rating ?? '–'}</strong>
+          <strong>
+            <Rating value={h?.today.rating == null ? null : Number(h.today.rating)} size={16} />
+          </strong>
         </div>
       </div>
 
@@ -163,7 +176,7 @@ export default function OfficerHome() {
                 {tab === 'offers' && `${km(it.distance_m)} away · ${it.secondsLeft}s to accept`}
                 {tab === 'active' && (it.eta_minutes ? `About ${it.eta_minutes} min away` : it.area_label)}
                 {tab === 'team' && it.officer}
-                {tab === 'done' && (it.stars ? `Rated ${it.stars} of 5` : 'Waiting for the citizen to rate')}
+                {tab === 'done' && (it.stars ? <Rating value={it.stars} /> : 'Waiting for the citizen to rate')}
               </span>
             </span>
             <span className={`chip ${tone}`}>{label}</span>

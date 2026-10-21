@@ -1,5 +1,7 @@
 'use client';
 
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useEffect, useState } from 'react';
 import { Header, Toast, useToast } from '@/components/AppFrame';
@@ -43,9 +45,7 @@ export default function Contacts() {
         <div className="list">
           {list.map((c) => (
             <div key={c.id} className="row" style={{ cursor: 'default' }}>
-              <span className="avatar" aria-hidden>
-                {c.name.slice(0, 1)}
-              </span>
+              <Avatar name={c.name} />
               <span className="grow">
                 <strong>{c.name}</strong>
                 <span className="sub">

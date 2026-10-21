@@ -1,5 +1,6 @@
 'use client';
 
+import { Avatar } from '@erp/web-ui/Avatar';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api, setSession } from '@/lib/client';
@@ -48,13 +49,7 @@ export default function DemoSignIn() {
       <div className="list">
         {PEOPLE.map((p) => (
           <button key={p.key} className="row" type="button" disabled={!!busy} onClick={() => go(p)}>
-            <span className="avatar" aria-hidden>
-              {p.name
-                .split(' ')
-                .map((w) => w[0])
-                .join('')
-                .slice(0, 2)}
-            </span>
+            <Avatar name={p.name} />
             <span className="grow">
               <strong>{p.name}</strong>
               <span className="sub">{p.role}</span>

@@ -1,5 +1,7 @@
 'use client';
 // Board "Agency overview": how your stations are doing today.
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -69,7 +71,9 @@ function Overview({ agency }: { agency: MyAgency }) {
         </div>
         <div className="stat">
           <span>Agency rating</span>
-          <strong>{s?.rating ?? '—'}</strong>
+          <strong>
+            <Rating value={s?.rating} size={20} empty="—" />
+          </strong>
           <small>From citizens</small>
         </div>
         <div className="stat">
@@ -104,7 +108,7 @@ function Overview({ agency }: { agency: MyAgency }) {
                 <strong>{st.name}</strong>
                 <span>{st.onDuty ? `${st.onDuty} on duty, ${st.open} open` : 'No one on duty'}</span>
               </div>
-              <strong style={{ color: !st.onDuty ? 'var(--color-emergency-text)' : (st.rating ?? 5) >= 4 ? 'var(--color-success-text)' : 'var(--color-warning-text)' }}>{!st.onDuty ? 'Offline' : (st.rating ?? '—')}</strong>
+              <strong style={{ color: !st.onDuty ? 'var(--color-emergency-text)' : (st.rating ?? 5) >= 4 ? 'var(--color-success-text)' : 'var(--color-warning-text)' }}>{!st.onDuty ? 'Offline' : <Rating value={st.rating} empty="—" />}</strong>
             </div>
           ))}
         </section>

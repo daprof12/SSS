@@ -33,7 +33,8 @@ button {
   max-width: 480px;
   margin: 0 auto;
   min-height: 100dvh;
-  padding: calc(var(--space-4) + env(safe-area-inset-top)) var(--space-4) calc(104px + env(safe-area-inset-bottom));
+  /* Room for the tab bar and the floating Help button above it, so neither covers the last row. */
+  padding: calc(var(--space-4) + env(safe-area-inset-top)) var(--space-4) calc(156px + env(safe-area-inset-bottom));
   animation: page-in var(--motion-sheet-enter-duration) var(--motion-sheet-enter-easing);
 }
 .app.bare {
@@ -2391,7 +2392,7 @@ button {
 }
 .rating-bar {
   display: grid;
-  grid-template-columns: 110px 1fr 36px;
+  grid-template-columns: 110px 1fr auto;
   align-items: center;
   gap: var(--space-3);
 }

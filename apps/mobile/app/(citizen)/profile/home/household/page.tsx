@@ -1,5 +1,7 @@
 'use client';
 
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useEffect, useState } from 'react';
 import { Header, Toast, useToast } from '@/components/AppFrame';
@@ -104,9 +106,9 @@ export default function Household() {
       <div className="member-list">
         {h?.people.map((p) => (
           <div key={`${p.role}-${p.id}`} className="member-row card" style={{ margin: 0 }}>
-            <span className="avatar" aria-hidden>
-              {p.role === 'invited' ? '+' : p.name.slice(0, 1)}
-            </span>
+            <Avatar name={p.name} status={p.role === 'invited' ? 'invited' : null}>
+              {p.role === 'invited' ? '+' : undefined}
+            </Avatar>
             <span className="grow">
               <strong>{p.name}</strong>
               {p.can && <span className="sub">{PERMS.filter(([k]) => p.can![k]).map(([, l]) => l).join(', ') || 'No access yet'}</span>}

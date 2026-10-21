@@ -13,7 +13,9 @@
     "./HelpChat": "./src/HelpChat.tsx",
     "./sounds": "./src/sounds.ts",
     "./NotificationSounds": "./src/NotificationSounds.tsx",
-    "./SoundSettings": "./src/SoundSettings.tsx"
+    "./SoundSettings": "./src/SoundSettings.tsx",
+    "./Avatar": "./src/Avatar.tsx",
+    "./Rating": "./src/Rating.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

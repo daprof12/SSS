@@ -1,8 +1,10 @@
 'use client';
 // Board "Officer activity detail": facts, the team with each officer's rating and reward, and the citizen's comment.
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { use, useEffect, useState } from 'react';
 import { Header } from '@/components/AppFrame';
-import { dateTime, Dot, mmss, rating } from '@/components/officer/work';
+import { dateTime, mmss } from '@/components/officer/work';
 import { api, ApiError } from '@/lib/client';
 import { formatNaira } from '@erp/domain';
 
@@ -46,7 +48,7 @@ export default function ActivityDetail({ params }: { params: Promise<{ id: strin
   return (
     <main className="app">
       <Header title={d.title} back="/officer/history">
-        <span className="rated big">{d.stars ? d.stars.toFixed(1) : 'Not rated'}</span>
+        <Rating value={d.stars} empty="Not rated" size={20} style={{ fontSize: 'var(--text-lg)' }} />
       </Header>
       <dl className="facts-list">
         <div>
@@ -70,12 +72,12 @@ export default function ActivityDetail({ params }: { params: Promise<{ id: strin
       <div className="member-list">
         {d.team.map((m, i) => (
           <div key={i} className="member-row">
-            <Dot i={m.you ? 0 : i + (d.team[0]?.you ? 0 : 1)} size={48} />
+            <Avatar name={m.name} size={48} />
             <span className="grow">
               <strong>{m.name}</strong>
               <span className="sub">{m.role}</span>
             </span>
-            <span className="rated">{rating(m.rating)}</span>
+            <Rating value={m.rating} />
             {m.rewardKobo != null && <span className="reward">+{formatNaira(m.rewardKobo).replace('.00', '')}</span>}
           </div>
         ))}

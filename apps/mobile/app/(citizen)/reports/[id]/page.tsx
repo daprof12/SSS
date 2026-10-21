@@ -1,5 +1,7 @@
 'use client';
 
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { timelineSteps } from '@erp/domain';
 import { Sheet } from '@erp/web-ui/Sheet';
 import Link from 'next/link';
@@ -148,9 +150,7 @@ export default function LiveStatus({ params }: { params: Promise<{ id: string }>
 
       {s.showOfficerCard && v.officer && (
         <div className="officer-card">
-          <span className="avatar" aria-hidden>
-            <Icon name="user" />
-          </span>
+          <Avatar name={v.officer.name} status={['accepted', 'en_route', 'on_scene'].includes(v.state) ? 'on_duty' : null} />
           <span style={{ flex: 1, minWidth: 0 }}>
             <strong style={{ display: 'block' }}>{v.officer.name}</strong>
             <span className="muted">

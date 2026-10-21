@@ -1,5 +1,7 @@
 'use client';
 
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { formatNaira } from '@erp/domain';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -102,7 +104,7 @@ export default function Donate() {
               <strong>{x.name}</strong>
               <span className="sub">{x.sub}</span>
             </span>
-            {x.rating != null && <span className="rating">{x.rating.toFixed(1)} rating</span>}
+            {x.rating != null && <Rating value={x.rating} />}
           </button>
         ))}
       </div>

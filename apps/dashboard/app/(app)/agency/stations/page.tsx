@@ -1,5 +1,7 @@
 'use client';
 // Board "Agency stations": every station, its head, who is on duty and how it is rated.
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -83,7 +85,9 @@ function Stations({ agency }: { agency: MyAgency }) {
                   <td style={{ color: s.status === 'active' && !s.onDuty ? 'var(--color-emergency-text)' : undefined, fontWeight: 700 }}>{s.onDuty}</td>
                   <td>{s.open}</td>
                   <td>{s.reportsMonth}</td>
-                  <td>{s.rating ?? '—'}</td>
+                  <td>
+                    <Rating value={s.rating} empty="—" />
+                  </td>
                   <td>
                     <span className={`chip ${STATUS[s.status]?.[1] ?? 'neutral'}`}>{STATUS[s.status]?.[0] ?? s.status}</span>
                   </td>

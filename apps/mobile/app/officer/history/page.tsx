@@ -1,5 +1,7 @@
 'use client';
 // Board "Officer history and team ratings": the station's responses, with mine marked.
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { rating, shortDate } from '@/components/officer/work';
@@ -60,11 +62,15 @@ export default function OfficerHistory() {
         </div>
         <div className="stat">
           <small>My rating</small>
-          <strong style={{ color: 'var(--color-warning-text)' }}>{rating(h?.stats.myRating)}</strong>
+          <strong>
+            <Rating value={h?.stats.myRating} size={16} />
+          </strong>
         </div>
         <div className="stat">
           <small>Team rating</small>
-          <strong style={{ color: 'var(--color-signal-text)' }}>{rating(h?.stats.teamRating)}</strong>
+          <strong>
+            <Rating value={h?.stats.teamRating} size={16} />
+          </strong>
         </div>
       </div>
       <div className="chips learn-chips" role="tablist" aria-label="Show">
@@ -97,7 +103,7 @@ export default function OfficerHistory() {
               </span>
               <span className="history-bottom">
                 <span className="muted">{r.people}</span>
-                <span className="rated">{r.stars ? `Rated ${r.stars.toFixed(1)}` : 'Rated Not yet'}</span>
+                <Rating value={r.stars} empty="Not rated yet" />
               </span>
             </Link>
           ))}

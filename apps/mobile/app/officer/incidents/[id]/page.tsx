@@ -1,5 +1,7 @@
 'use client';
 
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { CloseReportSheet } from '@erp/web-ui/CloseReportSheet';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { StateChip } from '@erp/web-ui/StateChip';
@@ -198,7 +200,9 @@ export default function OfficerIncident({ params }: { params: Promise<{ id: stri
 
       {v.rating && (
         <div className="banner success">
-          <strong>Rated {v.rating.stars} of 5</strong>
+          <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            Rated <Rating value={v.rating.stars} /> of 5
+          </strong>
           {v.rating.comment}
         </div>
       )}

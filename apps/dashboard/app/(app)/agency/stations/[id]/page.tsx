@@ -1,6 +1,8 @@
 'use client';
 // Board "Station detail" (agency): who is on duty, live reports, the area the station covers, its
 // equipment and the devices watching nearby. Edit the station or add an officer from here.
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
 import { Sheet } from '@erp/web-ui/Sheet';
 import Link from 'next/link';
@@ -27,12 +29,6 @@ interface Detail {
   devices: { cameras: { total: number; online: number; faults: number }; lights: { total: number; online: number; lowPower: number }; tamper24h: number };
   reports: { id: string; label: string; state: string; at: string; closedAt: string | null }[];
 }
-const OFF: Record<string, [string, string]> = {
-  on_duty: ['On duty', 'var(--color-success-text)'],
-  busy: ['Busy', 'var(--color-warning-text)'],
-  off_duty: ['Off duty', 'var(--color-text-secondary)'],
-  invited: ['Invited', 'var(--color-warning-text)'],
-};
 type Tab = 'overview' | 'officers' | 'equipment' | 'coverage' | 'reports';
 
 export default function StationDetailPage() {
@@ -105,7 +101,9 @@ function StationDetail({ agency, id }: { agency: MyAgency; id: string }) {
           </div>
           <div className="stat">
             <span>Station rating</span>
-            <strong>{d.stats.rating ?? '—'}</strong>
+            <strong>
+              <Rating value={d.stats.rating} size={20} empty="—" />
+            </strong>
             <small>From citizens</small>
           </div>
         </div>
@@ -118,12 +116,12 @@ function StationDetail({ agency, id }: { agency: MyAgency; id: string }) {
             </h2>
             {!d.officers.length && <p className="muted">No officers yet.</p>}
             {(tab === 'officers' ? d.officers : d.officers.slice(0, 6)).map((o) => (
-              <div className="row" key={o.id}>
+              <div className="row" key={o.id} style={{ justifyContent: 'flex-start' }}>
+                <Avatar name={o.name} size={40} status={o.status} />
                 <div className="label">
                   <strong>{o.name}</strong>
                   <span>{o.line}</span>
                 </div>
-                <strong style={{ color: OFF[o.status]![1] }}>{OFF[o.status]![0]}</strong>
               </div>
             ))}
           </section>

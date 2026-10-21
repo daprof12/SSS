@@ -8,7 +8,8 @@ import { MockPaystackAdapter, PAYMENTS, type PaymentsAdapter } from '../adapters
 import { MockSmsAdapter, SMS, type SmsAdapter } from '../adapters/sms';
 import { MockWhatsAppAdapter, WHATSAPP, type WhatsAppAdapter } from '../adapters/whatsapp';
 import { Public, TokenService, type RoleGrant } from '../core/auth';
-import { Db } from '../core/db';
+import { CONFIG, type AppConfig } from '../core/config';
+import { Db, type Queryable } from '../core/db';
 import { AppError, ZodPipe } from '../core/http';
 import { WalletService } from '../wallet/wallet.service';
 import { BillingService, chargeFailed } from '../citizen/billing.service';
@@ -42,7 +43,75 @@ export class DevController {
     @Inject(WalletService) private readonly wallet: WalletService,
     @Inject(BillingService) private readonly billing: BillingService,
     @Inject(WHATSAPP) private readonly whatsapp: WhatsAppAdapter,
+    @Inject(CONFIG) private readonly config: AppConfig,
   ) {}
+
+  /**
+   * One live report so every role sees the same flow: Ada's robbery report at Maple Road, offered to
+   * Insp. Musa Bello at Station 4 Ikeja. The citizen tracks it, the officer can accept or decline,
+   * the station and agency see it live, and the admin sees it on the map. Kept active: each seed
+   * renews the offer window. Not created in tests.
+   */
+  private async demoOffer(c: Queryable, ids: Record<string, string>, station: string, agency: string, fresh = false) {
+    const open = (
+      await c.query(
+        `select i.id from incidents i join incident_reports r on r.incident_id = i.id and r.client_ref like 'demo-offer-%'
+          where i.state not in ('resolved', 'unfounded', 'cancelled', 'merged') order by i.created_at desc limit 1`,
+      )
+    ).rows[0];
+    if (open && !fresh) {
+      // Still waiting: keep the offer open for the next 30 minutes.
+      await c.query(`update incident_units set offer_expires_at = now() + interval '30 minutes' where incident_id = $1 and state = 'offered'`, [open.id]);
+      return open.id as string;
+    }
+    const loc = (await c.query(`select l.id from saved_places sp join locations l on l.id = sp.location_id where sp.user_id = $1 and sp.is_home`, [ids.citizen])).rows[0].id;
+    const inc = (
+      await c.query(
+        `insert into incidents (reporter_id, type, location_id, geom, state, severity, agency_id, station_id, received_at, created_at)
+         select $1, 'robbery', l.id, l.geom, 'offered', 3, $3, $4, now() - interval '90 seconds', now() - interval '95 seconds' from locations l where l.id = $2 returning id`,
+        [ids.citizen, loc, agency, station],
+      )
+    ).rows[0].id;
+    await c.query(
+      `insert into incident_reports (incident_id, reporter_id, source, role, type_chosen, answers, client_ref, created_at)
+       values ($1, $2, 'app', 'first', 'robbery', '{"weapons": "yes", "people": "2 men at the gate"}', $3, now() - interval '95 seconds')`,
+      [inc, ids.citizen, `demo-offer-${Date.now()}`],
+    );
+    await c.query(
+      `insert into incident_units (incident_id, station_id, officer_id, role, state, offered_at, offer_expires_at) values ($1, $2, $3, 'primary', 'offered', now() - interval '20 seconds', now() + interval '30 minutes')`,
+      [inc, station, ids.officer],
+    );
+    for (const [kind, from, to, label, at] of [
+      ['confirm', null, 'pending_cancel', 'Sending', 95],
+      ['window_elapsed', 'pending_cancel', 'received', 'Report received', 90],
+      ['route', 'received', 'offered', 'Sent to the nearest team', 20],
+    ] as const) {
+      await c.query(
+        `insert into incident_events (incident_id, actor_id, actor_kind, kind, from_state, to_state, payload, public, at) values ($1, $2, $3, $4, $5, $6, $7, true, now() - make_interval(secs => $8))`,
+        [inc, kind === 'confirm' ? ids.citizen : null, kind === 'confirm' ? 'reporter' : 'system', kind, from, to, { label, stationId: station }, at],
+      );
+    }
+    await c.query(
+      `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values
+         ($1, 'report_received', 'reports', 'in_app', 'Report received', 'We got your report. Finding the nearest team.', $4),
+         ($2, 'new_offer', 'dispatch', 'in_app', 'New offer', 'Robbery at AB12C. Accept within 30 minutes (demo).', $5),
+         ($3, 'station_new_report', 'dispatch', 'in_app', 'New report', 'Robbery at AB12C. Offered to an officer.', $6)`,
+      [ids.citizen, ids.officer, ids.head, `/reports/${inc}`, `/offers/${inc}`, `/incidents/${inc}`],
+    );
+    return inc as string;
+  }
+
+  /** Start a fresh demo report and offer (the previous one stays as it is). */
+  @Post('demo-offer')
+  async newDemoOffer() {
+    return this.db.tx(async (c) => {
+      const ids = Object.fromEntries((await c.query(`select display_name, id from users where phone = any($1::text[])`, [PEOPLE.map((p) => p.phone)])).rows.map((r) => [PEOPLE.find((p) => p.name === r.display_name)?.key, r.id]));
+      const st = (await c.query(`select id, agency_id from stations where name = 'Station 4 Ikeja'`)).rows[0];
+      if (!st || !ids.citizen) throw new AppError(409, 'seed_first', 'Run /dev/seed first.');
+      await c.query(`update officers set on_duty = true where user_id = $1`, [ids.officer]);
+      return { incidentId: await this.demoOffer(c, ids, st.id, st.agency_id, true) };
+    });
+  }
 
   /** WhatsApp messages the mock adapter "sent" (dev panel and tests). */
   @Get('whatsapp')
@@ -283,7 +352,8 @@ export class DevController {
           );
         }
       }
-      return { users: ids, agencyId: agency, stationId: station, naptipId: naptip, fermaId: ferma };
+      const demoIncidentId = this.config.env === 'test' ? null : await this.demoOffer(c, ids, station, agency);
+      return { users: ids, agencyId: agency, stationId: station, naptipId: naptip, fermaId: ferma, demoIncidentId };
     });
   }
 

@@ -1,6 +1,8 @@
 'use client';
 // Board "Agency officers and add user": officers and station heads, their ratings and rewards, and an
 // invite that the person completes by verifying their identity.
+import { Avatar } from '@erp/web-ui/Avatar';
+import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
 import { useCallback, useEffect, useState } from 'react';
 import { AgencySwitcher, useToast, WithAgency, type MyAgency } from '@/components/Agency';
@@ -17,12 +19,6 @@ interface Officer {
   rewardsKobo: number;
   status: 'on_duty' | 'off_duty' | 'busy' | 'invited';
 }
-const STATUS: Record<Officer['status'], [string, string]> = {
-  on_duty: ['On duty', 'var(--color-success-text)'],
-  busy: ['On a report', 'var(--color-info-text, var(--color-signal))'],
-  off_duty: ['Off duty', 'var(--color-text-secondary)'],
-  invited: ['Invited', 'var(--color-warning-text)'],
-};
 
 export default function AgencyOfficersPage() {
   return <WithAgency>{(a) => <Officers key={a.id} agency={a} />}</WithAgency>;
@@ -80,24 +76,28 @@ function Officers({ agency }: { agency: MyAgency }) {
                   <th>Station</th>
                   <th>Rating</th>
                   <th>Rewards</th>
-                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {d.items.map((o) => (
                   <tr key={o.id}>
                     <td>
-                      <strong>{o.name}</strong>
-                      <div className="muted">
-                        {o.role}, {o.badgeNo}
-                      </div>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <Avatar name={o.name} size={36} status={o.status} />
+                        <span>
+                          <strong>{o.name}</strong>
+                          <div className="muted">
+                            {o.role}, {o.badgeNo}
+                          </div>
+                        </span>
+                      </span>
                     </td>
                     <td>{o.station}</td>
-                    <td>{o.rating ?? 'New'}</td>
-                    <td>{naira(o.rewardsKobo)}</td>
                     <td>
-                      <strong style={{ color: STATUS[o.status][1] }}>{STATUS[o.status][0]}</strong>
+                      <Rating value={o.rating} empty="New" />
                     </td>
+                    <td>{naira(o.rewardsKobo)}</td>
+
                   </tr>
                 ))}
               </tbody>

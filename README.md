@@ -562,3 +562,15 @@ Migration 027. Tests: `apps/api/test/help.e2e.test.ts` (notification sounds).
   - Station heads and dispatchers now get a "New report" dispatch notification when a report arrives at their station.
   - Settings live in Profile → Notification sounds (citizen), Profile → Notification sounds (officer), and Profile → Notification sounds (dashboard), each with a Play button to hear a sound.
 - **Help assistant key:** the API's preview configuration (`.claude/launch.json`, outside the repository) has an empty `ANTHROPIC_API_KEY`. Put your key there and restart the API. While it is empty, the offline assistant is used.
+
+## Ratings with stars, status on avatars, officer sign-out, demo offer
+
+- **Ratings** show a star with the number (`Rating` in `packages/web-ui`) everywhere a rating appears:
+  - Officer app: home, team, history, profile, the incident screen.
+  - Citizen app: donations.
+  - Dashboards: station officers and reports, agency overview, stations, station detail and officers.
+- **Avatars** (`Avatar` in `packages/web-ui`) show initials, with a status dot at the bottom right: on duty, on a report, off duty, or invited. The dot replaces the separate status row or column.
+  - The officer taps their own avatar on Home to go on or off duty.
+  - Used in the officer home, profile, team and history; the citizen's officer card, profile, household and contacts; and the station and agency officer lists.
+- **Officer sign-out** works while on duty. It asks first, takes the officer off duty, then signs out. The app's bottom padding leaves room for the Help button, so it no longer covers the last row.
+- **Demo offer:** `/dev/seed` (outside tests) keeps one live report: Ada's robbery at AB12C, offered to Insp. Musa Bello. Each seed keeps the offer open for 30 more minutes. The citizen, officer, station, agency and admin all see it. `POST /dev/demo-offer` starts a fresh one.
