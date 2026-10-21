@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { SoundSettings } from '@erp/web-ui/SoundSettings';
 import { ThemeSwitch } from '@erp/web-ui/ThemeSwitch';
 import { api, ApiError } from '@erp/web-ui/api';
 import { applyMotion, applyTheme, onThemeChange, type ThemeChoice } from '@erp/web-ui/theme';
@@ -159,6 +160,14 @@ export default function Profile() {
               Manage
             </button>
           </div>
+        </section>
+
+        <section className="card" id="sounds" aria-labelledby="snd">
+          <h2 id="snd">Notification sounds</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            The dashboard plays these while it is open, even in a background tab. Pick a loud one for incoming reports.
+          </p>
+          <SoundSettings />
         </section>
 
         <section className="card" id="appearance" aria-labelledby="look">

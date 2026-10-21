@@ -10,7 +10,10 @@
     "./ThemeSwitch": "./src/ThemeSwitch.tsx",
     "./StateChip": "./src/StateChip.tsx",
     "./CloseReportSheet": "./src/CloseReportSheet.tsx",
-    "./HelpChat": "./src/HelpChat.tsx"
+    "./HelpChat": "./src/HelpChat.tsx",
+    "./sounds": "./src/sounds.ts",
+    "./NotificationSounds": "./src/NotificationSounds.tsx",
+    "./SoundSettings": "./src/SoundSettings.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

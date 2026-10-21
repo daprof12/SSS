@@ -797,8 +797,12 @@ export class IncidentsService implements OnModuleDestroy {
       case 'route':
       case 'reoffer':
       case 'assign': {
-        const u = (await c.query(`select officer_id, extract(epoch from (offer_expires_at - now()))::int as s from incident_units where incident_id = $1 and state = 'offered' order by offered_at desc limit 1`, [incidentId])).rows[0];
+        const u = (await c.query(`select officer_id, station_id, extract(epoch from (offer_expires_at - now()))::int as s from incident_units where incident_id = $1 and state = 'offered' order by offered_at desc limit 1`, [incidentId])).rows[0];
         if (!u) return;
+        // The station hears about a new report when it first arrives (its dashboard plays the dispatch sound).
+        if (event === 'route' && u.station_id) {
+          await this.notifyStationHeads(c, u.station_id, 'station_new_report', 'New report', `${cap(info.type)} at ${info.postcode ?? 'GPS location'}. Offered to an officer.`, incidentId);
+        }
         await c.query(
           `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'new_offer', 'dispatch', 'in_app', 'New offer', $2, $3)`,
           [u.officer_id, `${cap(info.type)} at ${info.postcode ?? 'GPS location'}. Accept within ${Math.max(0, u.s)} seconds.`, `/offers/${incidentId}`],

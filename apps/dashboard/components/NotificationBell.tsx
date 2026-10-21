@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { NEW_NOTIFICATIONS } from '@erp/web-ui/sounds';
 import { api } from '@erp/web-ui/api';
 
 interface Note {
@@ -38,7 +39,12 @@ export function NotificationBell() {
     load();
     // Foundation polls; the push channel replaces this.
     const t = setInterval(load, 15000);
-    return () => clearInterval(t);
+    // The sound watcher found something new: show it now rather than at the next poll.
+    window.addEventListener(NEW_NOTIFICATIONS, load);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(NEW_NOTIFICATIONS, load);
+    };
   }, [load]);
 
   useEffect(() => {

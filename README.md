@@ -546,3 +546,19 @@ Migrations 024 to 026. Tests: `apps/api/test/statements.e2e.test.ts`, `agency-rb
     - Tools for agencies, Learn, the person's own reports and open items, plus web search and a hand-off tool.
     - `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) re-runs a policy decline on Anthropic's recommended model.
   - Without a key, and always in tests, an offline stand-in answers from the same guide and lookups. Usage appears under AI and LLM as "Help chat assistant".
+
+## Page spacing and notification sounds
+
+Migration 027. Tests: `apps/api/test/help.e2e.test.ts` (notification sounds).
+
+- **Spacing:** page headers, cards and grids on the dashboards now have a bottom margin, so blocks never touch. Inside a grid, the grid's gap spaces them. A script checked every admin, agency and station page for blocks less than 6px apart and found none.
+- **Notification sounds** (`packages/web-ui/src/sounds.ts`, `NotificationSounds.tsx`, `SoundSettings.tsx`):
+  - Sounds are synthesised in the browser: siren, alarm, bell, chime, pulse, drum, soft pop, or silent. There are no audio files.
+  - Each person picks one for each kind of notification: incoming reports and offers, safety alerts, updates on reports, and everything else. They also set volume and vibration.
+  - Choices are saved to the account (`users.sounds`, `PATCH /me/preferences { sounds }`), so they follow the person to every device.
+  - The citizen app, officer app and dashboards check `/me/notifications/new?after=` every 4 to 8 seconds, including in a background tab. When something new arrives they play the most urgent kind's sound and vibrate on phones.
+  - Discreet mode silences everything.
+  - Browsers allow sound only after the first tap on the page.
+  - Station heads and dispatchers now get a "New report" dispatch notification when a report arrives at their station.
+  - Settings live in Profile → Notification sounds (citizen), Profile → Notification sounds (officer), and Profile → Notification sounds (dashboard), each with a Play button to hear a sound.
+- **Help assistant key:** the API's preview configuration (`.claude/launch.json`, outside the repository) has an empty `ANTHROPIC_API_KEY`. Put your key there and restart the API. While it is empty, the offline assistant is used.

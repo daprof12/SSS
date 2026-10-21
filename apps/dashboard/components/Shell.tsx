@@ -10,6 +10,7 @@ import { api, getSession, setSession, type Session } from '@erp/web-ui/api';
 import { applyMotion, applyTheme, onThemeChange, readTheme, type ThemeChoice } from '@erp/web-ui/theme';
 import { holds, type Permission } from '@erp/domain';
 import { HelpChat } from '@erp/web-ui/HelpChat';
+import { NotificationSounds } from '@erp/web-ui/NotificationSounds';
 
 interface NavItem {
   label: string;
@@ -198,6 +199,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
       <HelpChat suggestions={STAFF_QUESTIONS} />
+      <NotificationSounds everyMs={5000} />
     </div>
   );
   return surface === 'agency' ? <AgencyProvider>{shell}</AgencyProvider> : shell;

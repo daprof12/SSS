@@ -113,6 +113,7 @@ export default function Profile() {
         <Row href="/profile/appearance" icon="sun" label="Appearance" end={me ? me.preferences.theme[0]!.toUpperCase() + me.preferences.theme.slice(1) : ''} />
         <Row href="/notifications" icon="bell" label="Notifications" />
         <Row href="/profile/language" icon="globe" label="Language" end={LANG[me?.preferences.locale ?? 'en']} />
+        <Row href="/profile/sounds" icon="bell" label="Notification sounds" end="" />
         <Row href="/help" icon="help" label="Help and support" />
       </div>
 

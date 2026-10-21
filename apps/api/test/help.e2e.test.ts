@@ -84,3 +84,33 @@ describe('help chat', () => {
     expect(officer.messages.at(-1).body).toMatch(/code sent to their phone|in person/i);
   });
 });
+
+describe('notification sounds', () => {
+  it('each person keeps their own sounds; changes merge one at a time', async () => {
+    const me = (await http.get('/me').set(as('head')).expect(200)).body;
+    expect(me.preferences.sounds).toEqual({ dispatch: 'siren', safety: 'alarm', reports: 'chime', general: 'soft', volume: 80, vibrate: true });
+    await http.patch('/me/preferences').set(as('head')).send({ sounds: { dispatch: 'bell', volume: 60 } }).expect(200);
+    await http.patch('/me/preferences').set(as('head')).send({ sounds: { dispatch: 'trumpet' } }).expect(400);
+    expect((await http.get('/me').set(as('head'))).body.preferences.sounds).toMatchObject({ dispatch: 'bell', safety: 'alarm', volume: 60 });
+    expect((await http.get('/me').set(as('officer'))).body.preferences.sounds.dispatch).toBe('siren');
+  });
+
+  it('a new report reaches the station head and the officer as dispatch notifications, read by the sound watcher', async () => {
+    const start = (await http.get('/me/notifications/new').set(as('head')).expect(200)).body;
+    expect(start.items).toEqual([]);
+    const officerStart = (await http.get('/me/notifications/new').set(as('officer')).expect(200)).body.now;
+    await http.post('/incidents').set(as('neighbour')).send({ type: 'robbery', postcode: 'AB12C', clientRef: `snd-${Date.now()}` }).expect(201);
+    let items: any[] = [];
+    for (let i = 0; i < 60 && !items.length; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      items = (await http.get(`/me/notifications/new?after=${encodeURIComponent(start.now)}`).set(as('head'))).body.items;
+    }
+    expect(items[0]).toMatchObject({ type: 'station_new_report', group: 'dispatch', title: 'New report' });
+    const offers = [
+      ...(await http.get(`/me/notifications/new?after=${encodeURIComponent(officerStart)}`).set(as('officer'))).body.items,
+      ...(await http.get(`/me/notifications/new?after=${encodeURIComponent(officerStart)}`).set(as('officer2'))).body.items,
+    ];
+    expect(offers.some((n: any) => n.type === 'new_offer' && n.group === 'dispatch')).toBe(true);
+    await http.get('/me/notifications/new?after=yesterday').set(as('head')).expect(400);
+  });
+});

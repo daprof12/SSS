@@ -1,6 +1,7 @@
 'use client';
 
 import { HelpChat } from '@erp/web-ui/HelpChat';
+import { NotificationSounds } from '@erp/web-ui/NotificationSounds';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -46,6 +47,7 @@ export function AppFrame({ surface, children }: { surface: Surface; children: Re
   return (
     <>
       {children}
+      <NotificationSounds everyMs={surface === 'officer' ? 4000 : 8000} />
       {bar && (surface === 'citizen' ? <CitizenBar /> : <OfficerBar />)}
       {/* Help chat floats above the tab bar; hidden on full-screen flows (reporting, paying, statements). */}
       {bar && <HelpChat bottom={88} suggestions={surface === 'officer' ? OFFICER_QUESTIONS : undefined} />}

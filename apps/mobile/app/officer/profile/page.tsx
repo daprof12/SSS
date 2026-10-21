@@ -143,6 +143,7 @@ export default function OfficerProfile() {
         {row('/officer/shifts', 'history', 'Duty and shifts', p ? (p.onDuty ? 'On duty' : 'Off duty') : '')}
         {row('/officer/statements', 'history', 'My statements', '')}
         {row('/officer/notifications', 'bell', 'Dispatch alerts')}
+        {row('/officer/sounds', 'bell', 'Notification sounds')}
         <div className="row" style={{ cursor: 'default' }}>
           <span className="grow">
             <strong>Station messages on WhatsApp</strong>

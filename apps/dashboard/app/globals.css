@@ -405,6 +405,22 @@ h1 {
   border-radius: var(--radius-card);
   padding: var(--space-5);
 }
+/* Vertical rhythm: blocks on a page never touch. Inside a grid the grid's gap does the spacing, and
+   the last thing inside a card has no margin so the card's padding stays even. */
+.page-head,
+.card,
+.grid {
+  margin-bottom: var(--space-4);
+}
+.page-head {
+  margin-bottom: var(--space-5);
+}
+.grid > *,
+.stats > *,
+.card > :last-child,
+.content > :last-child {
+  margin-bottom: 0;
+}
 .card h2 {
   font-size: var(--text-lg);
   margin: 0 0 var(--space-4);

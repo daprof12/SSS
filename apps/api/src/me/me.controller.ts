@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
-import { accountDeletionBlockers, kobo, mfaRequired } from '@erp/domain';
+import { accountDeletionBlockers, kobo, mfaRequired, DEFAULT_SOUNDS, SOUNDS, type SoundCode } from '@erp/domain';
 import { KYC, type KycAdapter } from '../adapters/kyc';
 import { POSTCODE, PostcodeUnavailable, type PostcodeAdapter } from '../adapters/postcode';
 import { Audit } from '../core/audit';
@@ -9,6 +9,7 @@ import { Db } from '../core/db';
 import { AppError, ZodPipe } from '../core/http';
 import { WalletService } from '../wallet/wallet.service';
 
+const SOUND_CODES = SOUNDS.map((s) => s.code) as [SoundCode, ...SoundCode[]];
 const Prefs = z
   .object({
     theme: z.enum(['system', 'light', 'dark']),
@@ -16,6 +17,16 @@ const Prefs = z
     reduceMotion: z.boolean(),
     discreetMode: z.boolean(),
     whatsappOptIn: z.boolean(),
+    sounds: z
+      .object({
+        dispatch: z.enum(SOUND_CODES),
+        safety: z.enum(SOUND_CODES),
+        reports: z.enum(SOUND_CODES),
+        general: z.enum(SOUND_CODES),
+        volume: z.number().int().min(0).max(100),
+        vibrate: z.boolean(),
+      })
+      .partial(),
   })
   .partial()
   .refine((o) => Object.keys(o).length > 0, 'Nothing to change.');
@@ -23,6 +34,7 @@ const Prefs = z
 const ProfileBody = z.object({ name: z.string().trim().min(2, 'Enter your name.').max(80) });
 const OnboardingBody = z.object({ step: z.enum(['tour', 'permissions', 'kyc_skipped', 'home', 'done']) });
 const HomeBody = z.object({ postcode: z.string().trim().min(3, 'Enter a postcode.').max(12) });
+const After = z.string().datetime({ offset: true }).optional();
 const NotifTab = z.enum(['all', 'reports', 'money', 'account']).default('all');
 const NgPhone = z.string().regex(/^\+234\d{10}$/, 'Enter a Nigerian phone number.');
 const Contact = z.object({
@@ -61,7 +73,7 @@ export class MeController {
   async me(@CurrentUser() p: Principal) {
     const u = (
       await this.db.query(
-        `select id, display_name, phone, email, locale, theme, reduce_motion, discreet_mode, whatsapp_opt_in, mfa_enabled, pin_hash is not null as has_pin, onboarding, onboarded_at from users where id = $1`,
+        `select id, display_name, phone, email, locale, theme, reduce_motion, discreet_mode, whatsapp_opt_in, sounds, mfa_enabled, pin_hash is not null as has_pin, onboarding, onboarded_at from users where id = $1`,
         [p.userId],
       )
     ).rows[0];
@@ -75,7 +87,7 @@ export class MeController {
       phone: u.phone ? `${u.phone.slice(0, 7)}•••${u.phone.slice(-2)}` : null,
       email: u.email,
       roles: p.roles,
-      preferences: { theme: u.theme, locale: u.locale, reduceMotion: u.reduce_motion, discreetMode: u.discreet_mode, whatsappOptIn: u.whatsapp_opt_in },
+      preferences: { theme: u.theme, locale: u.locale, reduceMotion: u.reduce_motion, discreetMode: u.discreet_mode, whatsappOptIn: u.whatsapp_opt_in, sounds: { ...DEFAULT_SOUNDS, ...u.sounds } },
       security: { mfaEnabled: u.mfa_enabled, mfaRequired: p.roles.some((r) => mfaRequired.has(r.role)), hasPin: u.has_pin },
       kyc: kyc ? { status: kyc.status, idMasked: kyc.id_masked, verifiedAt: kyc.verified_at } : { status: 'not_started' },
       trust: trust ?? { score: 70, band: 'normal' },
@@ -107,8 +119,11 @@ export class MeController {
   @Patch('preferences')
   async prefs(@CurrentUser() p: Principal, @Body(new ZodPipe(Prefs)) b: z.infer<typeof Prefs>) {
     const map = { theme: 'theme', locale: 'locale', reduceMotion: 'reduce_motion', discreetMode: 'discreet_mode', whatsappOptIn: 'whatsapp_opt_in' } as const;
-    const keys = Object.keys(b) as Array<keyof typeof map>;
-    await this.db.query(`update users set ${keys.map((k, i) => `${map[k]} = $${i + 2}`).join(', ')} where id = $1`, [p.userId, ...keys.map((k) => b[k])]);
+    const { sounds, ...rest } = b;
+    const keys = Object.keys(rest) as Array<keyof typeof map>;
+    if (keys.length) await this.db.query(`update users set ${keys.map((k, i) => `${map[k]} = $${i + 2}`).join(', ')} where id = $1`, [p.userId, ...keys.map((k) => rest[k])]);
+    // Sounds merge one setting at a time, so changing one never resets the others.
+    if (sounds) await this.db.query(`update users set sounds = sounds || $2::jsonb where id = $1`, [p.userId, JSON.stringify(sounds)]);
     return { ok: true };
   }
 
@@ -222,6 +237,19 @@ export class MeController {
       items: items.rows.map((n) => ({ id: n.id, type: n.type, group: n.grp, title: n.title, body: n.body, link: n.deep_link, at: n.sent_at, unread: !n.read_at })),
       empty: 'Nothing new.',
     };
+  }
+
+  /** New notifications since a moment, for playing sounds: the apps poll this lightly. */
+  @Get('notifications/new')
+  async newNotifications(@CurrentUser() p: Principal, @Query('after', new ZodPipe(After)) after: string | undefined) {
+    const now = new Date().toISOString();
+    if (!after) return { now, items: [] };
+    const r = await this.db.query(
+      `select id, type, grp, title, body, deep_link, sent_at from notifications
+        where user_id = $1 and channel = 'in_app' and read_at is null and sent_at > $2 and sent_at <= $3 order by sent_at limit 20`,
+      [p.userId, after, now],
+    );
+    return { now, items: r.rows.map((n) => ({ id: n.id, type: n.type, group: n.grp, title: n.title, body: n.body, link: n.deep_link, at: n.sent_at })) };
   }
 
   @Post('notifications/:id/read')
