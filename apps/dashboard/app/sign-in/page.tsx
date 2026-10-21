@@ -24,7 +24,7 @@ export default function SignIn() {
       const seed = await api<{ users: Record<string, string> }>('/dev/seed', { method: 'POST' });
       const { token } = await api<{ token: string }>('/dev/token', { method: 'POST', body: JSON.stringify({ userId: seed.users[a.key] }) });
       setSession({ token, name: a.name, roleLabel: a.roleLabel });
-      router.replace(a.key === 'head' ? '/incidents' : a.key === 'agencyAdmin' ? '/agency/issues' : '/profile');
+      router.replace(a.key === 'head' ? '/incidents' : a.key === 'agencyAdmin' ? '/agency/overview' : '/admin/overview');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not sign in.');
       setBusy(null);

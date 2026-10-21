@@ -423,3 +423,23 @@ Migration 020. Tests: `apps/api/test/billing.e2e.test.ts`.
   - `GET /me/devices/:id/live` checks the household member's permission and the plan stage, and logs every view to `camera_access_log`. The camera's Settings tab shows "Who viewed this camera".
   - A camera with `stream_url` plays the provider's stream. Development cameras have none, so the app shows a moving test pattern labelled "TEST FEED". No video provider is connected.
 - **Money:** plan payments go to the platform fees wallet. No share of subscriptions goes to the rewards pool yet; that percentage has not been decided.
+
+## Dashboards for station, agency and platform admin
+
+Migration 021 (station settings, `station_broadcasts` for station messages). Tests: `apps/api/test/dashboards.e2e.test.ts`.
+
+- **Station** (head and dispatchers):
+  - **Live incidents:** stats (open and critical, median time to accept, officers on duty and free, rating), the priority queue, a live map of the zone, and the selected report with its brief, timeline, Reinforce, Assign, Transfer and Close.
+  - **Incident detail:** reporter and place, brief, units on the report, merged reports, statement, timeline, notes, and the false-alarm review.
+  - **Map:** reports, units, cameras and street lights with layer toggles, plus device alerts.
+  - **Officers:** status, doing now, rating, accept time, rewards and latest comment. From here the head can assign a report (offer an escalated one, or send a second unit), message, and set on or off duty.
+  - **Reports:** 7, 30 or 90 days by day, type and rating, recent closed reports, CSV export, and false alarms to confirm.
+  - **Roster:** a week grid (click a cell to cycle Day, Night, Off, Leave), gaps against the minimum, shift rules, copy last week, and publish (officers are told).
+  - **Messages:** to officers on duty, everyone, or one officer, with "needs reply" and urgent options, who has read and confirmed, and resend to unread. Messages are in-app only for now. Officers open them at `/officer/messages/:id`.
+  - **Settings:** phone, opening hours, seconds to accept, minimum on duty, what happens if nobody accepts, alerts, and access counts.
+- **Agency:** an Overview page with stats, live reports, station performance, the week and items needing attention, and a Stations page. Agency admins land on the Overview.
+- **Platform admin:**
+  - **Overview:** KPIs, 7 days of reports, device health, items needing attention, agency response, and money this month.
+  - **Live incident map**, **Users** (role tabs and search), **Subscriptions** (change plan, reminder, pause or resume with a reason), and **KYC queue** (approve, ask for more, or reject with a reason).
+  - Platform admins land on the Overview.
+- **Maps:** schematic, not map tiles. Points are placed by their real distance from the centre.

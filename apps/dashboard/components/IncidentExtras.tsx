@@ -1,6 +1,7 @@
 'use client';
 // Station incident detail extras: the false-alarm review (B8 step 1) and the statement (B7).
 import { api, ApiError } from '@erp/web-ui/api';
+import { Sheet } from '@erp/web-ui/Sheet';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -125,5 +126,81 @@ export function StatementCard({ incidentId, state, onDone }: { incidentId: strin
         </button>
       )}
     </section>
+  );
+}
+
+interface FreeOfficer {
+  id: string;
+  name: string;
+  badgeNo: string;
+  available: boolean;
+  currentTask: string | null;
+  distanceM: number | null;
+}
+
+/** "Reinforce": send a second officer from the station; they are told at once. */
+export function ReinforceSheet({ incidentId, onClose, onDone }: { incidentId: string; onClose: () => void; onDone: (m: string) => void }) {
+  const [list, setList] = useState<FreeOfficer[] | null>(null);
+  const [pick, setPick] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    api<FreeOfficer[]>(`/me/station/officers?near=${incidentId}`)
+      .then((xs) => {
+        setList(xs);
+        setPick(xs.find((x) => x.available)?.id ?? '');
+      })
+      .catch(() => setList([]));
+  }, [incidentId]);
+  return (
+    <Sheet
+      open
+      title="Send reinforcement"
+      description="A second officer joins the unit already on this report."
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <button className="btn" type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            className="btn primary"
+            type="button"
+            disabled={busy || !pick}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                onDone((await api<{ message: string }>(`/incidents/${incidentId}/reinforce`, { method: 'POST', body: JSON.stringify({ officerId: pick }) })).message);
+              } catch (e) {
+                setErr(e instanceof ApiError ? e.message : 'Could not send. Try again.');
+                setBusy(false);
+              }
+            }}
+          >
+            Send officer
+          </button>
+        </>
+      }
+    >
+      {err && (
+        <div className="banner critical" role="alert" style={{ margin: 0 }}>
+          {err}
+        </div>
+      )}
+      {!list && <div className="skeleton" />}
+      {list?.length === 0 && <p className="muted">No officers at your station.</p>}
+      <div style={{ display: 'grid', gap: 8 }}>
+        {list?.map((o) => (
+          <button key={o.id} type="button" className="choice-card" aria-pressed={pick === o.id} disabled={!o.available} onClick={() => setPick(o.id)} style={{ opacity: o.available ? 1 : 0.5 }}>
+            <strong>{o.name}</strong> <span className="muted">{o.badgeNo}</span>
+            <div className="muted" style={{ fontSize: 13 }}>
+              {o.available ? (o.distanceM != null ? `${(o.distanceM / 1000).toFixed(1)} km away, free` : 'Free') : o.currentTask ? `On ${o.currentTask}` : 'Off duty'}
+            </div>
+          </button>
+        ))}
+      </div>
+    </Sheet>
   );
 }

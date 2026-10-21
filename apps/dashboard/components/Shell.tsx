@@ -18,12 +18,19 @@ interface NavItem {
 }
 
 const AGENCY_BUILT: Record<string, NavItem> = {
+  Overview: { label: 'Overview', href: '/agency/overview', built: true },
+  Stations: { label: 'Stations', href: '/agency/stations', built: true },
   Bounties: { label: 'Bounties', href: '/agency/bounties', built: true, also: ['/agency/tips'] },
   'Public issues': { label: 'Public issues', href: '/agency/issues', built: true },
   Payouts: { label: 'Payouts', href: '/agency/payouts', built: true },
 };
 
 const ADMIN_BUILT: Record<string, NavItem> = {
+  Overview: { label: 'Overview', href: '/admin/overview', built: true },
+  'Live incident map': { label: 'Live incident map', href: '/admin/live', built: true },
+  Users: { label: 'Users', href: '/admin/users', built: true },
+  Subscriptions: { label: 'Subscriptions', href: '/admin/subscriptions', built: true },
+  'KYC queue': { label: 'KYC queue', href: '/admin/kyc', built: true },
   Donations: { label: 'Donations and payouts', href: '/admin/payouts', built: true },
   Settings: { label: 'Settings', href: '/admin/settings', built: true },
   'Learn feed': { label: 'Learn feed', href: '/admin/learn', built: true },
@@ -35,13 +42,13 @@ const ADMIN_BUILT: Record<string, NavItem> = {
 // Sidebar orders from the Public Issues doc: Settings last, Messaging above it.
 const NAV: Record<string, NavItem[]> = {
   station: [
-    { label: 'Live incidents', href: '/incidents', built: true },
-    { label: 'Map', href: '/soon?page=Map' },
-    { label: 'Officers', href: '/soon?page=Officers' },
-    { label: 'Reports', href: '/soon?page=Reports' },
-    { label: 'Roster', href: '/soon?page=Roster' },
-    { label: 'Messages', href: '/soon?page=Messages' },
-    { label: 'Settings', href: '/soon?page=Station settings' },
+    { label: 'Live incidents', href: '/incidents', built: true, also: ['/statements'] },
+    { label: 'Map', href: '/station/map', built: true },
+    { label: 'Officers', href: '/station/officers', built: true },
+    { label: 'Reports', href: '/station/reports', built: true },
+    { label: 'Roster', href: '/station/roster', built: true },
+    { label: 'Messages', href: '/station/messages', built: true },
+    { label: 'Settings', href: '/station/settings', built: true },
   ],
   agency: [
     'Overview', 'Stations', 'Officers', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Assets', 'Messaging', 'Settings',

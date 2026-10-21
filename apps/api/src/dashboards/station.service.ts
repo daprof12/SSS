@@ -127,6 +127,8 @@ export class StationService {
       : { rows: [] };
     return {
       center: s?.lat != null ? { lat: s.lat, lng: s.lng } : incidents.rows[0] ? { lat: incidents.rows[0].lat, lng: incidents.rows[0].lng } : { lat: 6.6018, lng: 3.3515 },
+      // Without a saved building the map centres on the reports, and the station square and zone are not drawn.
+      stationPlaced: s?.lat != null,
       zoneRadiusM: 5000,
       incidents: incidents.rows.map((i) => ({ id: i.id, label: `${cap(i.type)}, ${i.postcode ?? 'GPS'}`, state: i.state, severity: i.severity, reports: i.report_count, lat: i.lat, lng: i.lng })),
       units: units.rows.map((u) => ({
@@ -554,7 +556,9 @@ export class StationService {
     }
     if (b.minOnDuty != null && (b.minOnDuty < 0 || b.minOnDuty > 50)) throw new AppError(422, 'validation_failed', 'Enter a minimum between 0 and 50.');
     const json: Record<string, unknown> = {};
-    for (const k of ['dayStart', 'nightStart', 'openingHours', 'ifNobodyAccepts', 'alerts'] as const) if (b[k] !== undefined) json[k] = b[k];
+    for (const k of ['dayStart', 'nightStart', 'openingHours', 'ifNobodyAccepts'] as const) if (b[k] !== undefined) json[k] = b[k];
+    // Alerts merge one by one, so turning one on never resets the others.
+    if (b.alerts) json.alerts = { ...((await this.db.query(`select settings->'alerts' as a from stations where id = $1`, [sid])).rows[0].a ?? {}), ...b.alerts };
     await this.db.query(
       `update stations set phone = coalesce($2, phone), accept_window_seconds = coalesce($3, accept_window_seconds), min_on_duty = coalesce($4, min_on_duty), settings = settings || $5::jsonb where id = $1`,
       [sid, b.phone ?? null, b.acceptWindowSeconds ?? null, b.minOnDuty ?? null, JSON.stringify(json)],

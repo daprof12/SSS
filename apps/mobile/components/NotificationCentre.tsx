@@ -22,6 +22,9 @@ export function routeFor(link: string | null, surface: 'citizen' | 'officer' | u
   if (!link) return null;
   const t = /^\/(tips|issues)\/([0-9a-f-]{36})/.exec(link);
   if (t) return surface === 'officer' ? `/officer/${t[1]}/${t[2]}` : `/${t[1]}/${t[2]}`;
+  const msg = /^\/messages\/([0-9a-f-]{36})/.exec(link);
+  if (msg && surface === 'officer') return `/officer/messages/${msg[1]}`;
+  if (surface === 'officer' && /^\/officer(\/|$)/.test(link)) return link;
   const st = /^\/statements\/([0-9a-f-]{36})/.exec(link);
   if (st) return surface === 'officer' ? `/officer/statements/${st[1]}` : `/statements/${st[1]}`;
   const m = /^\/(reports|offers|history|incidents)\/([0-9a-f-]{36})/.exec(link);
