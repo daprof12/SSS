@@ -146,22 +146,33 @@ describe('report map', () => {
 
     // The offered officer sees how far they are, from the phone position they send.
     const o = (await http.get(`/incidents/${id}/map?lat=6.6&lng=3.35`).set(as(who)).expect(200)).body;
-    expect(o.incident).toMatchObject({ lat: expect.any(Number), lng: expect.any(Number), label: expect.stringMatching(/^Riot, /) });
+    expect(o.incident).toMatchObject({ type: 'riot', lat: expect.any(Number), lng: expect.any(Number), label: expect.stringMatching(/^Riot, /) });
     expect(o.you).toEqual({ lat: 6.6, lng: 3.35 });
-    expect(o.route).toMatchObject({ from: 'you', source: 'estimate', distanceM: expect.any(Number), durationS: expect.any(Number) });
-    expect(o.route.line).toHaveLength(2);
-    expect(o.route.distanceM).toBeGreaterThan(o.youDistanceM);
+    expect(o.units).toHaveLength(1);
+    expect(o.units[0]).toMatchObject({ isYou: true, state: 'offered', lat: 6.6, lng: 3.35, route: { source: 'estimate', distanceM: expect.any(Number), durationS: expect.any(Number) } });
+    expect(o.units[0].route.line).toHaveLength(2);
+    expect(o.units[0].route.distanceM).toBeGreaterThan(o.youDistanceM);
 
     // The citizen sees no one until an officer accepts, then the officer's way to them.
-    const before = (await http.get(`/incidents/${id}/map`).set(as('citizen')).expect(200)).body;
-    expect(before).toMatchObject({ unit: null, route: null });
+    expect((await http.get(`/incidents/${id}/map`).set(as('citizen')).expect(200)).body.units).toEqual([]);
     await http.post(`/incidents/${id}/actions`).set(as(who)).send({ event: 'accept' }).expect(201);
     const after = (await http.get(`/incidents/${id}/map`).set(as('citizen')).expect(200)).body;
-    expect(after.unit).toMatchObject({ state: 'accepted', isYou: false, name: expect.any(String) });
-    expect(after.route).toMatchObject({ from: 'unit', source: 'estimate' });
+    expect(after.units).toEqual([expect.objectContaining({ state: 'accepted', role: 'primary', isYou: false, name: expect.any(String), route: expect.objectContaining({ source: 'estimate' }) })]);
+
+    // A second unit: everyone sees both officers, each with their own distance and time.
+    const other = who === 'officer' ? 'officer2' : 'officer';
+    await db.query(`update incident_units set state = 'released' where officer_id = $1 and state in ('accepted', 'en_route', 'on_scene')`, [users[other]]);
+    await http.post(`/incidents/${id}/reinforce`).set(as('head')).send({ officerId: users[other] }).expect(201);
+    const both = (await http.get(`/incidents/${id}/map`).set(as('citizen')).expect(200)).body.units;
+    expect(both).toHaveLength(2);
+    expect(both.map((u: any) => u.role).sort()).toEqual(['primary', 'reinforcement']);
+    expect(both[0].route.durationS).toBeLessThanOrEqual(both[1].route.durationS);
+    const theirs = (await http.get(`/incidents/${id}/map`).set(as(other)).expect(200)).body.units;
+    expect(theirs.find((u: any) => u.isYou)).toMatchObject({ role: 'reinforcement', route: expect.any(Object) });
+    expect(theirs.filter((u: any) => !u.isYou)).toHaveLength(1);
 
     // Station staff see it too; anyone else does not.
-    expect((await http.get(`/incidents/${id}/map`).set(as('head')).expect(200)).body.route.from).toBe('unit');
+    expect((await http.get(`/incidents/${id}/map`).set(as('head')).expect(200)).body.units).toHaveLength(2);
     await http.get(`/incidents/${id}/map`).set(as('neighbour')).expect(404);
     await http.get(`/incidents/${id}/map?lat=200&lng=3`).set(as(who)).expect(400);
   });

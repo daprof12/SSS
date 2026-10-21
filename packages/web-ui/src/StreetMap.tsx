@@ -1,6 +1,6 @@
 'use client';
-// Street map for one report: the report point, where you are, the responding unit, and the route line
-// between the unit (or you) and the report. Street tiles, zoom buttons, drag to pan, and "fit" to
+// Street map for one report: the report point, where you are, every officer on it, and each one's
+// route line to the report. Street tiles, zoom buttons, drag to pan, and "fit" to
 // bring everything back into view. Works with a mouse and a finger.
 import { useEffect, useRef, useState } from 'react';
 import { TYPE_COLOURS, TYPE_GLYPHS } from './typeGlyphs';
@@ -24,23 +24,40 @@ const fromWorld = (x: number, y: number, z: number) => {
   return { lat: (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))), lng: (x / s) * 360 - 180 };
 };
 
+export interface MapUnit {
+  id: string;
+  name: string;
+  lat: number | null;
+  lng: number | null;
+  isYou?: boolean;
+  /** [lat, lng] points of the route to the report. */
+  line?: [number, number][] | null;
+  /** The route is a straight-line estimate, not a road route (drawn dashed). */
+  estimate?: boolean;
+}
+/** One colour per officer, in list order, so a marker, its route and its row match. */
+export const UNIT_COLOURS = ['#16a34a', '#9333ea', '#0891b2', '#c2410c', '#be185d', '#4d7c0f'];
+export const YOU_COLOUR = '#1d72f3';
+/** Colour per unit id: "you" is always blue; the others take the palette in order. */
+export function unitColours(units: { id: string; isYou?: boolean }[]) {
+  const out: Record<string, string> = {};
+  let n = 0;
+  for (const u of units) out[u.id] = u.isYou ? YOU_COLOUR : UNIT_COLOURS[n++ % UNIT_COLOURS.length]!;
+  return out;
+}
+
 export function StreetMap({
   incident,
   you,
-  unit,
-  line,
-  estimate,
+  units = [],
   height = 260,
   label,
 }: {
   /** `type` is the report type code (fire, medical, ...): the pin shows its icon and colour. */
   incident: MapPoint & { label?: string; type?: string };
   you?: MapPoint | null;
-  unit?: (MapPoint & { name?: string; isYou?: boolean }) | null;
-  /** [lat, lng] points of the route. */
-  line?: [number, number][] | null;
-  /** The route is a straight-line estimate, not a road route (drawn dashed). */
-  estimate?: boolean;
+  /** Officers on the report, each with its route to the report. Yours is drawn from the "You" dot. */
+  units?: MapUnit[];
   height?: number;
   label?: string;
 }) {
@@ -55,7 +72,9 @@ export function StreetMap({
     ro.observe(box.current);
     return () => ro.disconnect();
   }, []);
-  const pts: MapPoint[] = [incident, ...(you ? [you] : []), ...(unit && !unit.isYou ? [unit] : []), ...(line ?? []).map(([lat, lng]) => ({ lat, lng }))];
+  const placed = units.filter((u): u is MapUnit & MapPoint => u.lat != null && u.lng != null);
+  const colours = unitColours(units);
+  const pts: MapPoint[] = [incident, ...(you ? [you] : []), ...placed, ...placed.flatMap((u) => (u.line ?? []).map(([lat, lng]) => ({ lat, lng })))];
   const fitKey = pts.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join('|') + `|${w}|${height}`;
   const fit = () => {
     const lats = pts.map((p) => p.lat);
@@ -96,9 +115,8 @@ export function StreetMap({
   };
   const inc = at(incident);
   const pin = TYPE_COLOURS[incident.type ?? ''] ?? '#dc2626';
-  const path = (line ?? []).map(([lat, lng]) => at({ lat, lng }));
   const me = you ? at(you) : null;
-  const un = unit ? at(unit) : null;
+  const others = placed.filter((u) => !u.isYou);
   return (
     <div
       ref={box}
@@ -126,24 +144,35 @@ export function StreetMap({
         <img key={t.key} className="ui-tile" src={t.src} alt="" draggable={false} style={{ left: t.x, top: t.y }} />
       ))}
       <svg width={w} height={height} style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none' }}>
-        {path.length > 1 && (
-          <>
-            <polyline points={path.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeOpacity="0.85" strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
-            <polyline points={path.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#1d72f3" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={estimate ? '2 10' : undefined} />
-          </>
-        )}
+        {placed.map((u) => {
+          const path = (u.line ?? []).map(([lat, lng]) => at({ lat, lng }));
+          if (path.length < 2) return null;
+          const pts = path.map((p) => `${p.x},${p.y}`).join(' ');
+          return (
+            <g key={`r-${u.id}`}>
+              <polyline points={pts} fill="none" stroke="#fff" strokeOpacity="0.85" strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
+              <polyline points={pts} fill="none" stroke={colours[u.id]} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" strokeDasharray={u.estimate ? '2 10' : undefined} />
+            </g>
+          );
+        })}
         {me && (
           <g>
-            <circle cx={me.x} cy={me.y} r="18" fill="#1d72f3" fillOpacity="0.18" />
-            <circle cx={me.x} cy={me.y} r="8" fill="#1d72f3" stroke="#fff" strokeWidth="3" />
+            <circle cx={me.x} cy={me.y} r="18" fill={YOU_COLOUR} fillOpacity="0.18" />
+            <circle cx={me.x} cy={me.y} r="8" fill={YOU_COLOUR} stroke="#fff" strokeWidth="3" />
           </g>
         )}
-        {un && !unit?.isYou && (
-          <g>
-            <circle cx={un.x} cy={un.y} r="13" fill="#16a34a" stroke="#fff" strokeWidth="3" />
-            <path d={`M${un.x - 5} ${un.y + 3} l5 -8 l5 8 z`} fill="#fff" />
-          </g>
-        )}
+        {others.map((u) => {
+          const q = at(u);
+          return (
+            <g key={`u-${u.id}`}>
+              <circle cx={q.x} cy={q.y} r="13" fill={colours[u.id]} stroke="#fff" strokeWidth="3" />
+              <text x={q.x} y={q.y + 4.5} textAnchor="middle" fontSize="12" fontWeight="800" fill="#fff">
+                {initial(u.name)}
+              </text>
+              <title>{u.name}</title>
+            </g>
+          );
+        })}
         <g>
           <circle className="ui-pulse" cx={inc.x} cy={inc.y} r="24" fill={pin} fillOpacity="0.22" />
           <path d={`M${inc.x} ${inc.y} l-7 -10 a17 17 0 1 1 14 0 z`} fill={pin} stroke="#fff" strokeWidth="2.5" strokeLinejoin="round" />
@@ -158,14 +187,15 @@ export function StreetMap({
         </span>
         {you && (
           <span>
-            <i style={{ background: '#1d72f3' }} /> You
+            <i style={{ background: YOU_COLOUR }} /> You
           </span>
         )}
-        {unit && !unit.isYou && (
-          <span>
-            <i style={{ background: '#16a34a' }} /> {unit.name ?? 'Responder'}
+        {others.slice(0, 3).map((u) => (
+          <span key={`l-${u.id}`}>
+            <i style={{ background: colours[u.id] }} /> {u.name}
           </span>
-        )}
+        ))}
+        {others.length > 3 && <span>+{others.length - 3} more</span>}
       </div>
       <div className="ui-map-zoom">
         <button type="button" onClick={() => zoom(1)} aria-label="Zoom in">
@@ -190,6 +220,9 @@ export function StreetMap({
     </div>
   );
 }
+
+/** First letter of the name after any rank (Insp., Sgt., ...), for the officer marker. */
+const initial = (name: string) => (name.replace(/^(Insp\.|Sgt\.|Cpl\.|CSP|ASP|DSP|SP|ACF|FO|Dr\.?)\s+/, '')[0] ?? '?').toUpperCase();
 
 const CSS = `
 .ui-street-map{position:relative;overflow:hidden;border-radius:16px;border:1px solid var(--color-divider,#333);background:#dfe6ee;touch-action:none;cursor:grab;user-select:none}

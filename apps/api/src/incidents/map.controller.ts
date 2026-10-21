@@ -39,33 +39,57 @@ export class IncidentMapController {
 
     const incident: LatLng = { lat: Number(i.lat), lng: Number(i.lng) };
     let you: LatLng | null = q.lat != null && q.lng != null ? { lat: q.lat, lng: q.lng } : null;
-    // The unit on its way (or there); for staff, the officer being offered it if nobody has accepted yet.
-    const u = (
+    // Every officer on the report: the first unit, reinforcements and other agencies' units. A citizen
+    // sees them once they have accepted; staff and officers also see who is being offered it.
+    const states = reporter && !staff && !mine ? ['accepted', 'en_route', 'on_scene'] : ['accepted', 'en_route', 'on_scene', 'offered'];
+    const rows = (
       await this.db.query(
-        `select x.state, x.officer_id, u.display_name as name, o.last_location_at, st_y(o.last_location::geometry) as lat, st_x(o.last_location::geometry) as lng
-           from incident_units x join users u on u.id = x.officer_id join officers o on o.user_id = x.officer_id
-          where x.incident_id = $1 and x.state = any($2::text[]) and o.last_location is not null
-          order by case x.state when 'on_scene' then 0 when 'en_route' then 1 when 'accepted' then 2 else 3 end, x.offered_at desc limit 1`,
-        [id, reporter && !staff && !mine ? ['accepted', 'en_route', 'on_scene'] : ['accepted', 'en_route', 'on_scene', 'offered']],
+        `select * from (
+           select distinct on (x.officer_id) x.officer_id, x.state, x.role, x.offered_at, u.display_name as name, o.last_location_at,
+                  st_y(o.last_location::geometry) as lat, st_x(o.last_location::geometry) as lng, a.name as agency
+             from incident_units x join users u on u.id = x.officer_id join officers o on o.user_id = x.officer_id
+             left join stations s on s.id = x.station_id left join agencies a on a.id = s.agency_id
+            where x.incident_id = $1 and x.officer_id is not null
+            order by x.officer_id, x.offered_at desc) t
+          where t.state = any($2::text[])
+          order by case t.state when 'on_scene' then 0 when 'en_route' then 1 when 'accepted' then 2 else 3 end, t.offered_at`,
+        [id, states],
       )
-    ).rows[0];
-    const unit = u ? { lat: Number(u.lat), lng: Number(u.lng), name: u.name as string, state: u.state as string, updatedAt: u.last_location_at, isYou: u.officer_id === p.userId } : null;
+    ).rows;
 
-    // Officers route from themselves (the device position, else their last known one); others from the unit.
-    let from: (LatLng & { who: 'you' | 'unit' }) | null = null;
-    if (mine) {
+    // You route from your phone position (else your last known one); everyone else from where they last were.
+    if (mine && !you) {
       const last = (await this.db.query(`select st_y(last_location::geometry) as lat, st_x(last_location::geometry) as lng from officers where user_id = $1 and last_location is not null`, [p.userId])).rows[0];
-      const pos = you ?? (last ? { lat: Number(last.lat), lng: Number(last.lng) } : null);
-      if (pos) (from = { ...pos, who: 'you' }), (you = pos);
-    } else if (unit && unit.state !== 'on_scene') from = { lat: unit.lat, lng: unit.lng, who: 'unit' };
-    const route = from && !['on_scene', 'closing', 'resolved', 'unfounded', 'cancelled', 'merged'].includes(i.state) ? await this.routing.route(from, incident) : null;
+      if (last) you = { lat: Number(last.lat), lng: Number(last.lng) };
+    }
+    const closed = ['on_scene', 'closing', 'resolved', 'unfounded', 'cancelled', 'merged'].includes(i.state);
+    const units = await Promise.all(
+      rows.map(async (u) => {
+        const isYou = u.officer_id === p.userId;
+        const at: LatLng | null = isYou && you ? you : u.lat != null ? { lat: Number(u.lat), lng: Number(u.lng) } : null;
+        const route = at && !closed && u.state !== 'on_scene' ? await this.routing.route(at, incident) : null;
+        return {
+          id: u.officer_id as string,
+          name: u.name as string,
+          agency: (u.agency as string | null) ?? null,
+          role: u.role as string,
+          state: u.state as string,
+          lat: at?.lat ?? null,
+          lng: at?.lng ?? null,
+          updatedAt: isYou && q.lat != null ? new Date().toISOString() : u.last_location_at,
+          isYou,
+          route,
+        };
+      }),
+    );
+    // Nearest first among those coming; those already there lead.
+    units.sort((a, b) => (a.state === 'on_scene' ? -1 : 0) - (b.state === 'on_scene' ? -1 : 0) || (a.route?.durationS ?? 1e9) - (b.route?.durationS ?? 1e9));
 
     return {
       incident: { ...incident, type: i.type as string, label: `${cap(i.type)}, ${i.postcode ?? 'GPS location'}`, address: i.address_text, state: i.state },
       you,
       youDistanceM: you ? Math.round(metresBetween(you, incident)) : null,
-      unit,
-      route: route && from ? { ...route, from: from.who } : null,
+      units,
     };
   }
 }
