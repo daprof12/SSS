@@ -23,7 +23,8 @@ import { StatementsService } from './statements/statements.service';
 import { AdminFinesController, AdminSupportController, CitizenController } from './citizen/citizen.controller';
 import { DonationsService } from './citizen/donations.service';
 import { FinesService } from './citizen/fines.service';
-import { AdminRepairsController, HomeController } from './citizen/home.controller';
+import { AdminInstallsController, AdminRepairsController, HomeController } from './citizen/home.controller';
+import { BillingService } from './citizen/billing.service';
 import { HomeService } from './citizen/home.service';
 import { IncidentRepo } from './incidents/incident.repo';
 import { IncidentsController } from './incidents/incidents.controller';
@@ -79,6 +80,7 @@ export class AppModule {
         AdminSupportController,
         HomeController,
         AdminRepairsController,
+        AdminInstallsController,
         AuthController,
         IncidentsController,
         WalletController,
@@ -101,6 +103,7 @@ export class AppModule {
       providers: [
         { provide: CONFIG, useValue: config },
         DonationsService,
+        BillingService,
         StatementsService,
         { provide: TRANSLATE, useValue: new MockTranslateAdapter() },
         FinesService,

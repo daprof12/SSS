@@ -1,7 +1,7 @@
 // Home: household members (B4 step 8), devices and camera access (B6), device fault → repair (B5).
 // Boards: Household invite, My home devices, Camera view, Camera offline, Street light view,
 // Report a device problem, Repair status.
-import { checkRepairReport, DEVICE_RULES, HOUSEHOLD_RULES, problemLabel, repairStep } from '@erp/domain';
+import { checkRepairReport, DEVICE_RULES, HOUSEHOLD_RULES, problemLabel, repairStep, subscriptionFeatures } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomInt } from 'node:crypto';
 import { SMS, type SmsAdapter } from '../adapters/sms';
@@ -73,6 +73,14 @@ export class HomeService {
     return h;
   }
 
+  /** What the plan's billing stage still allows (board "Payment problem"). Emergency reporting is never limited. */
+  private async features(propertyId: string) {
+    const st = (await this.db.query(`select state from subscriptions where property_id = $1 and state <> 'cancelled' order by created_at desc limit 1`, [propertyId])).rows[0]?.state as string | undefined;
+    type F = { liveView: boolean; clipHistory: boolean; householdSharing: boolean; feedsToResponders: boolean; devicesOn: boolean };
+    const f: F = (st && (subscriptionFeatures as Record<string, F>)[st]) || subscriptionFeatures.active;
+    return { state: st ?? null, ...f };
+  }
+
   private deviceLine(d: Record<string, any>): string {
     if (d.status === 'offline') return `Last seen ${ago(d.last_seen)}`;
     if (d.type === 'street_light') {
@@ -110,7 +118,7 @@ export class HomeService {
         address: place?.address_text ?? '',
         postcode: place?.postcode ?? '',
         area: place?.area_label ?? '',
-        plan: sub ? { name: sub.name, state: sub.state, label: PLAN_STATE[sub.state]?.label ?? sub.state, tone: PLAN_STATE[sub.state]?.tone ?? 'neutral', paidUntil: sub.next_bill_at } : null,
+        plan: sub ? { name: sub.name, state: sub.state, label: PLAN_STATE[sub.state]?.label ?? sub.state, tone: PLAN_STATE[sub.state]?.tone ?? 'neutral', paidUntil: sub.next_bill_at, late: ['grace', 'extras_paused', 'sharing_paused', 'switched_off'].includes(sub.state) } : null,
         permissions: { viewLive: h.canViewLive, alerts: h.canGetAlerts, report: h.canReport },
       },
       devices: devices.rows.map((d) => ({
@@ -283,16 +291,43 @@ export class HomeService {
       };
     }
     const clips = await this.db.query(`select id, kind, payload, at from device_events where device_id = $1 and kind in ('clip', 'motion') order by at desc limit 20`, [id]);
+    const f = await this.features(h.propertyId);
+    const viewLog = (
+      await this.db.query(
+        `select a.at, a.actor_role, a.reason, a.via, u.display_name from camera_access_log a join users u on u.id = a.actor_id where a.device_id = $1 order by a.at desc limit 10`,
+        [id],
+      )
+    ).rows;
     return {
       ...base,
-      canViewLive: h.canViewLive,
+      canViewLive: h.canViewLive && f.liveView,
+      livePaused: !f.liveView ? 'Live view and clips are paused until the monthly payment is made. Cameras keep recording.' : null,
+      whoViewed: viewLog.map((v) => ({ name: v.display_name, role: v.actor_role, reason: v.reason, via: v.via, at: v.at })),
       settings: { recordingDays: d.settings?.recordingDays ?? 7, shareWithResponders: d.settings?.shareWithResponders ?? 'emergency_only' },
       recordingDaysOptions: DEVICE_RULES.recordingDaysOptions,
       viewers,
       lastMotion: d.last_motion_at ? hm(d.last_motion_at) : 'None yet',
-      clips: clips.rows.map((c) => ({ id: c.id, kind: c.kind, label: c.kind === 'clip' ? 'Saved clip' : 'Motion', seconds: c.payload?.seconds ?? 30, at: c.at })),
+      clips: f.clipHistory ? clips.rows.map((c) => ({ id: c.id, kind: c.kind, label: c.kind === 'clip' ? 'Saved clip' : 'Motion', seconds: c.payload?.seconds ?? 30, at: c.at })) : [],
       offlineSteps: d.status === 'offline' ? ['Check the power cable and socket', 'Check your Wi-Fi or data is on', 'Restart the camera from its power switch'] : [],
     };
+  }
+
+  /**
+   * Live view (B6): the owner and members allowed to see live cameras, while the plan allows it.
+   * Every start is written to camera_access_log, which the owner sees as "Who viewed my camera".
+   * A camera without a provider stream (development) gets the test feed.
+   */
+  async live(p: Principal, id: string) {
+    const { h, d } = await this.device(p, id);
+    if (d.type !== 'camera') throw new AppError(422, 'not_camera', 'Only cameras have a live view.');
+    if (!h.canViewLive) throw new AppError(403, 'no_access', 'The home owner has not let you see live cameras.');
+    const f = await this.features(h.propertyId);
+    if (!f.liveView) throw new AppError(402, 'plan_paused', 'Live view is paused until the monthly payment is made. Cameras keep recording.');
+    if (d.status === 'offline') throw new AppError(409, 'offline', 'The camera is offline.');
+    await this.db.query(`insert into camera_access_log (device_id, actor_id, actor_role, reason, via) values ($1, $2, $3, 'Live view', 'app')`, [id, p.userId, h.role === 'owner' ? 'owner' : 'member']);
+    return d.stream_url
+      ? { mode: 'stream' as const, url: d.stream_url, expiresInSeconds: 300 }
+      : { mode: 'test' as const, note: 'No video provider is connected in this build, so this is a test feed, not your camera.', expiresInSeconds: 300 };
   }
 
   async settings(p: Principal, id: string, b: { recordingDays?: number; shareWithResponders?: 'emergency_only' | 'never' }) {
@@ -310,6 +345,7 @@ export class HomeService {
     if (d.type !== 'camera') throw new AppError(422, 'not_camera', 'Only cameras record clips.');
     if (!h.canViewLive) throw new AppError(403, 'no_access', 'The home owner has not let you see this camera.');
     if (d.status === 'offline') throw new AppError(409, 'offline', 'The camera is offline, so there is nothing to save.');
+    if (!(await this.features(h.propertyId)).clipHistory) throw new AppError(402, 'plan_paused', 'Clips are paused until the monthly payment is made.');
     await this.db.query(`insert into device_events (device_id, kind, payload) values ($1, 'clip', $2)`, [id, { by: p.userId, seconds: 30 }]);
     return { message: 'Saved the last 30 seconds to Clips.' };
   }

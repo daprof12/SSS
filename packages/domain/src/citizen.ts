@@ -157,3 +157,26 @@ export function repairStep(j: { faultConfirmedAt?: unknown; bookedAt?: unknown; 
   if (j.faultConfirmedAt) return 'confirmed';
   return 'received';
 }
+
+// ---------------------------------------------------------------- home plans and billing (B4, board "Payment problem")
+
+/** Days since a monthly charge failed → what still works. Paying at any time restores everything the same day. */
+export const DUNNING = {
+  retryDays: [1, 3, 5],
+  stages: [
+    { state: 'grace', fromDay: 1, toDay: 7, title: 'everything keeps working', line: 'We try your card again on days 1, 3 and 5 and remind you.' },
+    { state: 'extras_paused', fromDay: 8, toDay: 14, title: 'extras pause', line: 'Live view and clip history pause. Cameras keep recording and the street light stays on.' },
+    { state: 'sharing_paused', fromDay: 15, toDay: 30, title: 'shared features pause', line: 'Your cameras stop feeding briefs to responders. Emergency reporting still works.' },
+    { state: 'switched_off', fromDay: 31, toDay: null, title: 'devices switched off', line: 'We contact you to arrange a visit. Paying at any time restores everything.' },
+  ],
+} as const;
+export type DunningState = (typeof DUNNING.stages)[number]['state'];
+
+/** Day 1 is the day the charge failed. */
+export function dunningStage(daysSinceDue: number): DunningState {
+  const d = Math.max(1, daysSinceDue);
+  return [...DUNNING.stages].reverse().find((s) => d >= s.fromDay)!.state;
+}
+
+/** What is paid today when subscribing: the install fee and the first month. Billing then starts at install. */
+export const firstPayment = (plan: { priceKobo: number; installFeeKobo: number }) => plan.installFeeKobo + plan.priceKobo;

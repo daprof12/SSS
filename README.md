@@ -404,3 +404,22 @@ Migration 019. Tests: `apps/api/test/statements.e2e.test.ts`.
 - **Donation fee:** the platform keeps 30%. The donate screen and the receipt show what reached the recipient.
 - **Help replies:** Admin → Help inbox lists messages and translator checks. The reply shows in the person's Help and support with a notification.
 - **Notification taps** now open fines, receipts, home, help, donate and statements.
+
+## Home plans, install, Payment problem, live camera
+
+Migration 020. Tests: `apps/api/test/billing.e2e.test.ts`.
+
+- **Protect your home** (`/profile/home/plan`):
+  - Pick Household, Household Plus or Community and pay the install fee plus the first month, by Paystack or the wallet (PIN). The home must be set first.
+  - Payment creates an install job (`IN-` number).
+  - Admin → Installation team books the visit, then marks it installed. That adds the plan's cameras and lights and starts billing (decided: billing starts at install).
+- **Monthly billing** (jobs every 5 minutes):
+  - Due plans are charged from the wallet when the owner turned on "Pay from my wallet first" and it has enough. Card renewal needs Paystack's saved card authorisation, which this build does not have, so a card renewal counts as a failed charge.
+  - A failed charge starts dunning: days 1–7 everything works, days 8–14 live view and clips pause, days 15–30 feeds to responders pause, after day 30 devices go off. Report a problem and emergency reporting always work.
+  - **Payment problem** (`/profile/home/billing`) offers Pay now, pay from the wallet (or top up the shortfall), Update card, and ask for a payment plan, which opens a help ticket.
+  - Paying restores everything the same day.
+  - `POST /dev/subscriptions/fail {userId, days}` simulates a failed charge on any day.
+- **Live camera:**
+  - `GET /me/devices/:id/live` checks the household member's permission and the plan stage, and logs every view to `camera_access_log`. The camera's Settings tab shows "Who viewed this camera".
+  - A camera with `stream_url` plays the provider's stream. Development cameras have none, so the app shows a moving test pattern labelled "TEST FEED". No video provider is connected.
+- **Money:** plan payments go to the platform fees wallet. No share of subscriptions goes to the rewards pool yet; that percentage has not been decided.

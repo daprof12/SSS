@@ -16,6 +16,7 @@ export { WALLET_LIMITS } from './limits';
 import { WALLET_LIMITS } from './limits';
 import { creditDonation } from '../citizen/donations.service';
 import { markPaid } from '../citizen/fines.service';
+import { onInstallPaid, onMonthPaid } from '../citizen/billing.service';
 import { receiptNo } from '../citizen/money';
 
 @Injectable()
@@ -196,6 +197,21 @@ export class WalletService {
           await c.query(`insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values ($1, 'donation_out', $2, $3, $4, 'Donation by Paystack')`, [platform, -amount, pay.provider_ref, journal]);
           await c.query(`update donations set payment_id = $2, amount_kobo = $3 where id = $1`, [pay.purpose_ref, pay.id, amount]);
           await creditDonation(c, pay.purpose_ref, pay.provider_ref, journal);
+        } else if (pay.purpose === 'install' || pay.purpose === 'subscription') {
+          // Plan revenue: the platform wallet is the contra for money in; the platform fees wallet keeps it.
+          const journal = randomUUID();
+          const platform = (await c.query(`select id from wallets where owner_type = 'platform' and owner_id is null`)).rows[0].id;
+          const fees = (await c.query(`select id from wallets where owner_type = 'platform_fees' and owner_id is null`)).rows[0].id;
+          await c.query(`insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values ($1, 'payment', $3, $4, $5, 'Home plan by Paystack'), ($2, 'payment', $6, $4, $5, 'Home plan by Paystack')`, [
+            platform,
+            fees,
+            -amount,
+            pay.provider_ref,
+            journal,
+            amount,
+          ]);
+          if (pay.purpose === 'install') await onInstallPaid(c, pay.purpose_ref);
+          else await onMonthPaid(c, pay.purpose_ref);
         } else if (pay.purpose === 'fine') {
           const journal = randomUUID();
           const platform = (await c.query(`select id from wallets where owner_type = 'platform' and owner_id is null`)).rows[0].id;
@@ -209,11 +225,11 @@ export class WalletService {
           await this.agencyBilling.onPaystackFailed(c, pay);
         } else if (pay.purpose === 'bounty_pool') {
           await poolFundFailed(c, pay);
-        } else if (pay.purpose === 'donation' || pay.purpose === 'fine') {
+        } else if (['donation', 'fine', 'install', 'subscription'].includes(pay.purpose)) {
           if (pay.purpose === 'donation') await c.query(`update donations set state = 'failed' where id = $1`, [pay.purpose_ref]);
           await c.query(
             `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'payment_failed', 'money', 'in_app', 'Payment failed', 'Your card was not charged. Try again or use another card.', $2)`,
-            [pay.user_id, pay.purpose === 'fine' ? `/fines/${pay.purpose_ref}` : '/donate'],
+            [pay.user_id, pay.purpose === 'fine' ? `/fines/${pay.purpose_ref}` : pay.purpose === 'donation' ? '/donate' : '/profile/home/billing'],
           );
         } else {
           await c.query(

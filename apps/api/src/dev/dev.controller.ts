@@ -10,6 +10,7 @@ import { Public, TokenService, type RoleGrant } from '../core/auth';
 import { Db } from '../core/db';
 import { AppError, ZodPipe } from '../core/http';
 import { WalletService } from '../wallet/wallet.service';
+import { BillingService, chargeFailed } from '../citizen/billing.service';
 
 const PEOPLE = [
   { key: 'citizen', phone: '+2348030000001', name: 'Ada Obi', kyc: true },
@@ -32,6 +33,7 @@ export class DevController {
     @Inject(SMS) private readonly sms: SmsAdapter,
     @Inject(POSTCODE) private readonly postcode: PostcodeAdapter,
     @Inject(WalletService) private readonly wallet: WalletService,
+    @Inject(BillingService) private readonly billing: BillingService,
   ) {}
 
   @Post('token')
@@ -255,6 +257,22 @@ export class DevController {
     this.payments.restore({ reference: ref, amountKobo: pay.amount_kobo, method: pay.method ?? 'card', email: '', metadata: { purpose: pay.purpose, userId: pay.user_id } });
     const { body, signature } = this.payments.buildWebhook(ref, outcome, amount ? Number(amount) : undefined);
     return this.wallet.handleWebhook(Buffer.from(body), signature);
+  }
+
+  /**
+   * Simulates the owner's monthly charge failing `days` days ago (board "Payment problem"), then moves
+   * the plan to the stage that day means. days=1 → grace, 9 → extras paused, 16 → sharing paused, 31 → off.
+   */
+  @Post('subscriptions/fail')
+  async failCharge(@Body(new ZodPipe(z.object({ userId: z.string().uuid(), days: z.number().int().min(1).max(60).default(3) }))) b: { userId: string; days: number }) {
+    const s = (await this.db.query(`select s.id, pl.price_kobo from subscriptions s join plans pl on pl.code = s.plan_code join properties pr on pr.id = s.property_id where pr.owner_id = $1 and s.state = 'active' limit 1`, [b.userId])).rows[0];
+    if (!s) throw new AppError(404, 'no_active_plan', 'This person has no active plan.');
+    await this.db.tx(async (c) => {
+      await c.query(`update subscriptions set next_bill_at = now() - make_interval(days => $2) where id = $1`, [s.id, b.days]);
+      await chargeFailed(c, s.id, Number(s.price_kobo), new Date(Date.now() - (b.days - 1) * 86_400_000).toISOString().slice(0, 10));
+    });
+    await this.billing.advanceDunning();
+    return { subscriptionId: s.id };
   }
 
   /** Simulates Paystack settling (or failing) a payout transfer; posts a signed transfer.* webhook. */

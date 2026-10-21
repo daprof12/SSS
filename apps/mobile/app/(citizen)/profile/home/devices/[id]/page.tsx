@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { Header, Toast, useToast } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
+import { LivePlayer } from '@/components/LivePlayer';
 import { api, ApiError } from '@/lib/client';
 
 interface Base {
@@ -20,6 +21,8 @@ interface Base {
 interface Camera extends Base {
   type: 'camera';
   canViewLive: boolean;
+  livePaused: string | null;
+  whoViewed: { name: string; role: string; reason: string; via: string; at: string }[];
   settings: { recordingDays: number; shareWithResponders: 'emergency_only' | 'never' };
   recordingDaysOptions: number[];
   viewers: number;
@@ -159,24 +162,20 @@ function CameraView({ d, onToast, onChanged }: { d: Camera; onToast: (m: string)
 
   return (
     <>
-      <div className="camera-frame" aria-label="Live view">
-        {d.canViewLive ? (
-          <>
-            <span className="live-tag">
-              <i /> LIVE
-            </span>
-            <Icon name="camera" size={40} />
-            <strong>Live view</strong>
-            <span className="muted">Only you and household members you allow can see this</span>
-          </>
-        ) : (
-          <>
-            <Icon name="lock" size={36} />
-            <strong>Live view is off for you</strong>
-            <span className="muted">Ask the home owner to let you see live cameras.</span>
-          </>
-        )}
-      </div>
+      {d.canViewLive ? (
+        <LivePlayer deviceId={d.id} name={d.name} onError={onToast} />
+      ) : (
+        <div className="camera-frame" aria-label="Live view">
+          <Icon name="lock" size={36} />
+          <strong>{d.livePaused ? 'Live view is paused' : 'Live view is off for you'}</strong>
+          <span className="muted">{d.livePaused ?? 'Ask the home owner to let you see live cameras.'}</span>
+          {d.livePaused && (
+            <Link className="btn small" href="/profile/home/billing" style={{ marginTop: 8 }}>
+              See what is due
+            </Link>
+          )}
+        </div>
+      )}
       <div className="segmented" role="tablist" style={{ display: 'flex', marginBottom: 12 }}>
         {(['live', 'clips', 'settings'] as const).map((k) => (
           <button key={k} type="button" role="tab" aria-pressed={tab === k} aria-selected={tab === k} onClick={() => setTab(k)} style={{ flex: 1, justifyContent: 'center' }}>
@@ -263,6 +262,24 @@ function CameraView({ d, onToast, onChanged }: { d: Camera; onToast: (m: string)
             </div>
           </div>
           {!d.isOwner && <p className="muted">Only the home owner can change these.</p>}
+          <p className="section-label">Who viewed this camera</p>
+          {d.whoViewed.length ? (
+            <div className="list">
+              {d.whoViewed.map((w, i) => (
+                <div key={i} className="row" style={{ cursor: 'default', minHeight: 52 }}>
+                  <span className="grow">
+                    <strong>{w.name}</strong>
+                    <span className="sub">
+                      {w.role === 'owner' ? 'You' : w.role === 'member' ? 'Household member' : w.role}, {w.reason}
+                    </span>
+                  </span>
+                  <span className="sub">{new Date(w.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">No one has watched it yet. Responders see it only during an emergency you report here; staff need a logged reason.</p>
+          )}
         </>
       )}
 

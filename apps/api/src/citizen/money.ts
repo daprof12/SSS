@@ -37,7 +37,7 @@ export async function spendable(c: Queryable, userId: string): Promise<number> {
  */
 export async function payFromWallet(
   c: Queryable,
-  b: { userId: string; purpose: 'donation' | 'fine'; purposeRef: string; amountKobo: number; key: string; ledgerType: 'donation_out' | 'fine'; memo: string },
+  b: { userId: string; purpose: 'donation' | 'fine' | 'install' | 'subscription'; purposeRef: string; amountKobo: number; key: string; ledgerType: 'donation_out' | 'fine' | 'payment'; memo: string },
 ): Promise<{ paymentId: string; reference: string; journal: string; receiptNo: string }> {
   const have = await spendable(c, b.userId);
   if (have < b.amountKobo) {
@@ -66,10 +66,10 @@ export async function payFromWallet(
 export async function startCharge(
   db: Db,
   payments: PaymentsAdapter,
-  b: { userId: string; purpose: 'donation' | 'fine'; purposeRef: string; amountKobo: number; method: PayMethod; key: string },
+  b: { userId: string; purpose: 'donation' | 'fine' | 'install' | 'subscription'; purposeRef: string; amountKobo: number; method: PayMethod; key: string },
 ) {
   const user = (await db.query(`select email, phone from users where id = $1`, [b.userId])).rows[0];
-  const reference = newReference(b.purpose === 'fine' ? 'fine' : 'don');
+  const reference = newReference({ fine: 'fine', donation: 'don', install: 'inst', subscription: 'sub' }[b.purpose]);
   await db.query(
     `insert into payments (user_id, purpose, purpose_ref, amount_kobo, method, provider_ref, idempotency_key, state) values ($1, $2, $3, $4, $5, $6, $7, 'pending')`,
     [b.userId, b.purpose, b.purposeRef, b.amountKobo, b.method, reference, b.key],

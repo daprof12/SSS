@@ -5,6 +5,7 @@ import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } f
 import { CONFIG, type AppConfig } from '../core/config';
 import { Db } from '../core/db';
 import { notify } from '../reports/shared';
+import { BillingService } from '../citizen/billing.service';
 import { FinesService } from '../citizen/fines.service';
 import { WithdrawalsService } from '../wallet/withdrawals.service';
 
@@ -20,6 +21,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     @Inject(CONFIG) private readonly config: AppConfig,
     @Inject(WithdrawalsService) private readonly withdrawals: WithdrawalsService,
     @Inject(FinesService) private readonly fines: FinesService,
+    @Inject(BillingService) private readonly billing: BillingService,
   ) {}
 
   onModuleInit() {
@@ -34,7 +36,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async runAll() {
-    return { fixSilence: await this.fixSilence(), bountyRelease: await this.bountyRelease(), withdrawalsReleased: await this.withdrawals.releaseHeld(), falseAlarmsConfirmed: await this.fines.autoConfirm() };
+    return { fixSilence: await this.fixSilence(), bountyRelease: await this.bountyRelease(), withdrawalsReleased: await this.withdrawals.releaseHeld(), falseAlarmsConfirmed: await this.fines.autoConfirm(), plansBilled: await this.billing.billDue(), dunningMoved: await this.billing.advanceDunning() };
   }
 
   /** Public issues: no reporter said "not fixed" within FIX_SILENCE_DAYS of the fix, so it is fixed. */

@@ -18,7 +18,7 @@ interface Overview {
   home: {
     role: 'owner' | 'member';
     address: string;
-    plan: { name: string; label: string; tone: string; paidUntil: string | null } | null;
+    plan: { name: string; label: string; tone: string; paidUntil: string | null; late: boolean } | null;
     permissions: { viewLive: boolean; alerts: boolean; report: boolean };
   } | null;
   devices?: { id: string; status: string }[];
@@ -120,10 +120,25 @@ export default function HomePlace() {
       </p>
       {!o && <div className="skeleton" />}
       {o && !o.home && (
-        <div className="empty">
-          <strong>No cameras or street lights yet.</strong>
-          A plan adds an outdoor camera and a street light, installed and maintained by our team. Ask in Help and support to book a survey.
-        </div>
+        <Link className="card" href="/profile/home/plan" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none', color: 'inherit' }}>
+          <span className="icon">
+            <Icon name="shield" />
+          </span>
+          <span style={{ flex: 1, display: 'grid' }}>
+            <strong>Protect your home</strong>
+            <span className="muted">An outdoor camera and a street light, installed and maintained by our team.</span>
+          </span>
+          <Icon name="chevron" size={18} />
+        </Link>
+      )}
+      {o?.home?.plan?.late && (
+        <Link className="banner warning" href="/profile/home/billing" style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none' }}>
+          <span style={{ flex: 1 }}>
+            <strong>Payment problem</strong>
+            We could not take your monthly payment. {o.home.plan.label}.
+          </span>
+          <strong>Pay</strong>
+        </Link>
       )}
       {o?.home && (
         <>
@@ -148,6 +163,16 @@ export default function HomePlace() {
                 </span>
               </span>
               {o.home.plan && <span className={`chip ${o.home.plan.tone}`}>{o.home.plan.label}</span>}
+              <Icon name="chevron" size={18} />
+            </Link>
+            <Link className="row" href="/profile/home/billing">
+              <span className="icon">
+                <Icon name="money" />
+              </span>
+              <span className="grow">
+                <strong>Home plan and billing</strong>
+                <span className="sub">{o.home.plan ? `${o.home.plan.name}${o.home.plan.paidUntil ? `, paid until ${new Date(o.home.plan.paidUntil).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}` : 'Member of this home'}</span>
+              </span>
               <Icon name="chevron" size={18} />
             </Link>
             <Link className="row" href="/profile/home/household">

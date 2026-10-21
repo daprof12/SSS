@@ -53,8 +53,8 @@ export default function RepairsAdmin() {
       {toast}
       <div className="page-head">
         <div>
-          <h1>Installation team: repairs</h1>
-          <p className="lede">Faults owners report on cameras and street lights. Damage is urgent and the local station is told.</p>
+          <h1>Installation team</h1>
+          <p className="lede">New installs paid for by households, and faults owners report. Damage is urgent and the local station is told.</p>
         </div>
       </div>
       {error && (
@@ -79,6 +79,8 @@ export default function RepairsAdmin() {
           <small>Damaged or moved</small>
         </div>
       </div>
+      <Installs technicians={d?.technicians ?? []} onToast={setToast} />
+      <h2 style={{ margin: '24px 0 8px' }}>Repairs</h2>
       <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
         {!d && !error ? (
           <div style={{ padding: 20 }}>
@@ -256,5 +258,102 @@ function TicketSheet({ t, technicians, onClose, onDone }: { t: Ticket; technicia
         </dl>
       )}
     </Sheet>
+  );
+}
+
+interface Install {
+  id: string;
+  number: string;
+  state: string;
+  plan: string;
+  devices: { camera?: number; street_light?: number };
+  owner: string;
+  address: string;
+  visit: string | null;
+  technician: string | null;
+  at: string;
+}
+
+/** New installs (board "Admin install job"): book the visit, then mark installed; the plan starts then. */
+function Installs({ technicians, onToast }: { technicians: { id: string; name: string }[]; onToast: (m: string) => void }) {
+  const [list, setList] = useState<Install[] | null>(null);
+  const [booking, setBooking] = useState<Install | null>(null);
+  const [date, setDate] = useState(() => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
+  const [win, setWin] = useState(WINDOWS[0]!);
+  const s = useSubmit();
+  const load = useCallback(() => {
+    api<Install[]>('/admin/installs').then(setList).catch(() => setList([]));
+  }, []);
+  useEffect(load, [load]);
+  const act = (j: Install, body: object) =>
+    s.run(async () => {
+      const r = await api<{ message: string }>(`/admin/installs/${j.id}`, { method: 'POST', body: JSON.stringify(body) });
+      onToast(`${j.number}: ${r.message}`);
+      setBooking(null);
+      load();
+    });
+  return (
+    <section className="card" aria-labelledby="inst">
+      <h2 id="inst">Installs</h2>
+      <ErrorBox error={s.error} />
+      {!list && <div className="skeleton" />}
+      {list?.length === 0 && <p className="muted">No installs waiting. They appear when a household pays for a plan.</p>}
+      {list?.map((j) => (
+        <div className="row" key={j.id}>
+          <div className="label">
+            <strong>
+              {j.number}, {j.plan} for {j.owner}
+            </strong>
+            <span>
+              {j.address} · {[j.devices.camera && `${j.devices.camera} camera`, j.devices.street_light && `${j.devices.street_light} light`].filter(Boolean).join(', ')}
+              {j.visit ? ` · ${j.visit}${j.technician ? `, ${j.technician}` : ''}` : ''}
+            </span>
+          </div>
+          {j.state === 'done' ? (
+            <span className="chip success">Installed</span>
+          ) : j.state === 'scheduled' ? (
+            <button className="btn primary" type="button" disabled={s.busy} onClick={() => void act(j, { action: 'installed' })}>
+              Mark installed
+            </button>
+          ) : (
+            <button className="btn" type="button" onClick={() => setBooking(j)}>
+              Book visit
+            </button>
+          )}
+        </div>
+      ))}
+      {booking && (
+        <Sheet
+          open
+          title={`Book install ${booking.number}`}
+          description={`${booking.owner}, ${booking.address}`}
+          onClose={() => setBooking(null)}
+          busy={s.busy}
+          footer={
+            <>
+              <button className="btn" type="button" onClick={() => setBooking(null)}>
+                Cancel
+              </button>
+              <button className="btn primary" type="button" disabled={s.busy} onClick={() => void act(booking, { action: 'book', scheduledAt: new Date(`${date}T09:00:00+01:00`).toISOString(), window: win, technicianId: technicians[0]?.id })}>
+                Book visit
+              </button>
+            </>
+          }
+        >
+          <label className="field">
+            <span>Date</span>
+            <input type="date" value={date} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Time window</span>
+            <select value={win} onChange={(e) => setWin(e.target.value)}>
+              {WINDOWS.map((w) => (
+                <option key={w}>{w}</option>
+              ))}
+            </select>
+          </label>
+        </Sheet>
+      )}
+    </section>
   );
 }
