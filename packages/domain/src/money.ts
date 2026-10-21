@@ -129,3 +129,55 @@ export function checkPin(pin: string): string | null {
   if ('0123456789'.includes(pin) || '9876543210'.includes(pin)) return 'Avoid digits in a row, like 1234.';
   return null;
 }
+
+/**
+ * Rewards for rated responses (PRD "Ratings and rewards"; Rewards doc: split "between the
+ * officers on it by the agency's rule"; "Bounties and rewards wait [n] days").
+ * Paid from the platform rewards pool, once per incident, on its first rating.
+ */
+export interface RewardRule {
+  /** Board "Reward for a 5-star response". */
+  fiveStarKobo: number;
+  /** A 4-star response earns this share of it; 3 stars or fewer earn nothing. */
+  fourStarPct: number;
+  /** equal: everyone the same. lead_first: the lead takes half, the rest share the other half. */
+  split: 'equal' | 'lead_first';
+}
+export const REWARD_RULES = {
+  holdDays: 7,
+  /** PRD risk: "reward rules need audit and caps". */
+  dailyCapPerOfficerKobo: 2_000_000, // ₦20,000
+  maxFiveStarKobo: 2_500_000, // ₦25,000
+  /** A reporter who rated this station's responses this often in 30 days earns them nothing more (rating rings). */
+  repeatRaterLimit: 3,
+} as const;
+export const DEFAULT_REWARD_RULE: RewardRule = { fiveStarKobo: 500_000, fourStarPct: 50, split: 'lead_first' };
+
+export function rewardFor(stars: number, rule: RewardRule): number {
+  if (stars >= 5) return rule.fiveStarKobo;
+  if (stars === 4) return Math.floor((rule.fiveStarKobo * rule.fourStarPct) / 100);
+  return 0;
+}
+
+/** Splits a reward in whole kobo; any remainder goes to the lead (or the first officer). */
+export function splitReward(totalKobo: number, officers: { id: string; lead: boolean }[], split: RewardRule['split']): { id: string; kobo: number }[] {
+  if (!officers.length || totalKobo <= 0) return [];
+  const leadIdx = Math.max(0, officers.findIndex((o) => o.lead));
+  let shares: number[];
+  if (split === 'lead_first' && officers.length > 1) {
+    const leadPart = Math.floor(totalKobo / 2);
+    const each = Math.floor((totalKobo - leadPart) / (officers.length - 1));
+    shares = officers.map((_, i) => (i === leadIdx ? leadPart : each));
+  } else {
+    const each = Math.floor(totalKobo / officers.length);
+    shares = officers.map(() => each);
+  }
+  shares[leadIdx]! += totalKobo - shares.reduce((a, b) => a + b, 0);
+  return officers.map((o, i) => ({ id: o.id, kobo: shares[i]! }));
+}
+
+export function checkRewardRule(r: RewardRule): { field: keyof RewardRule; message: string } | null {
+  if (!Number.isInteger(r.fiveStarKobo) || r.fiveStarKobo < 0 || r.fiveStarKobo > REWARD_RULES.maxFiveStarKobo) return { field: 'fiveStarKobo', message: `Enter up to ${formatNaira(REWARD_RULES.maxFiveStarKobo)} for a 5-star response.` };
+  if (!Number.isInteger(r.fourStarPct) || r.fourStarPct < 0 || r.fourStarPct > 100) return { field: 'fourStarPct', message: 'Enter a share between 0% and 100%.' };
+  return null;
+}

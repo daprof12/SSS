@@ -338,3 +338,14 @@ Wallet → Withdraw, and Wallet → Bank account (`apps/api/src/wallet/withdrawa
 - **24-hour hold:** withdrawals in the next 24 hours are held as "Scheduled", which protects against a stolen SIM, and the owner gets a notice. Codes have a purpose, and sign-in only accepts sign-in codes.
 
 **Not built yet:** a real Paystack adapter (resolve, recipients, transfers), and an admin view of withdrawals.
+
+## Rewards for rated responses
+
+When a citizen rates a closed response, the platform rewards pool pays the officers on it. Each incident is decided once, on its first rating (migration 017: `reward_rules`, `reward_payments`).
+
+- **The agency's rule** (Dashboard → Payouts, agency admin): the reward for 5 stars (up to ₦25,000), what 4 stars earns as a percentage, and the split: the lead officer takes half and the rest share the other half (`lead_first`), or everyone gets the same (`equal`). Any remainder goes to the lead. 3 stars or fewer earn nothing. Rewards can be paused.
+- **Held days:** each share goes into the officer's wallet held for 7 days (`available_at`), then it can be withdrawn. The officer gets a notification ("You earned ₦X for a N-star response. It is released on D."), and History shows the reward next to the response.
+- **Anti-gaming:** nothing is paid when the reporter is staff, when the same person has rated the same station more than 3 times, when an officer has reached ₦20,000 for the day, or when the pool is empty. The reason is shown in Recent rewards.
+- **Donation shares:** the agency also sets how future donations split between officer, station and agency (must total 100%). Gifts to a named officer go to that officer.
+
+API: `GET /agencies/:id/rewards`, `PUT /agencies/:id/reward-rule`, `PUT /agencies/:id/donation-shares`. The dev seed sets a ₦5,000 police rule and funds the pool with ₦500,000. Tests: `apps/api/test/rewards.e2e.test.ts`.

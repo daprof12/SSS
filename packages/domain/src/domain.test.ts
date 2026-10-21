@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   agencyHandles,
+  checkRewardRule,
+  rewardFor,
+  splitReward,
   bankName,
   checkPin,
   isNuban,
@@ -412,5 +415,21 @@ describe('withdrawal rules', () => {
     expect(checkPin('12a4')).toBe('Use 4 digits.');
     expect(checkPin('4821')).toBeNull();
     expect(bankName('058')).toBe('GTBank');
+  });
+});
+
+describe('rewards for ratings', () => {
+  const rule = { fiveStarKobo: 500_000, fourStarPct: 50, split: 'lead_first' as const };
+  it('pays by stars', () => {
+    expect(rewardFor(5, rule)).toBe(500_000);
+    expect(rewardFor(4, rule)).toBe(250_000);
+    expect(rewardFor(3, rule)).toBe(0);
+  });
+  it('splits in whole kobo, remainder to the lead', () => {
+    const team = [{ id: 'a', lead: false }, { id: 'lead', lead: true }, { id: 'c', lead: false }];
+    expect(splitReward(500_001, team, 'lead_first')).toEqual([{ id: 'a', kobo: 125_000 }, { id: 'lead', kobo: 250_001 }, { id: 'c', kobo: 125_000 }]);
+    expect(splitReward(500_000, team, 'equal').map((x) => x.kobo)).toEqual([166_666, 166_668, 166_666]);
+    expect(splitReward(500_000, [{ id: 'solo', lead: true }], 'lead_first')).toEqual([{ id: 'solo', kobo: 500_000 }]);
+    expect(checkRewardRule({ ...rule, fiveStarKobo: 9_000_000 })).toMatchObject({ field: 'fiveStarKobo' });
   });
 });

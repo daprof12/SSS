@@ -14,6 +14,7 @@ import {
 import { POSTCODE, PostcodeUnavailable, type Building, type PostcodeAdapter } from '../adapters/postcode';
 import { SMS, type SmsAdapter } from '../adapters/sms';
 import { Audit } from '../core/audit';
+import { RewardsService } from '../rewards/rewards.service';
 import { hasRole, type Principal } from '../core/auth';
 import { Bus } from '../core/bus';
 import { CONFIG, type AppConfig } from '../core/config';
@@ -66,6 +67,7 @@ export class IncidentsService implements OnModuleDestroy {
     @Inject(CONFIG) private readonly config: AppConfig,
     @Inject(POSTCODE) private readonly postcode: PostcodeAdapter,
     @Inject(SMS) private readonly sms: SmsAdapter,
+    @Inject(RewardsService) private readonly rewards: RewardsService,
   ) {}
 
   onModuleDestroy() {
@@ -618,6 +620,8 @@ export class IncidentsService implements OnModuleDestroy {
       );
     });
     this.publish(id, 'rated');
+    // The first rating decides the officers' reward; it never fails the rating itself.
+    await this.rewards.payForRating(id, p.userId, b.stars);
     return { ok: true, message: 'Thank you. Your rating helps teams improve.' };
   }
 

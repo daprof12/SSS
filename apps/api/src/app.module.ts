@@ -41,6 +41,8 @@ import { AdminBountyFeeController, BountiesController } from './reports/bounties
 import { BountiesService } from './reports/bounties.service';
 import { BriefController } from './reports/brief.controller';
 import { BriefService } from './reports/brief.service';
+import { RewardsController } from './rewards/rewards.controller';
+import { RewardsService } from './rewards/rewards.service';
 import { WalletController } from './wallet/wallet.controller';
 import { WalletService } from './wallet/wallet.service';
 import { WithdrawalsService } from './wallet/withdrawals.service';
@@ -75,6 +77,7 @@ export class AppModule {
         AdminAgenciesController,
         MediaController,
         LearnController,
+        RewardsController,
         BriefController,
         BountiesController,
         AdminBountyFeeController,
@@ -102,6 +105,7 @@ export class AppModule {
         AgenciesService,
         MediaService,
         LearnService,
+        RewardsService,
         BriefService,
         BountiesService,
         JobsService,

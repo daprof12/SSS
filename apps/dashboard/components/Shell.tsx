@@ -20,6 +20,7 @@ interface NavItem {
 const AGENCY_BUILT: Record<string, NavItem> = {
   Bounties: { label: 'Bounties', href: '/agency/bounties', built: true, also: ['/agency/tips'] },
   'Public issues': { label: 'Public issues', href: '/agency/issues', built: true },
+  Payouts: { label: 'Payouts', href: '/agency/payouts', built: true },
 };
 
 const ADMIN_BUILT: Record<string, NavItem> = {

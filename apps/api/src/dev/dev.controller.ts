@@ -186,6 +186,17 @@ export class DevController {
         );
       }
       await seedLearn(c, ids.platformAdmin!, { police: agency, ferma, naptip });
+      // Rewards: ₦5,000 for a 5-star police response, and ₦500,000 in the platform rewards pool.
+      await c.query(`insert into reward_rules (agency_id, five_star_kobo, four_star_pct, split) values ($1, 500000, 50, 'lead_first') on conflict do nothing`, [agency]);
+      const rp = (await c.query(`select w.id, coalesce(sum(l.amount_kobo), 0)::bigint as k from wallets w left join wallet_ledger l on l.wallet_id = w.id where w.owner_type = 'rewards_pool' and w.owner_id is null group by w.id`)).rows[0];
+      if (rp && Number(rp.k) === 0) {
+        const platform = (await c.query(`select id from wallets where owner_type = 'platform' and owner_id is null`)).rows[0].id;
+        const j = (await c.query(`select gen_random_uuid() as j`)).rows[0].j;
+        await c.query(
+          `insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values ($1, 'fund', 50000000, 'seed-rewards-pool', $3, 'Demo rewards pool'), ($2, 'fund', -50000000, 'seed-rewards-pool', $3, 'Demo rewards pool')`,
+          [rp.id, platform, j],
+        );
+      }
       // Duty roster for the two demo officers: today and the next few days.
       const shifts = (await c.query(`select count(*)::int as n from duty_shifts where officer_id = any($1::uuid[])`, [[ids.officer, ids.officer2]])).rows[0].n;
       if (!shifts) {

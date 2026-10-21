@@ -76,7 +76,7 @@ describe('history and activity detail', () => {
     expect(mine.every((x: any) => x.mine)).toBe(true);
 
     const d = (await http.get(`/me/officer/history/${a.id}`).set(as(a.who)).expect(200)).body;
-    expect(d).toMatchObject({ title: 'Robbery, AB12C', stars: 5, outcome: 'Arrest made', reportsMerged: 1, comment: 'They came in minutes', rewardNote: null });
+    expect(d).toMatchObject({ title: 'Robbery, AB12C', stars: 5, outcome: 'Arrest made', reportsMerged: 1, comment: 'They came in minutes', rewardNote: expect.stringMatching(/^Reward ₦5,000\.00 split by the Station 4 Ikeja rule\. Paid to wallets on /) });
     expect(d.team[0]).toMatchObject({ name: 'You', you: true, role: 'Lead' });
     expect(d.arrivalS).toBeGreaterThanOrEqual(0);
     await http.get(`/me/officer/history/${a.id}`).set(as('citizen')).expect(403);
