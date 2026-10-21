@@ -16,6 +16,7 @@ interface Target {
 }
 interface Targets {
   presetsKobo: number[];
+  platformFeePct: number;
   minKobo: number;
   maxKobo: number;
   agencies: Target[];
@@ -119,6 +120,11 @@ export default function Donate() {
           Other
         </button>
       </div>
+      {!!kobo && t && (
+        <p className="muted" style={{ margin: '-4px 0 12px', fontSize: 'var(--text-sm)' }}>
+          {naira(kobo - Math.floor((kobo * t.platformFeePct) / 100))} reaches them. {t.platformFeePct}% keeps the platform running.
+        </p>
+      )}
       {amount === 'other' && (
         <label className="field">
           <span>Amount in naira</span>

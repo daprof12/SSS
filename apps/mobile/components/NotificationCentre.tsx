@@ -22,10 +22,17 @@ export function routeFor(link: string | null, surface: 'citizen' | 'officer' | u
   if (!link) return null;
   const t = /^\/(tips|issues)\/([0-9a-f-]{36})/.exec(link);
   if (t) return surface === 'officer' ? `/officer/${t[1]}/${t[2]}` : `/${t[1]}/${t[2]}`;
+  const st = /^\/statements\/([0-9a-f-]{36})/.exec(link);
+  if (st) return surface === 'officer' ? `/officer/statements/${st[1]}` : `/statements/${st[1]}`;
   const m = /^\/(reports|offers|history|incidents)\/([0-9a-f-]{36})/.exec(link);
-  if (!m) return link.startsWith('/wallet') ? (surface === 'officer' ? '/officer/wallet' : '/wallet') : null;
-  if (surface === 'officer') return m[1] === 'offers' ? `/officer/offers/${m[2]}` : `/officer/incidents/${m[2]}`;
-  return `/reports/${m[2]}`;
+  if (m) {
+    if (surface === 'officer') return m[1] === 'offers' ? `/officer/offers/${m[2]}` : `/officer/incidents/${m[2]}`;
+    return `/reports/${m[2]}`;
+  }
+  if (link.startsWith('/wallet')) return surface === 'officer' ? '/officer/wallet' : '/wallet';
+  // Citizen pages the API links to directly (fines, receipts, home, help, donate, learn).
+  if (surface !== 'officer' && /^\/(fines|payments|profile|help|donate|learn|activity|notifications)(\/|$)/.test(link)) return link;
+  return null;
 }
 
 /** Notification centre: tabs, unread dot, mark all read (States doc). Shared by both surfaces. */

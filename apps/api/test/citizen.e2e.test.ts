@@ -46,6 +46,8 @@ async function closeReport(reporter: string, unfounded: boolean) {
     .set(as(lead))
     .send(unfounded ? { event: 'close_unfounded', outcomeCode: 'no_incident', reason: 'Nobody at the address, no sign of a robbery.' } : { event: 'close_valid', outcomeCode: 'arrest' })
     .expect(201);
+  // B8 step 1: the station head confirms the false alarm before any warning or fine.
+  if (unfounded) await http.post(`/me/station/false-alarms/${id}/review`).set(as('head')).send({ decision: 'confirm' }).expect(201);
   return { id, lead };
 }
 
@@ -154,6 +156,13 @@ describe('fines and appeals', () => {
     // A double tap pays once.
     expect((await http.post(`/me/fines/${fineId}/pay`).set(as('citizen')).set('Idempotency-Key', k).send({ method: 'wallet', pin: '7302' }).expect(201)).body.replayed).toBe(true);
     expect((await http.get(`/me/fines/${fineId}`).set(as('citizen'))).body.state).toBe('paid');
+    // 40% agency, 30% rewards pool, 30% platform.
+    const shares = (await db.query(`select shares from fines where id = $1`, [fineId])).rows[0].shares;
+    expect(shares).toEqual([
+      { to: 'agency', kobo: 80000 },
+      { to: 'rewards_pool', kobo: 60000 },
+      { to: 'platform', kobo: 60000 },
+    ]);
     expect((await http.get('/me/wallet').set(as('citizen'))).body.availableKobo).toBe(800_000);
 
     const r = (await http.get(`/me/receipts/${paid.reference}`).set(as('citizen')).expect(200)).body;
@@ -191,16 +200,17 @@ describe('donations and receipts', () => {
     expect((await http.post('/me/donations').set(as('neighbour')).set('Idempotency-Key', key()).send({ ...body, amountKobo: 5000 }).expect(422)).body.message).toBe('Give at least ₦100.00.');
     expect((await http.post('/me/donations').set(as('neighbour')).set('Idempotency-Key', key()).send({ ...body, pin: '1111' }).expect(422)).body.code).toBe('pin_wrong');
     const d = (await http.post('/me/donations').set(as('neighbour')).set('Idempotency-Key', key()).send(body).expect(201)).body;
-    expect(d.message).toBe('Thank you. ₦1,000.00 went to Station 4 Ikeja.');
-    // 50% to the two officers (₦250 each, held), 30% to the station, 20% to the agency.
+    expect(d.message).toBe('Thank you. ₦700.00 of your ₦1,000.00 went to Station 4 Ikeja.');
+    // The platform keeps 30% (₦300). Of ₦700: 50% to the two officers (₦175 each, held), 20% to the agency, the rest to the station.
     const legs = (await db.query(`select shares from donations where id = (select purpose_ref from payments where provider_ref = $1)`, [d.reference])).rows[0].shares;
-    expect(legs.filter((l: any) => l.to === 'officer').map((l: any) => l.kobo)).toEqual([25000, 25000]);
-    expect(legs.find((l: any) => l.to === 'station').kobo).toBe(30000);
-    expect(legs.find((l: any) => l.to === 'agency').kobo).toBe(20000);
+    expect(legs.filter((l: any) => l.to === 'officer').map((l: any) => l.kobo)).toEqual([17500, 17500]);
+    expect(legs.find((l: any) => l.to === 'platform_fees').kobo).toBe(30000);
+    expect(legs.find((l: any) => l.to === 'station').kobo).toBe(21000);
+    expect(legs.find((l: any) => l.to === 'agency').kobo).toBe(14000);
     const officerWallet = (await http.get('/me/wallet').set(as('officer'))).body;
-    expect(officerWallet.heldKobo).toBeGreaterThanOrEqual(25000);
+    expect(officerWallet.heldKobo).toBeGreaterThanOrEqual(17500);
     const note = (await http.get('/me/notifications').set(as('officer'))).body.items.find((x: any) => x.type === 'donation_received');
-    expect(note.body).toBe('Chidi Neighbour gave ₦250.00 to your station; this is your share. Released in 7 days.');
+    expect(note.body).toBe('Chidi Neighbour gave ₦175.00 to your station; this is your share. Released in 7 days.');
   });
 
   it('gives to a named officer by Paystack; the webhook credits it and the receipt shows it', async () => {
@@ -213,7 +223,7 @@ describe('donations and receipts', () => {
     expect(list.items.map((x: any) => x.what)).toEqual(['Donation', 'Donation']);
     expect(list.totalPaidKobo).toBe(300000);
     const r = (await http.get(`/me/receipts/${start.reference}`).set(as('neighbour'))).body;
-    expect(r).toMatchObject({ what: 'Donation', method: 'Card', to: 'Insp. Musa Bello', detail: 'Given without your name.' });
+    expect(r).toMatchObject({ what: 'Donation', method: 'Card', to: 'Insp. Musa Bello', detail: 'Given without your name.', feeKobo: 60000 });
     expect((await http.get('/me/donations').set(as('neighbour'))).body[0]).toMatchObject({ target: 'Insp. Musa Bello', state: 'paid' });
     await http.get(`/me/receipts/${start.reference}`).set(as('citizen')).expect(404);
   });

@@ -197,7 +197,10 @@ export class WalletService {
           await c.query(`update donations set payment_id = $2, amount_kobo = $3 where id = $1`, [pay.purpose_ref, pay.id, amount]);
           await creditDonation(c, pay.purpose_ref, pay.provider_ref, journal);
         } else if (pay.purpose === 'fine') {
-          await markPaid(c, pay.purpose_ref, pay.id);
+          const journal = randomUUID();
+          const platform = (await c.query(`select id from wallets where owner_type = 'platform' and owner_id is null`)).rows[0].id;
+          await c.query(`insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values ($1, 'fine', $2, $3, $4, 'Fine by Paystack')`, [platform, -amount, pay.provider_ref, journal]);
+          await markPaid(c, pay.purpose_ref, pay.id, pay.provider_ref, journal);
         }
         await this.audit.write({ actorId: null, actorRole: 'system', action: 'payment.succeeded', entity: 'payment', entityId: pay.id, payload: { amount, reference: pay.provider_ref } }, c);
       } else if (charge.event === 'charge.failed' && pay.state !== 'succeeded') {

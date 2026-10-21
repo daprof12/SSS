@@ -386,3 +386,21 @@ Migration 018. API in `apps/api/src/citizen/`; tests in `apps/api/test/citizen.e
   - Missed and declined offers count in the acceptance rate shown on the officer profile.
   - The response log shows who did each step.
   - Officers can add notes and photos (staff-only), request a drone or a transfer (the station head is told), and hand a report over before arriving.
+
+## Statements, false-alarm review, donation fee, help replies
+
+Migration 019. Tests: `apps/api/test/statements.e2e.test.ts`.
+
+- **Statements** (B7):
+  - **Asking:** an officer on the incident, or the station, asks once a unit is on scene or after closing. The reporter is told; their report shows "asked for your statement".
+  - **Recording:** they record (the voice note is kept) and type in their language, Auto, Yoruba, Hausa, Igbo, Pidgin or English. An English record is made by the translation adapter. The dev adapter returns a clearly marked machine draft and flags names, places and times.
+  - **Signing:** they correct the English and sign with their PIN. The version is sealed with a SHA-256 seal and locked by a database trigger.
+  - **Their copy:** download a PDF, save it for offline, share a view-only link for 7 days, or add more as a new version.
+  - **Station view** (`/statements/:id` on the dashboard): the original, the English, AI confidence, the seal and an access log. Every open and download is logged. From there the station can request more detail (the reporter signs v2 and v1 stays) or a certified translator check (it shows in Admin → Help inbox).
+- **False-alarm review** (decided 2026-10-21):
+  - A report closed as a false alarm waits for the station head to confirm or overturn it (card on the incident page, `/me/station/false-alarms`).
+  - After 48 hours it goes ahead on its own (jobs), and only then comes the warning or fine.
+  - **Paid fines** go 40% to the agency, 30% to the rewards pool and 30% to the platform.
+- **Donation fee:** the platform keeps 30%. The donate screen and the receipt show what reached the recipient.
+- **Help replies:** Admin → Help inbox lists messages and translator checks. The reply shows in the person's Help and support with a notification.
+- **Notification taps** now open fines, receipts, home, help, donate and statements.

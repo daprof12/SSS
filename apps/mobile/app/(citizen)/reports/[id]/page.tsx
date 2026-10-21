@@ -135,6 +135,8 @@ export default function LiveStatus({ params }: { params: Promise<{ id: string }>
         </ol>
       )}
 
+      <StatementBanner incidentId={id} refresh={v.state} />
+
       {v.reportCount > 1 && (
         <div className="banner success">
           <strong>
@@ -339,5 +341,26 @@ function InfoSheet({ id, onClose, onDone }: { id: string; onClose: () => void; o
         <AttachPicker picked={picked} disabled={busy} />
       </div>
     </Sheet>
+  );
+}
+
+/** "Station asked for your statement" (B7), on the report it belongs to. */
+function StatementBanner({ incidentId, refresh }: { incidentId: string; refresh: string }) {
+  const [st, setSt] = useState<{ id: string; state: string; stateLabel: string; station: string | null } | null>(null);
+  useEffect(() => {
+    api<{ id: string; incidentId: string; state: string; stateLabel: string; station: string | null }[]>('/me/statements')
+      .then((xs) => setSt(xs.find((x) => x.incidentId === incidentId) ?? null))
+      .catch(() => {});
+  }, [incidentId, refresh]);
+  if (!st) return null;
+  const waiting = st.state !== 'signed';
+  return (
+    <Link className={`banner ${waiting ? 'info' : 'success'}`} href={`/statements/${st.id}`} style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none' }}>
+      <span style={{ flex: 1 }}>
+        <strong>{waiting ? `${st.station ?? 'The station'} asked for your statement` : 'Your statement is signed'}</strong>
+        {waiting ? 'Speak or type it in your language. You check the English before you sign.' : 'Open it to download, share or add more.'}
+      </span>
+      <strong>{waiting ? 'Start' : 'Open'}</strong>
+    </Link>
   );
 }

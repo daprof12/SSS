@@ -77,7 +77,7 @@ export class WithdrawalsService {
     if (bad) throw new AppError(422, 'validation_failed', bad, { fields: [{ field: 'pin', message: bad }] });
     await this.db.query(`update users set pin_hash = $2, pin_failed = 0, pin_locked_until = null where id = $1`, [p.userId, this.hashPin(b.pin)]);
     await this.audit.write({ actorId: p.userId, action: u.pin_hash ? 'wallet.pin_changed' : 'wallet.pin_set', entity: 'user', entityId: p.userId });
-    return { set: true, message: u.pin_hash ? 'PIN changed.' : 'PIN set. You will use it for every withdrawal.' };
+    return { set: true, message: u.pin_hash ? 'PIN changed.' : 'PIN set. You will use it for withdrawals, payments and signing statements.' };
   }
 
   /** Forgot PIN, step 1: a code by SMS to the account's own phone. Works while the PIN is locked. */

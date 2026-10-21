@@ -133,3 +133,25 @@ export function streamUrl(path: string): string {
   const s = getSession();
   return `${API_URL}${path}?access_token=${encodeURIComponent(s?.token ?? '')}`;
 }
+
+/** Downloads a file the API serves only with the session token (PDF receipts, statements, briefs). */
+export async function downloadFile(path: string, fallbackName: string): Promise<void> {
+  await ensureFreshToken();
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${getSession()?.token ?? ''}` } });
+  } catch {
+    throw new ApiError(0, 'offline', 'You are offline.');
+  }
+  if (!res.ok) {
+    const b = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, b.code ?? 'error', b.message ?? 'Could not download it. Try again.');
+  }
+  // Content-Disposition is not readable across origins, so the caller names the file.
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fallbackName;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

@@ -1,6 +1,6 @@
 // Citizen profile rows (UX Gap Analysis §2.1): Security, Donations, Payments and receipts,
 // Fines and appeals, Help and support. Admin review of fines lives here too (B8 step 4).
-import { formatNaira } from '@erp/domain';
+import { donationFee, formatNaira } from '@erp/domain';
 import { Body, Controller, Delete, Get, Headers, HttpCode, Inject, Ip, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { z } from 'zod';
@@ -27,6 +27,7 @@ const Donate = z.object({
 });
 const Appeal = z.object({ reason: z.string(), note: z.string().max(1000).optional() });
 const PayFine = z.object({ method: PayWith, pin: z.string().optional() });
+const Review = z.object({ decision: z.enum(['confirm', 'overturn']), note: z.string().max(500).optional() });
 const Decide = z.object({ decision: z.enum(['waive', 'reduce', 'uphold']), reason: z.string(), amountKobo: z.number().int().optional() });
 const Ticket = z.object({ topic: z.enum(['app', 'money', 'report', 'device', 'account', 'other']), body: z.string().trim().min(10, 'Tell us a little more, at least 10 characters.').max(2000), relatedId: z.string().uuid().optional() });
 const PayTab = z.enum(['all', 'donations', 'fines', 'wallet', 'home']).default('all');
@@ -202,6 +203,7 @@ export class CitizenController {
     if (!x) throw new AppError(404, 'not_found', 'Receipt not found.');
     let to = 'Your wallet';
     let detail: string | null = null;
+    let feeKobo: number | null = null;
     if (x.purpose === 'donation') {
       const d = (
         await this.db.query(
@@ -213,6 +215,7 @@ export class CitizenController {
         )
       ).rows[0];
       to = d?.target ?? 'Responders';
+      feeKobo = donationFee(Number(x.amount_kobo));
       detail = d ? (d.show_name ? 'Your name was shown to them.' : 'Given without your name.') : null;
     } else if (x.purpose === 'fine') {
       const f = (await this.db.query(`select number from fines where id = $1`, [x.purpose_ref])).rows[0];
@@ -234,8 +237,20 @@ export class CitizenController {
       from: x.display_name,
       to,
       detail,
+      feeKobo,
       failureReason: x.state === 'failed' ? x.failure_reason ?? 'The payment did not go through.' : null,
     };
+  }
+
+  // Station head: confirm or overturn a false-alarm closure before any fine (B8 step 1).
+  @Post('station/false-alarms/:incidentId/review')
+  review(@CurrentUser() p: Principal, @Param('incidentId', ParseUUIDPipe) id: string, @Body(new ZodPipe(Review)) b: z.infer<typeof Review>) {
+    return this.fines.review(p, id, b);
+  }
+
+  @Get('station/false-alarms')
+  pending(@CurrentUser() p: Principal) {
+    return this.fines.pendingReviews(p);
   }
 
   // ---------------------------------------------------------------- Fines and appeals (B8)
@@ -304,5 +319,72 @@ export class AdminFinesController {
   @Post('fines/:id/decision')
   decide(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(Decide)) b: z.infer<typeof Decide>) {
     return this.fines.decide(p, id, b);
+  }
+}
+
+const Reply = z.object({ reply: z.string().trim().min(5, 'Write a reply the person will read.').max(2000), close: z.boolean().default(false) });
+
+/** Help and support inbox for platform staff: read a message, reply, close. The person is told in the app. */
+@Controller('admin/support')
+export class AdminSupportController {
+  constructor(
+    @Inject(Db) private readonly db: Db,
+    @Inject(Audit) private readonly audit: Audit,
+  ) {}
+
+  private admin(p: Principal) {
+    if (!p.roles.some((r) => r.role === 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
+  }
+
+  @Get()
+  async inbox(@CurrentUser() p: Principal, @Query('state') state = 'open') {
+    this.admin(p);
+    const st = ['open', 'answered', 'closed', 'all'].includes(state) ? state : 'open';
+    const r = await this.db.query(
+      `select t.*, u.display_name, u.phone, ru.display_name as replied_by_name from support_tickets t join users u on u.id = t.user_id left join users ru on ru.id = t.replied_by
+        where ($1 = 'all' or t.state = $1) order by t.state = 'open' desc, t.created_at desc limit 100`,
+      [st],
+    );
+    const counts = (await this.db.query(`select state, count(*)::int as n from support_tickets group by state`)).rows;
+    const translator = (
+      await this.db.query(
+        `select s.id, s.number, s.translator_note, s.updated_at, i.type, l.postcode from statements s join incidents i on i.id = s.incident_id left join locations l on l.id = i.location_id
+          where s.translator_check = 'requested' order by s.updated_at`,
+      )
+    ).rows;
+    return {
+      counts: Object.fromEntries(counts.map((x) => [x.state, x.n])),
+      items: r.rows.map((t) => ({
+        id: t.id,
+        number: t.number,
+        topic: t.topic,
+        body: t.body,
+        state: t.state,
+        reply: t.reply,
+        repliedBy: t.replied_by_name,
+        repliedAt: t.replied_at,
+        from: t.display_name,
+        phone: t.phone ? `${t.phone.slice(0, 7)}•••${t.phone.slice(-2)}` : null,
+        relatedId: t.related_id,
+        at: t.created_at,
+      })),
+      translatorChecks: translator.map((x) => ({ id: x.id, number: x.number, note: x.translator_note, report: `${x.type}, ${x.postcode ?? 'GPS'}`, at: x.updated_at })),
+    };
+  }
+
+  @Post(':id/reply')
+  @HttpCode(200)
+  async reply(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(Reply)) b: z.infer<typeof Reply>) {
+    this.admin(p);
+    return this.db.tx(async (c) => {
+      const t = (await c.query(`update support_tickets set reply = $2, state = $3, replied_by = $4, replied_at = now() where id = $1 returning user_id, number`, [id, b.reply, b.close ? 'closed' : 'answered', p.userId])).rows[0];
+      if (!t) throw new AppError(404, 'not_found', 'Message not found.');
+      await c.query(
+        `insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'support_reply', 'account', 'in_app', 'We replied', $2, '/help')`,
+        [t.user_id, `About ${t.number}: ${b.reply.length > 120 ? `${b.reply.slice(0, 117)}…` : b.reply}`],
+      );
+      await this.audit.write({ actorId: p.userId, actorRole: 'platform_admin', action: 'support.reply', entity: 'support_ticket', entityId: id }, c);
+      return { message: b.close ? `Replied and closed ${t.number}.` : `Replied to ${t.number}.` };
+    });
   }
 }

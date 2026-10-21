@@ -14,7 +14,32 @@ export const FINE_POLICY = {
   appealMinChars: 20,
   trustWarning: -5,
   trustFine: -10,
+  /** Decided 2026-10-21: the station head confirms or overturns a false-alarm closure first; silence for this long means it goes ahead. */
+  reviewHours: 48,
 } as const;
+
+/** Decided 2026-10-21: who gets a paid fine. The pool is the rewards pool that pays officers for rated responses. */
+export const FINE_SHARES = { agencyPct: 40, poolPct: 30, platformPct: 30 } as const;
+
+/** Splits a paid fine in whole kobo; the remainder goes to the platform. No agency (unknown station): its part goes to the pool. */
+export function splitFine(amountKobo: number, hasAgency: boolean): { agency: number; pool: number; platform: number } {
+  const agency = hasAgency ? Math.floor((amountKobo * FINE_SHARES.agencyPct) / 100) : 0;
+  const pool = Math.floor((amountKobo * (FINE_SHARES.poolPct + (hasAgency ? 0 : FINE_SHARES.agencyPct))) / 100);
+  return { agency, pool, platform: amountKobo - agency - pool };
+}
+
+// ---------------------------------------------------------------- statements (B7)
+
+export const STATEMENT_LANGUAGES = [
+  { code: 'auto', label: 'Auto' },
+  { code: 'yo', label: 'Yoruba' },
+  { code: 'ha', label: 'Hausa' },
+  { code: 'ig', label: 'Igbo' },
+  { code: 'pcm', label: 'Pidgin' },
+  { code: 'en', label: 'English' },
+] as const;
+export const languageName = (code: string) => STATEMENT_LANGUAGES.find((l) => l.code === code)?.label ?? code;
+export const STATEMENT_RULES = { minChars: 20, maxChars: 8000, shareDays: 7, lowConfidence: 0.75 } as const;
 
 export type FalseAlarmOutcome = { kind: 'warning'; trustDelta: number } | { kind: 'fine'; trustDelta: number; amountKobo: number };
 
@@ -40,7 +65,12 @@ export const DONATION_RULES = {
   maxKobo: 50_000_000, // ₦500,000
   /** Officers' shares are held like rewards before they can be withdrawn. */
   holdDays: 7,
+  /** Decided 2026-10-21: the platform keeps 30% of each donation; the rest goes to who was chosen. */
+  platformFeePct: 30,
 } as const;
+
+/** The platform's share of a donation, in whole kobo (rounded down, so the receivers never lose a kobo). */
+export const donationFee = (amountKobo: number) => Math.floor((amountKobo * DONATION_RULES.platformFeePct) / 100);
 
 export function checkDonation(amountKobo: number): string | null {
   if (!Number.isInteger(amountKobo) || amountKobo < DONATION_RULES.minKobo) return `Give at least ${formatNaira(DONATION_RULES.minKobo)}.`;
@@ -55,12 +85,12 @@ export interface DonationShares {
 }
 export const DEFAULT_DONATION_SHARES: DonationShares = { officerPct: 50, stationPct: 30, agencyPct: 20 };
 
-export type DonationLeg = { to: 'officer'; id: string; kobo: number } | { to: 'station'; id: string; kobo: number } | { to: 'agency'; id: string; kobo: number };
+export type DonationLeg = { to: 'officer' | 'station' | 'agency'; id: string; kobo: number } | { to: 'platform_fees'; id: null; kobo: number };
 
 /**
- * Who gets what. A gift to a named officer goes to that officer; a station gift is split by the agency's
- * shares (the officer part equally between the station's officers); an agency gift goes to the agency.
- * Whole kobo; any remainder goes to the station (or the agency when there is no station part).
+ * Who gets what. The platform keeps its fee first. A gift to a named officer goes to that officer; a
+ * station gift is split by the agency's shares (the officer part equally between the station's officers);
+ * an agency gift goes to the agency. Whole kobo; any remainder goes to the station.
  */
 export function splitDonation(
   amountKobo: number,
@@ -68,8 +98,15 @@ export function splitDonation(
   shares: DonationShares,
   stationOfficers: string[],
 ): DonationLeg[] {
-  if (target.type === 'officer') return [{ to: 'officer', id: target.id, kobo: amountKobo }];
-  if (target.type === 'agency') return [{ to: 'agency', id: target.agencyId, kobo: amountKobo }];
+  const fee = donationFee(amountKobo);
+  const feeLeg: DonationLeg[] = fee ? [{ to: 'platform_fees', id: null, kobo: fee }] : [];
+  const net = amountKobo - fee;
+  if (target.type === 'officer') return [{ to: 'officer', id: target.id, kobo: net }, ...feeLeg];
+  if (target.type === 'agency') return [{ to: 'agency', id: target.agencyId, kobo: net }, ...feeLeg];
+  return [...splitStation(net, target, shares, stationOfficers), ...feeLeg];
+}
+
+function splitStation(amountKobo: number, target: { id: string; agencyId: string }, shares: DonationShares, stationOfficers: string[]): DonationLeg[] {
   const officerPart = stationOfficers.length ? Math.floor((amountKobo * shares.officerPct) / 100) : 0;
   const each = stationOfficers.length ? Math.floor(officerPart / stationOfficers.length) : 0;
   const agencyPart = Math.floor((amountKobo * shares.agencyPct) / 100);

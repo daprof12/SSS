@@ -40,7 +40,7 @@ describe('PIN', () => {
   it('needs a strong 4-digit PIN, and the current one to change it', async () => {
     expect((await http.get('/me/pin').set(as('citizen')).expect(200)).body.set).toBe(false);
     expect((await http.put('/me/pin').set(as('citizen')).send({ pin: '1234' }).expect(422)).body.message).toBe('Avoid digits in a row, like 1234.');
-    expect((await http.put('/me/pin').set(as('citizen')).send({ pin: '4821' }).expect(200)).body.message).toBe('PIN set. You will use it for every withdrawal.');
+    expect((await http.put('/me/pin').set(as('citizen')).send({ pin: '4821' }).expect(200)).body.message).toBe('PIN set. You will use it for withdrawals, payments and signing statements.');
     expect((await http.put('/me/pin').set(as('citizen')).send({ pin: '5930' }).expect(422)).body.message).toBe('Enter your current PIN.');
     await http.put('/me/pin').set(as('citizen')).send({ pin: '5930', currentPin: '4821' }).expect(200);
   });

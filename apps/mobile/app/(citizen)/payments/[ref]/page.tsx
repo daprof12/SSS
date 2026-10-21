@@ -20,6 +20,7 @@ interface Receipt {
   from: string;
   to: string;
   detail: string | null;
+  feeKobo: number | null;
   failureReason: string | null;
 }
 
@@ -94,7 +95,7 @@ function ReceiptView({ params }: { params: Promise<{ ref: string }> }) {
           </div>
           <h2 style={{ margin: '8px 0 0' }}>Thank you</h2>
           <p className="muted" style={{ margin: 0 }}>
-            {formatNaira(r.amountKobo)} went to {r.to}.
+            {formatNaira(r.amountKobo - (r.feeKobo ?? 0))} went to {r.to}.
           </p>
         </div>
       )}
@@ -120,6 +121,14 @@ function ReceiptView({ params }: { params: Promise<{ ref: string }> }) {
           <span className="muted">To</span>
           <strong>{r.to}</strong>
         </div>
+        {r.feeKobo != null && (
+          <div>
+            <span className="muted">Reached them</span>
+            <strong>
+              {formatNaira(r.amountKobo - r.feeKobo)} <span className="muted">after {formatNaira(r.feeKobo)} platform fee</span>
+            </strong>
+          </div>
+        )}
         {r.detail && (
           <div>
             <span className="muted">Details</span>

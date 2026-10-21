@@ -13,7 +13,7 @@ interface Item {
   blob?: string;
 }
 
-export function Evidence({ ownerType, ownerId }: { ownerType: 'tip' | 'issue_case'; ownerId: string }) {
+export function Evidence({ ownerType, ownerId }: { ownerType: 'tip' | 'issue_case' | 'incident' | 'statement' | 'fine' | 'repair'; ownerId: string; title?: string }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const closeBtn = useRef<HTMLButtonElement>(null);

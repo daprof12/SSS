@@ -17,7 +17,10 @@ import { CONFIG, type AppConfig } from './core/config';
 import { Db } from './core/db';
 import { ErrorFilter } from './core/http';
 import { DevController } from './dev/dev.controller';
-import { AdminFinesController, CitizenController } from './citizen/citizen.controller';
+import { MockTranslateAdapter, TRANSLATE } from './adapters/translate';
+import { StatementsController } from './statements/statements.controller';
+import { StatementsService } from './statements/statements.service';
+import { AdminFinesController, AdminSupportController, CitizenController } from './citizen/citizen.controller';
 import { DonationsService } from './citizen/donations.service';
 import { FinesService } from './citizen/fines.service';
 import { AdminRepairsController, HomeController } from './citizen/home.controller';
@@ -71,7 +74,9 @@ export class AppModule {
       controllers: [
         HealthController,
         CitizenController,
+        StatementsController,
         AdminFinesController,
+        AdminSupportController,
         HomeController,
         AdminRepairsController,
         AuthController,
@@ -96,6 +101,8 @@ export class AppModule {
       providers: [
         { provide: CONFIG, useValue: config },
         DonationsService,
+        StatementsService,
+        { provide: TRANSLATE, useValue: new MockTranslateAdapter() },
         FinesService,
         HomeService,
         Db,

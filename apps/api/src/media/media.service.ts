@@ -9,7 +9,7 @@ import { Bus } from '../core/bus';
 import { Db } from '../core/db';
 import { AppError } from '../core/http';
 
-export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'learn_post' | 'field_report' | 'fine' | 'repair';
+export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'learn_post' | 'field_report' | 'fine' | 'repair' | 'statement';
 export const MAX_BYTES = 10 * 1024 * 1024; // States doc: up to [10] MB
 const TYPES: Record<string, 'photo' | 'video' | 'voice'> = {
   'image/jpeg': 'photo',
@@ -114,6 +114,16 @@ export class MediaService {
       if (!f) return null;
       if (f.user_id === p.userId) return forUpload && !['open', 'appealed'].includes(f.state) ? null : 'self';
       return !forUpload && hasRole(p, 'platform_admin') ? 'staff' : null;
+    }
+    if (ownerType === 'statement') {
+      // The citizen's own recording; the officers on the incident and the station hear it (each play is logged).
+      const st = (await this.db.query(`select citizen_id, incident_id, station_id, state from statements where id = $1`, [ownerId])).rows[0];
+      if (!st) return null;
+      if (st.citizen_id === p.userId) return forUpload && st.state === 'signed' ? null : 'self';
+      if (forUpload) return null;
+      if (st.station_id && (hasRole(p, 'head', st.station_id) || hasRole(p, 'dispatcher', st.station_id))) return 'staff';
+      const on = await this.db.query(`select 1 from incident_units where incident_id = $1 and officer_id = $2 and accepted_at is not null`, [st.incident_id, p.userId]);
+      return on.rowCount ? 'staff' : null;
     }
     if (ownerType === 'repair') {
       // A photo of the faulty device: the home's owner and members; platform staff and the technician see it.

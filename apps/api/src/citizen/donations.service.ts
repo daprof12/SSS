@@ -1,6 +1,6 @@
 // Donations (board "Donate"; B9): to an agency, a station or a named officer, from the wallet
 // (PIN) or by Paystack. Split by the agency's donation shares. Never changes how fast help arrives.
-import { checkDonation, DEFAULT_DONATION_SHARES, DONATION_RULES, formatNaira, splitDonation, type DonationShares } from '@erp/domain';
+import { checkDonation, DEFAULT_DONATION_SHARES, donationFee, DONATION_RULES, formatNaira, splitDonation, type DonationShares } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { PAYMENTS, type PaymentsAdapter } from '../adapters/payments';
 import { Audit } from '../core/audit';
@@ -57,6 +57,7 @@ export class DonationsService {
     );
     return {
       presetsKobo: DONATION_RULES.presetsKobo,
+      platformFeePct: DONATION_RULES.platformFeePct,
       minKobo: DONATION_RULES.minKobo,
       maxKobo: DONATION_RULES.maxKobo,
       agencies: agencies.rows.map((a) => ({ id: a.id, name: a.name, sub: 'Whole agency', rating: rating(a.rating) })),
@@ -109,7 +110,7 @@ export class DonationsService {
       await c.query(`update donations set payment_id = $2 where id = $1`, [d.rows[0].id, paid.paymentId]);
       await creditDonation(c, d.rows[0].id, paid.reference, paid.journal);
       await this.audit.write({ actorId: p.userId, action: 'donation.paid', entity: 'donation', entityId: d.rows[0].id, payload: { amountKobo: b.amountKobo, method: 'wallet' } }, c);
-      return { state: 'succeeded', reference: paid.reference, receiptNo: paid.receiptNo, message: `Thank you. ${formatNaira(b.amountKobo)} went to ${target.name}.` };
+      return { state: 'succeeded', reference: paid.reference, receiptNo: paid.receiptNo, message: `Thank you. ${formatNaira(b.amountKobo - donationFee(b.amountKobo))} of your ${formatNaira(b.amountKobo)} went to ${target.name}.` };
     });
   }
 
@@ -156,15 +157,18 @@ export async function creditDonation(c: Queryable, donationId: string, reference
   const legs = splitDonation(Number(d.amount_kobo), { type: d.target_type, id: d.target_id, agencyId, stationId }, shares, officers);
   const memo = `Donation${d.show_name ? ` from ${d.donor}` : ''}`;
   for (const l of legs) {
-    const wallet = await walletOf(c, l.to === 'officer' ? 'user' : l.to, l.id);
+    const wallet =
+      l.to === 'platform_fees'
+        ? (await c.query(`select id from wallets where owner_type = 'platform_fees' and owner_id is null`)).rows[0].id
+        : await walletOf(c, l.to === 'officer' ? 'user' : l.to, l.id);
     await c.query(
       `insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo, available_at)
        values ($1, 'donation_in', $2, $3, $4, $5, case when $6 then now() + make_interval(days => $7) else now() end)`,
-      [wallet, l.kobo, reference, journal, memo, l.to === 'officer', DONATION_RULES.holdDays],
+      [wallet, l.kobo, reference, journal, l.to === 'platform_fees' ? 'Donation platform fee' : memo, l.to === 'officer', DONATION_RULES.holdDays],
     );
   }
   await c.query(`update donations set state = 'paid', paid_at = now(), shares = $2 where id = $1`, [donationId, JSON.stringify(legs)]);
-  const officerIds = legs.filter((l) => l.to === 'officer').map((l) => l.id);
+  const officerIds = legs.filter((l) => l.to === 'officer').map((l) => l.id as string);
   for (const id of officerIds) {
     const leg = legs.find((l) => l.id === id)!;
     await notify(c, [id], {

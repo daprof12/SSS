@@ -202,6 +202,8 @@ export default function OfficerIncident({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
+      <Statements id={id} state={v.state} onToast={setToast} refresh={v.timeline.length} />
+
       <Attachments ownerType="incident" ownerId={id} refreshKey={v.timeline.filter((e) => /^(Photo|Video) added$/.test(e.label)).length} title="From the reporter" />
 
       <div className="card">
@@ -417,5 +419,56 @@ function HandOverSheet({ id, onClose, onDone }: { id: string; onClose: () => voi
       </div>
       {err && <span className="field-error">{err}</span>}
     </Sheet>
+  );
+}
+
+/** B7: ask the reporter for a statement once on scene or after closing; see where it stands. */
+function Statements({ id, state, onToast, refresh }: { id: string; state: string; onToast: (m: string) => void; refresh: number }) {
+  const [list, setList] = useState<{ id: string; number: string; state: string; stateLabel: string; versions: number }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api<typeof list>(`/incidents/${id}/statements`)
+      .then(setList)
+      .catch(() => setList([]));
+  }, [id, refresh]);
+  const canAsk = ['on_scene', 'closing', 'resolved'].includes(state) && list !== null && list.length === 0;
+  if (!list?.length && !canAsk) return null;
+  return (
+    <div className="card">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <strong style={{ flex: 1 }}>Statement</strong>
+        {canAsk && (
+          <button
+            className="btn small"
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const r = await api<{ message: string }>(`/incidents/${id}/statements`, { method: 'POST', body: JSON.stringify({}) });
+                onToast(r.message);
+                setList(await api(`/incidents/${id}/statements`));
+              } catch (e) {
+                onToast(e instanceof ApiError ? e.message : 'Could not ask. Try again.');
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? 'Asking…' : 'Ask the reporter'}
+          </button>
+        )}
+      </div>
+      {list?.map((x) => (
+        <Link key={x.id} href={`/officer/statements/${x.id}`} className="row" style={{ padding: 0, minHeight: 48 }}>
+          <span className="grow">
+            <strong>{x.number}</strong>
+            <span className="sub">{x.versions ? `Signed, version ${x.versions}` : x.stateLabel}</span>
+          </span>
+          <Icon name="chevron" size={18} />
+        </Link>
+      ))}
+      {canAsk && <p className="muted" style={{ margin: '6px 0 0', fontSize: 'var(--text-sm)' }}>They speak or type in their language and sign the English record with their PIN.</p>}
+    </div>
   );
 }

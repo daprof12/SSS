@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { streamUrl } from '@erp/web-ui/api';
 import { StateChip } from '@erp/web-ui/StateChip';
+import { FalseAlarmReview, StatementCard } from '@/components/IncidentExtras';
 import { StationActions } from '@/components/StationActions';
 
 interface StationView {
@@ -112,6 +113,7 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
+      <FalseAlarmReview incidentId={v.id} onDone={setToast} />
       <div className="grid two">
         <section className="card" aria-labelledby="who">
           <h2 id="who">Reporter and responder</h2>
@@ -131,6 +133,7 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
           </div>
           <StationActions incidentId={v.id} state={v.state} actions={v.actions} onDone={setToast} />
         </section>
+        <StatementCard incidentId={v.id} state={v.state} onDone={setToast} />
 
         <section className="card" aria-labelledby="tl">
           <h2 id="tl">Timeline</h2>

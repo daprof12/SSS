@@ -29,6 +29,7 @@ const ADMIN_BUILT: Record<string, NavItem> = {
   'Learn feed': { label: 'Learn feed', href: '/admin/learn', built: true },
   'Fines and appeals': { label: 'Fines and appeals', href: '/admin/fines', built: true },
   'Installation team': { label: 'Installation team', href: '/admin/repairs', built: true },
+  'Help inbox': { label: 'Help inbox', href: '/admin/support', built: true },
 };
 
 // Sidebar orders from the Public Issues doc: Settings last, Messaging above it.
@@ -46,7 +47,7 @@ const NAV: Record<string, NavItem[]> = {
     'Overview', 'Stations', 'Officers', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Assets', 'Messaging', 'Settings',
   ].map((l) => AGENCY_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
   admin: [
-    'Overview', 'Live incident map', 'Coverage map', 'Device wall', 'Users', 'Inventory', 'Installation team', 'Subscriptions', 'KYC queue', 'Fines and appeals', 'Donations', 'Learn feed', 'Agencies', 'Audit log', 'AI and LLM', 'CRM messaging', 'Settings',
+    'Overview', 'Live incident map', 'Coverage map', 'Device wall', 'Users', 'Inventory', 'Installation team', 'Subscriptions', 'KYC queue', 'Fines and appeals', 'Help inbox', 'Donations', 'Learn feed', 'Agencies', 'Audit log', 'AI and LLM', 'CRM messaging', 'Settings',
   ].map((l) => ADMIN_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
 };
 

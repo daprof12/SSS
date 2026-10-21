@@ -1,6 +1,6 @@
 // B8 False alarm → fine → appeal. Warnings come first and are records, not fines; joiners are
 // never fined; a fine never delays a later report.
-import { applyEvent, checkAppeal, falseAlarmOutcome, fineMachine, FINE_POLICY, formatNaira, trustBand } from '@erp/domain';
+import { applyEvent, checkAppeal, falseAlarmOutcome, fineMachine, FINE_POLICY, formatNaira, splitFine, trustBand } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomInt } from 'node:crypto';
 import { PAYMENTS, type PaymentsAdapter } from '../adapters/payments';
@@ -25,10 +25,97 @@ export class FinesService {
     @Inject(WithdrawalsService) private readonly withdrawals: WithdrawalsService,
   ) {}
 
-  /** Called after an officer closes a report as unfounded or malicious (step 2 of B8). Never throws. */
+  /**
+   * B8 step 1: an officer closed a report as a false alarm. Nothing reaches the reporter yet: the
+   * station head confirms or overturns it (decided 2026-10-21), and silence for 48 hours confirms it.
+   */
   async onUnfounded(incidentId: string): Promise<void> {
-    await this.db.tx(async (c) => {
-      const i = (await c.query(`select i.reporter_id, i.type, l.postcode from incidents i left join locations l on l.id = i.location_id where i.id = $1`, [incidentId])).rows[0];
+    await this.db
+      .tx(async (c) => {
+        const i = (await c.query(`select i.station_id, i.type, l.postcode from incidents i left join locations l on l.id = i.location_id where i.id = $1`, [incidentId])).rows[0];
+        await c.query(`update false_alarm_cases set review_due_at = now() + make_interval(hours => $2) where incident_id = $1 and review_state = 'pending'`, [incidentId, FINE_POLICY.reviewHours]);
+        if (!i?.station_id) return;
+        const heads = (await c.query(`select user_id from user_roles where scope_type = 'station' and scope_id = $1 and role in ('head', 'dispatcher')`, [i.station_id])).rows.map((x) => x.user_id);
+        await notify(c, heads, {
+          type: 'false_alarm_review',
+          grp: 'dispatch',
+          title: 'Confirm a false alarm',
+          body: `${cap(i.type)} at ${i.postcode ?? 'GPS location'} was closed as a false alarm. Confirm or overturn it within ${FINE_POLICY.reviewHours} hours; after that it goes ahead.`,
+          link: `/incidents/${incidentId}`,
+        });
+      })
+      .catch(() => undefined);
+  }
+
+  /** The station head confirms (warning or fine follows) or overturns (nothing happens to the reporter). */
+  async review(p: Principal, incidentId: string, b: { decision: 'confirm' | 'overturn'; note?: string }) {
+    return this.db.tx(async (c) => {
+      const k = (
+        await c.query(
+          `select f.*, i.station_id from false_alarm_cases f join incidents i on i.id = f.incident_id where f.incident_id = $1 for update of f`,
+          [incidentId],
+        )
+      ).rows[0];
+      if (!k || !(hasRole(p, 'head', k.station_id) || hasRole(p, 'dispatcher', k.station_id))) throw new AppError(404, 'not_found', 'Nothing to review here.');
+      if (k.review_state !== 'pending') throw new AppError(409, 'already_reviewed', 'This false alarm was already reviewed.');
+      if (b.decision === 'overturn' && (b.note?.trim().length ?? 0) < 5) {
+        throw new AppError(422, 'validation_failed', 'Say why it was not a false alarm.', { fields: [{ field: 'note', message: 'Say why.' }] });
+      }
+      await c.query(`update false_alarm_cases set review_state = $2, reviewed_by = $3, reviewed_at = now(), review_note = $4 where incident_id = $1`, [
+        incidentId,
+        b.decision === 'confirm' ? 'confirmed' : 'overturned',
+        p.userId,
+        b.note?.trim() || null,
+      ]);
+      await c.query(`insert into incident_events (incident_id, actor_id, actor_kind, kind, payload, public) values ($1, $2, 'station', $3, $4, false)`, [
+        incidentId,
+        p.userId,
+        b.decision === 'confirm' ? 'false_alarm_confirmed' : 'false_alarm_overturned',
+        { label: b.decision === 'confirm' ? 'False alarm confirmed by the station' : `False alarm overturned: ${b.note?.trim()}` },
+      ]);
+      if (b.decision === 'confirm') await this.issue(c, incidentId);
+      await this.audit.write({ actorId: p.userId, actorRole: 'head', action: `false_alarm.${b.decision}`, entity: 'incident', entityId: incidentId, payload: { note: b.note } }, c);
+      return { message: b.decision === 'confirm' ? 'Confirmed. The reporter gets a warning or a fine, and can appeal.' : 'Overturned. Nothing is recorded against the reporter.' };
+    });
+  }
+
+  /** Job: reviews nobody answered within 48 hours go ahead. */
+  async autoConfirm(): Promise<number> {
+    return this.db.tx(async (c) => {
+      const due = await c.query(`select incident_id from false_alarm_cases where review_state = 'pending' and review_due_at <= now() for update skip locked`);
+      for (const k of due.rows) {
+        await c.query(`update false_alarm_cases set review_state = 'auto_confirmed', reviewed_at = now() where incident_id = $1`, [k.incident_id]);
+        await this.issue(c, k.incident_id);
+      }
+      return due.rowCount ?? 0;
+    });
+  }
+
+  /** The station's review queue (Reports page, incident detail). */
+  async pendingReviews(p: Principal) {
+    const stations = p.roles.filter((r) => r.role === 'head' || r.role === 'dispatcher').map((r) => r.scopeId);
+    if (!stations.length) throw new AppError(403, 'forbidden', 'For station heads and dispatchers.');
+    const r = await this.db.query(
+      `select f.incident_id, f.verdict, f.evidence, f.review_due_at, f.decided_at, i.type, l.postcode, u.display_name as officer
+         from false_alarm_cases f join incidents i on i.id = f.incident_id left join locations l on l.id = i.location_id join users u on u.id = f.decided_by
+        where f.review_state = 'pending' and i.station_id = any($1::uuid[]) order by f.review_due_at`,
+      [stations],
+    );
+    return r.rows.map((x) => ({
+      incidentId: x.incident_id,
+      label: `${cap(x.type)}, ${x.postcode ?? 'GPS location'}`,
+      verdict: x.verdict,
+      officer: x.officer,
+      officerNote: x.evidence?.note ?? null,
+      closedAt: x.decided_at,
+      dueAt: x.review_due_at,
+    }));
+  }
+
+  /** B8 step 2, after the station confirmed (or did not answer in time): warning first, then a fine. */
+  private async issue(c: Queryable, incidentId: string): Promise<void> {
+    {
+      const i = (await c.query(`select i.reporter_id, i.type, i.agency_id, l.postcode from incidents i left join locations l on l.id = i.location_id where i.id = $1`, [incidentId])).rows[0];
       if (!i?.reporter_id) return;
       const done = await c.query(`select 1 from fines where incident_id = $1 union all select 1 from false_alarm_warnings where incident_id = $1`, [incidentId]);
       if (done.rowCount) return;
@@ -55,9 +142,9 @@ export class FinesService {
       }
       const number = await this.fineNo(c);
       const f = await c.query(
-        `insert into fines (user_id, incident_id, amount_kobo, due_kobo, appeal_by, number, trust_delta)
-         values ($1, $2, $3, $3, now() + make_interval(days => $4), $5, $6) returning id, appeal_by`,
-        [i.reporter_id, incidentId, outcome.amountKobo, FINE_POLICY.appealDays, number, outcome.trustDelta],
+        `insert into fines (user_id, incident_id, amount_kobo, due_kobo, appeal_by, number, trust_delta, agency_id)
+         values ($1, $2, $3, $3, now() + make_interval(days => $4), $5, $6, $7) returning id, appeal_by`,
+        [i.reporter_id, incidentId, outcome.amountKobo, FINE_POLICY.appealDays, number, outcome.trustDelta, i.agency_id],
       );
       await notify(c, [i.reporter_id], {
         type: 'fine_issued',
@@ -67,7 +154,7 @@ export class FinesService {
         link: `/fines/${f.rows[0].id}`,
       });
       await this.audit.write({ actorId: null, actorRole: 'system', action: 'fine.issued', entity: 'fine', entityId: f.rows[0].id, payload: { incidentId, amountKobo: outcome.amountKobo } }, c);
-    }).catch(() => undefined);
+    }
   }
 
   private async fineNo(c: Queryable): Promise<string> {
@@ -182,14 +269,7 @@ export class FinesService {
       const cur = await this.own(p, id, c, true);
       if (!['open', 'reduced', 'upheld'].includes(cur.state)) throw new AppError(409, 'cannot_pay', 'This fine has nothing to pay.');
       const paid = await payFromWallet(c, { userId: p.userId, purpose: 'fine', purposeRef: id, amountKobo: due, key, ledgerType: 'fine', memo: `Fine ${cur.number}` });
-      await c.query(`insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values ($1, 'fine', $2, $3, $4, $5)`, [
-        await walletOf(c, 'platform', null),
-        due,
-        paid.reference,
-        paid.journal,
-        `Fine ${cur.number}`,
-      ]);
-      await markPaid(c, id, paid.paymentId);
+      await markPaid(c, id, paid.paymentId, paid.reference, paid.journal);
       await this.audit.write({ actorId: p.userId, action: 'fine.paid', entity: 'fine', entityId: id, payload: { method: 'wallet', amountKobo: due } }, c);
       return { state: 'succeeded', reference: paid.reference, receiptNo: paid.receiptNo, message: `Paid ${formatNaira(due)}. Your receipt is in Payments and receipts.` };
     });
@@ -247,9 +327,28 @@ export class FinesService {
   }
 }
 
-/** Marks the fine paid; used by the wallet path and the Paystack webhook. */
-export async function markPaid(c: Queryable, fineId: string, paymentId: string) {
-  const f = (await c.query(`update fines set state = 'paid', paid_at = now(), payment_id = $2 where id = $1 and state in ('open', 'reduced', 'upheld') returning user_id, number, due_kobo, amount_kobo`, [fineId, paymentId])).rows[0];
+/**
+ * Marks the fine paid and shares the money (decided 2026-10-21): 40% to the agency whose station
+ * handled the report, 30% to the rewards pool, 30% to the platform. The debit leg (the person's wallet,
+ * or the platform wallet as the contra for money in from Paystack) is already written under `journal`.
+ */
+export async function markPaid(c: Queryable, fineId: string, paymentId: string, reference: string, journal: string) {
+  const f = (
+    await c.query(
+      `update fines set state = 'paid', paid_at = now(), payment_id = $2 where id = $1 and state in ('open', 'reduced', 'upheld') returning user_id, number, due_kobo, amount_kobo, agency_id`,
+      [fineId, paymentId],
+    )
+  ).rows[0];
   if (!f) return;
+  const total = Number(f.due_kobo ?? f.amount_kobo);
+  const parts = splitFine(total, !!f.agency_id);
+  const legs: { wallet: string; kobo: number; to: string }[] = [];
+  if (parts.agency) legs.push({ wallet: await walletOf(c, 'agency', f.agency_id), kobo: parts.agency, to: 'agency' });
+  if (parts.pool) legs.push({ wallet: (await c.query(`select id from wallets where owner_type = 'rewards_pool' and owner_id is null`)).rows[0].id, kobo: parts.pool, to: 'rewards_pool' });
+  if (parts.platform) legs.push({ wallet: (await c.query(`select id from wallets where owner_type = 'platform_fees' and owner_id is null`)).rows[0].id, kobo: parts.platform, to: 'platform' });
+  for (const l of legs) {
+    await c.query(`insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values ($1, 'fine', $2, $3, $4, $5)`, [l.wallet, l.kobo, reference, journal, `Fine ${f.number}`]);
+  }
+  await c.query(`update fines set shares = $2 where id = $1`, [fineId, JSON.stringify(legs.map(({ to, kobo }) => ({ to, kobo })))]);
   await notify(c, [f.user_id], { type: 'fine_paid', grp: 'money', title: 'Fine paid', body: `Fine ${f.number} is paid: ${formatNaira(Number(f.due_kobo ?? f.amount_kobo))}. Your receipt is in Payments and receipts.`, link: `/fines/${fineId}` });
 }
