@@ -28,7 +28,7 @@ export const locQuery = (f: LocFilter) =>
     .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
     .join('&');
 
-export function LocationFilter({ value, onChange }: { value: LocFilter; onChange: (f: LocFilter) => void }) {
+export function LocationFilter({ value, onChange, title = 'Filter by location' }: { value: LocFilter; onChange: (f: LocFilter) => void; title?: string }) {
   const [opts, setOpts] = useState<Partial<Record<Level, { id: string; name: string }[]>>>({});
   const [err, setErr] = useState<string | null>(null);
   const [pc, setPc] = useState(value.postcode ?? '');
@@ -64,7 +64,7 @@ export function LocationFilter({ value, onChange }: { value: LocFilter; onChange
     <section className="card loc-filter" aria-labelledby="loc">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <h2 id="loc" style={{ margin: 0, fontSize: 'var(--text-md, 1rem)' }}>
-          Filter by location
+          {title}
         </h2>
         <input className="search" type="search" placeholder="Search a postcode" value={pc} onChange={(e) => setPc(e.target.value.toUpperCase())} aria-label="Search a postcode" style={{ minWidth: 220 }} />
       </div>

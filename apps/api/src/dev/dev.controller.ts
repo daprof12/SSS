@@ -104,6 +104,9 @@ export class DevController {
         )
       ).rows[0].id;
 
+      // Jurisdiction: Station 4 covers the Ikeja central district, so reports there route to it first.
+      await c.query(`insert into station_areas (station_id, level, area_id) values ($1, 'district', 'LA-IKJ-01') on conflict do nothing`, [station]);
+
       for (const [k, badge, lng, lat] of [
         ['officer', 'B-0477', 3.352, 6.6015],
         ['officer2', 'B-0912', 3.36, 6.61],
@@ -230,6 +233,23 @@ export class DevController {
           `insert into wallet_ledger (wallet_id, type, amount_kobo, reference, journal_id, memo) values ($1, 'fund', 50000000, 'seed-rewards-pool', $3, 'Demo rewards pool'), ($2, 'fund', -50000000, 'seed-rewards-pool', $3, 'Demo rewards pool')`,
           [rp.id, platform, j],
         );
+      }
+      // Inventory: two stores with starting stock.
+      const yaba = (
+        await c.query(
+          `insert into locations (postcode, address_text, state_id, lga_id, district_id, area_id, area_label, geom)
+           values ('EF56G', '56 Herbert Macaulay Way', 'LA', 'LA-YAB', 'LA-YAB-02', 'LA-YAB-02-HMW', 'Yaba central', st_setsrid(st_makepoint(3.3711, 6.5095), 4326)::geography)
+           on conflict (postcode) do update set fetched_at = now() returning id`,
+        )
+      ).rows[0].id;
+      for (const [name, locId, stock] of [
+        ['Ikeja store', loc.rows[0].id, { camera: 24, street_light: 12, gateway: 6, battery: 30, solar_panel: 10, pole: 4 }],
+        ['Yaba store', yaba, { camera: 8, street_light: 3, gateway: 2, battery: 10, solar_panel: 4, pole: 2 }],
+      ] as const) {
+        const st = (await c.query(`insert into stores (name, location_id) values ($1, $2) on conflict (name) do update set name = excluded.name returning id`, [name, locId])).rows[0].id;
+        for (const [item, q] of Object.entries(stock)) {
+          await c.query(`insert into store_stock (store_id, item, quantity) values ($1, $2, $3) on conflict do nothing`, [st, item, q]);
+        }
       }
       // Duty roster for the two demo officers: today and the next few days.
       const shifts = (await c.query(`select count(*)::int as n from duty_shifts where officer_id = any($1::uuid[])`, [[ids.officer, ids.officer2]])).rows[0].n;

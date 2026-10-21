@@ -77,6 +77,9 @@ export function ZoneMap({
   showStation = true,
   height = 420,
   link,
+  deviceCoverM,
+  onSelectDevice,
+  stations = [],
 }: {
   center: { lat: number; lng: number };
   radiusM?: number;
@@ -88,6 +91,11 @@ export function ZoneMap({
   showStation?: boolean;
   height?: number;
   link?: (id: string) => string;
+  /** Coverage map: draw each device's reach as a circle of this many metres. */
+  deviceCoverM?: number;
+  onSelectDevice?: (id: string) => void;
+  /** Other stations to mark (squares), e.g. every station on the admin coverage map. */
+  stations?: { id: string; name: string; lat: number; lng: number }[];
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(800);
@@ -177,12 +185,24 @@ export function ZoneMap({
       <svg width={w} height={height} style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
         {showStation && zoneR < w * 3 && <circle cx={st.x} cy={st.y} r={zoneR} fill="var(--color-signal)" fillOpacity="0.08" stroke="var(--color-signal)" strokeDasharray="8 8" strokeWidth="2" />}
         {showStation && <rect x={st.x - 11} y={st.y - 11} width="22" height="22" rx="5" fill="var(--color-signal)" stroke="#fff" strokeWidth="3" />}
+        {stations.map((x) => {
+          const p = at(x);
+          return (
+            <rect key={x.id} x={p.x - 9} y={p.y - 9} width="18" height="18" rx="4" fill="var(--color-signal)" stroke="#fff" strokeWidth="2.5">
+              <title>{x.name}</title>
+            </rect>
+          );
+        })}
         {devices.filter((d) => d.lat != null).map((d) => {
           const p = at(d as { lat: number; lng: number });
           return (
-            <circle key={d.id} cx={p.x} cy={p.y} r="6" fill={devColor(d)} stroke="#fff" strokeWidth="2">
-              <title>{`${d.type === 'camera' ? 'Camera' : 'Street light'}: ${d.status.replace('_', ' ')}`}</title>
-            </circle>
+            <g key={d.id} style={{ cursor: onSelectDevice ? 'pointer' : undefined }} onClick={onSelectDevice ? () => onSelectDevice(d.id) : undefined}>
+              {deviceCoverM && <circle cx={p.x} cy={p.y} r={Math.max(8, deviceCoverM / metresPerPx(d.lat!, view.z))} fill={devColor(d)} fillOpacity="0.12" stroke={devColor(d)} strokeOpacity="0.4" />}
+              {selected === d.id && <circle cx={p.x} cy={p.y} r="13" fill="none" stroke="var(--color-text-primary, #fff)" strokeWidth="2.5" />}
+              <circle cx={p.x} cy={p.y} r={onSelectDevice ? 8 : 6} fill={devColor(d)} stroke="#fff" strokeWidth="2">
+                <title>{`${d.type === 'camera' ? 'Camera' : 'Street light'}: ${d.status.replace('_', ' ')}`}</title>
+              </circle>
+            </g>
           );
         })}
         {units.filter((u) => u.lat != null).map((u) => {

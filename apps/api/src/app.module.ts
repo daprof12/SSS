@@ -18,6 +18,9 @@ import { CONFIG, type AppConfig } from './core/config';
 import { Db } from './core/db';
 import { ErrorFilter } from './core/http';
 import { DevController } from './dev/dev.controller';
+import { AdminController } from './dashboards/admin.controller';
+import { AdminOpsService } from './dashboards/admin-ops.service';
+import { AdminOversightService } from './dashboards/admin-oversight.service';
 import { DashboardsController } from './dashboards/dashboards.controller';
 import { OverviewService } from './dashboards/overview.service';
 import { StationService } from './dashboards/station.service';
@@ -80,6 +83,7 @@ export class AppModule {
         HealthController,
         CitizenController,
         DashboardsController,
+        AdminController,
         StatementsController,
         AdminFinesController,
         AdminSupportController,
@@ -110,6 +114,8 @@ export class AppModule {
         DonationsService,
         StationService,
         OverviewService,
+        AdminOpsService,
+        AdminOversightService,
         BillingService,
         StatementsService,
         { provide: TRANSLATE, useValue: new MockTranslateAdapter() },

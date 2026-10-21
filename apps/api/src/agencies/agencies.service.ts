@@ -287,7 +287,7 @@ export class AgenciesService {
     });
   }
 
-  async setAreas(p: Principal, agencyId: string, stationId: string, areas: Array<{ level: 'district' | 'area'; areaId: string }>) {
+  async setAreas(p: Principal, agencyId: string, stationId: string, areas: Array<{ level: 'lga' | 'district' | 'area'; areaId: string }>) {
     await this.life.requireStaff(p, agencyId, ['agency_admin']);
     return this.db.tx(async (c) => {
       await this.station(c, agencyId, stationId);

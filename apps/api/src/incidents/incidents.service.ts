@@ -274,22 +274,14 @@ export class IncidentsService implements OnModuleDestroy {
     const passed = await this.db.query(`select distinct officer_id::text as id from incident_units where incident_id = $1 and state in ('declined', 'expired')`, [id]);
     exclude = [...new Set([...exclude, ...passed.rows.map((r) => r.id as string)])];
 
-    const station = row.station_id
-      ? { id: row.station_id }
-      : (
-          await this.db.query(
-            `select s.id, s.agency_id from stations s
-               -- Billing state never stops dispatch: overdue agencies keep receiving reports.
-               join agencies a on a.id = s.agency_id and a.status = any($4::text[])
-               join incident_types t on t.code = $1 and a.kind = any(t.default_units)
-               left join routing_rules r on r.station_id = s.id and r.incident_type = $1
-              where s.status = 'active'
-              order by r.priority nulls last, st_distance(coalesce(s.zone::geometry, (select geom::geometry from locations where id = s.location_id))::geography,
-                                                          st_setsrid(st_makepoint($3, $2), 4326)::geography)
-              limit 1`,
-            [row.type, row.lat, row.lng, dispatchingAgencyStates],
-          )
-        ).rows[0];
+    // Jurisdiction first (Routing doc): a rule for this area, then a station that covers it, then the nearest.
+    const station = row.station_id ? { id: row.station_id, in_area: true } : (await this.rankStations(id, row.type, []))[0];
+    if (station && !row.station_id && !station.in_area) {
+      await this.db.query(
+        `insert into incident_events (incident_id, actor_kind, kind, payload) values ($1, 'system', 'outside_area', $2)`,
+        [id, JSON.stringify({ stationId: station.id, label: 'No station covers this area; sent to the nearest' })],
+      );
+    }
 
     if (!station) {
       await this.db.query(
@@ -315,7 +307,7 @@ export class IncidentsService implements OnModuleDestroy {
     if (!officer) {
       await this.db.query(`update incidents set station_id = $2, agency_id = coalesce(agency_id, (select agency_id from stations where id = $2)) where id = $1`, [id, station.id]);
       // Roster doc: if nobody at this station can take it, the report overflows to the next station.
-      const next = await this.nextStation(id, row.type, station.id, row.lat, row.lng);
+      const next = await this.nextStation(id, row.type, station.id);
       if (next) {
         await this.db.tx(async (c) => {
           await c.query(`update incidents set station_id = $2, agency_id = (select agency_id from stations where id = $2) where id = $1`, [id, next.id]);
@@ -705,8 +697,8 @@ export class IncidentsService implements OnModuleDestroy {
     return { id: newId, message: 'Split off. It has its own response now.' };
   }
 
-  /** Next station: the routing rule's fallback first, else the nearest eligible station not yet tried. */
-  private async nextStation(id: string, type: string, current: string, lat: number, lng: number): Promise<{ id: string; name: string } | null> {
+  /** Next station: the routing rule's fallback first, then another station covering the area, then the nearest not yet tried. */
+  private async nextStation(id: string, type: string, current: string): Promise<{ id: string; name: string } | null> {
     const tried = (
       await this.db.query(
         `select station_id::text as s from incident_units where incident_id = $1
@@ -714,19 +706,49 @@ export class IncidentsService implements OnModuleDestroy {
           union select $2::text`,
         [id, current],
       )
-    ).rows.map((r) => r.s);
+    ).rows.map((r) => r.s as string);
+    return (await this.rankStations(id, type, tried, current))[0] ?? null;
+  }
+
+  /**
+   * Eligible stations for a report, best first: (0) a routing rule for the report's area, district or
+   * LGA, or the current station's named fallback; (1) a station whose areas or zone cover the report;
+   * (2) everyone else of the right agency type. Rule priority, then distance, break ties.
+   */
+  private async rankStations(id: string, type: string, tried: string[], current: string | null = null): Promise<Array<{ id: string; name: string; in_area: boolean }>> {
     const r = await this.db.query(
-      `select s.id, s.name from stations s
-         join agencies a on a.id = s.agency_id and a.status = any($6::text[])
-         join incident_types t on t.code = $1 and a.kind = any(t.default_units)
-         left join routing_rules rr on rr.station_id = $2 and rr.incident_type = $1 and rr.next_station_id = s.id
-        where s.status = 'active' and not (s.id::text = any($3::text[]))
-        order by (rr.id is null), st_distance(coalesce(s.zone::geometry, (select geom::geometry from locations where id = s.location_id))::geography,
-                                              st_setsrid(st_makepoint($5, $4), 4326)::geography) nulls last
-        limit 1`,
-      [type, current, tried, lat, lng, dispatchingAgencyStates],
+      `with inc as (select geom, location_id from incidents where id = $1),
+            -- The report's place: its building, else the nearest known building within 500 m.
+            place as (
+              select * from (
+                select 0 as k, l.lga_id, l.district_id, l.area_id from locations l join inc on l.id = inc.location_id
+                union all
+                (select 1, l.lga_id, l.district_id, l.area_id from locations l, inc
+                  where st_dwithin(l.geom, inc.geom, 500) order by st_distance(l.geom, inc.geom) limit 1)
+              ) x order by k limit 1
+            ),
+            ranked as (
+              select s.id, s.name,
+                     (select min(rr.priority) from routing_rules rr, place
+                       where rr.station_id = s.id and rr.incident_type = $2 and rr.area_id in (place.area_id, place.district_id, place.lga_id)) as area_rule,
+                     exists (select 1 from routing_rules rr where rr.station_id = $4 and rr.incident_type = $2 and rr.next_station_id = s.id) as fallback,
+                     (coalesce(st_covers(s.zone, inc.geom), false) or exists (
+                        select 1 from station_areas sa, place where sa.station_id = s.id
+                           and ((sa.level = 'area' and sa.area_id = place.area_id) or (sa.level = 'district' and sa.area_id = place.district_id) or (sa.level = 'lga' and sa.area_id = place.lga_id)))) as covers,
+                     (select min(rr.priority) from routing_rules rr where rr.station_id = s.id and rr.incident_type = $2 and rr.area_id is null) as rule,
+                     st_distance(coalesce(s.zone::geometry, (select geom::geometry from locations where id = s.location_id))::geography, inc.geom) as d
+                from stations s
+                join agencies a on a.id = s.agency_id and a.status = any($5::text[])
+                join incident_types t on t.code = $2 and a.kind = any(t.default_units)
+                cross join inc
+               where s.status = 'active' and not (s.id::text = any($3::text[]))
+            )
+       select id, name, (area_rule is not null or covers) as in_area from ranked
+        order by case when area_rule is not null or fallback then 0 when covers then 1 else 2 end,
+                 area_rule nulls last, rule nulls last, d nulls last`,
+      [id, type, tried, current, dispatchingAgencyStates],
     );
-    return r.rows[0] ?? null;
+    return r.rows;
   }
 
   private async notifyStationHeads(c: Queryable, stationId: string, type: string, title: string, body: string, incidentId: string) {

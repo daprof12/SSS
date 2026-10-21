@@ -472,3 +472,43 @@ Migration 022. Tests: `apps/api/test/dashboards.e2e.test.ts`.
   - **SMS** goes now, or to anyone who has not opened the message after N minutes (jobs).
   - **Urgent** messages text at once.
   - Each recipient shows WhatsApp, SMS or failed. The adapters are mocks with outboxes (`/dev/sms`, `/dev/whatsapp`) until providers are connected.
+
+## Jurisdiction routing and the remaining admin pages
+
+Migration 023. Tests: `apps/api/test/admin.e2e.test.ts`.
+
+- **Routing by jurisdiction** (`IncidentsService.rankStations`). A new report goes to the first station of the right agency kind, in this order:
+  1. A routing rule for the report's area, district or LGA (lowest priority number first), or the current station's named fallback.
+  2. A station whose areas (`station_areas`: LGA, district or area) or drawn zone cover the report. A report without a building uses the nearest known building within 500 m.
+  3. The nearest active station. The report gets an `outside_area` event so it is clear no station covers that place.
+  - The officer is the nearest free, on-duty, verified officer at that station. Anyone who declined or let the offer expire is skipped.
+  - If nobody there is free, it overflows the same way. The next station is chosen by the rule fallback, then another covering station, then the nearest.
+  - Device tamper alerts use the same rule (`core/jurisdiction.ts`).
+- **Station Settings → Area this station covers:** the station head adds or removes an LGA, district or area with cascading lists. Each change is logged. The demo Station 4 covers Ikeja GRA.
+- **Coverage map** (`/admin/coverage`):
+  - Device counts by status, plus "Not covered" (no station area includes the place).
+  - Filters by type and status, on a map with each device's reach and the stations marked.
+  - For a selected device: **Send technician** opens a repair ticket; **Alert nearest station** notifies the station that covers it.
+- **Device wall** (`/admin/devices`):
+  - Camera and light tiles by status, and a households table with **Schedule visit** (the owner is told the day and window).
+  - The household modal shows camera and light side by side. A live view needs a reason, which is written to the camera access log (the owner sees it) and the audit log. Lights have **Turn on now** and **Flash test**.
+- **Inventory** (`/admin/inventory`): stock by store, low stock, installed this month, in repair. **Add stock** and **Transfer stock** are logged, and you cannot move more than a store holds.
+- **Agencies and stations** (`/admin/agencies`):
+  - Agencies and stations by type, each station with the area it covers, and how many stations have no area.
+  - The approval card (Approve / Ask for more / Decline) uses the agency lifecycle.
+- **Audit log** (`/admin/audit`, entry `/admin/audit/:id`):
+  - Filter by date range, person, action group and postcode. Export to CSV.
+  - Every 403 for a signed-in person is logged as a refused attempt.
+  - Each entry rechecks its link in the hash chain.
+- **AI and LLM** (`/admin/ai`):
+  - Use cases with model, mode, check rate and status. Model settings, language readiness, alerts, requests per day and cost.
+  - Safety switches: pause all AI, pause translation (statements then wait for a person), or use the fallback model.
+  - Statement translations below 80% confidence go to the review queue (`/admin/ai/reviews/:id`): Looks right, Add note, Send to translator, or Ask reporter to re-record. The signed version never changes.
+- **CRM messaging** (`/admin/crm`, results `/admin/crm/:id`):
+  - Audience by role, agency and place, with a size and cost estimate.
+  - Push first, then SMS for people without the app or who have not read it after 10 minutes, then WhatsApp for people who opted in.
+  - SMS is limited to 160 characters. Marketing goes only to people who have not opted out.
+  - Quiet hours are 22:00 to 06:00 unless urgent. More than 500 people needs a second admin to approve.
+  - Results show reach, reads, failures and why, the fallback, and cost. You can resend to the unreached or duplicate a campaign.
+- **Donations** (Donations and payouts → Donations): gifts by the place of the receiving station, with amounts after the 30% fee. **Run payout** pays the queue.
+- **Location filter** has been added to Fines, KYC queue, Installation team (installs and repairs) and Help inbox, and the subscription numbers now follow it too. The fines and help inbox tab parameter is now `status`, so it no longer clashes with the location `state`.

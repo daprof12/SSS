@@ -700,7 +700,9 @@ export class StationService {
         [sid],
       )
     ).rows[0];
-    const areas = (await this.db.query(`select * from station_areas where station_id = $1`, [sid])).rows;
+    const areas = (
+      await this.db.query(`select level, area_id as "areaId", coalesce(label, area_id) as label from station_areas where station_id = $1 order by level, label`, [sid])
+    ).rows;
     const access = (await this.db.query(`select role, count(*)::int as n from user_roles where scope_type = 'station' and scope_id = $1 group by role`, [sid])).rows;
     const officers = (await this.db.query(`select count(*)::int as n from officers where station_id = $1`, [sid])).rows[0].n;
     const heads = (await this.db.query(`select o.user_id as id, u.display_name as name from officers o join users u on u.id = o.user_id where o.station_id = $1 order by u.display_name`, [sid])).rows;
@@ -739,5 +741,20 @@ export class StationService {
     );
     await this.audit.write({ actorId: p.userId, actorRole: 'head', action: 'station.settings', entity: 'station', entityId: sid, payload: b });
     return { message: 'Saved.' };
+  }
+
+  /** "Area this station covers": reports from these places come here first. The head changes it; it is logged. */
+  async saveAreas(p: Principal, areas: Array<{ level: 'lga' | 'district' | 'area'; areaId: string; label?: string }>) {
+    const sid = this.station(p, true);
+    if (!areas.length) throw new AppError(422, 'validation_failed', 'Choose at least one area. Without one, reports only reach you as the nearest station.');
+    await this.db.tx(async (c) => {
+      const before = (await c.query(`select level, area_id from station_areas where station_id = $1`, [sid])).rows;
+      await c.query(`delete from station_areas where station_id = $1`, [sid]);
+      for (const a of areas) {
+        await c.query(`insert into station_areas (station_id, level, area_id, label) values ($1, $2, $3, $4) on conflict do nothing`, [sid, a.level, a.areaId, a.label ?? null]);
+      }
+      await this.audit.write({ actorId: p.userId, actorRole: 'head', action: 'station.areas_set', entity: 'station', entityId: sid, payload: { before, after: areas } }, c);
+    });
+    return { message: 'Area saved. New reports from it come to this station first.' };
   }
 }

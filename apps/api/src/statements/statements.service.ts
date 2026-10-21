@@ -285,8 +285,22 @@ export class StatementsService {
     let flagged = s.draft_flagged;
     let language = b.language;
     if (!english || original !== (s.draft_original ?? '') || b.language !== s.draft_language) {
-      if (original) {
+      const ai = (await this.db.query(`select value from platform_settings where key = 'ai'`)).rows[0]?.value;
+      if (original && (ai?.paused || ai?.translationPaused)) {
+        // AI safety switch: the words are kept and wait for a person to translate them.
+        english = english && original === (s.draft_original ?? '') ? english : '';
+        confidence = null;
+        flagged = [];
+      } else if (original) {
+        const started = Date.now();
         const t = await this.translator.translate(original, b.language);
+        // Usage for "AI and LLM": time, cost estimate and whether it goes to a person for review.
+        await this.db.query(`insert into ai_requests (use_case, ms, to_review, cost_kobo, language) values ('translate', $1, $2, $3, $4)`, [
+          Date.now() - started,
+          t.confidence < 0.8,
+          Math.ceil(original.length / 40) * 5,
+          t.detected,
+        ]);
         english = english && original === (s.draft_original ?? '') ? english : t.english;
         confidence = t.confidence;
         flagged = t.flagged;

@@ -1,5 +1,6 @@
 // B8 False alarm → fine → appeal. Warnings come first and are records, not fines; joiners are
 // never fined; a fine never delays a later report.
+import { locationWhere, type LocationFilter } from '../core/location-filter';
 import { applyEvent, checkAppeal, falseAlarmOutcome, fineMachine, FINE_POLICY, formatNaira, splitFine, trustBand } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomInt } from 'node:crypto';
@@ -281,13 +282,15 @@ export class FinesService {
     if (!hasRole(p, 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
   }
 
-  async queue(p: Principal, state: string) {
+  async queue(p: Principal, state: string, f?: LocationFilter) {
     this.admin(p);
+    const args: unknown[] = [state];
+    const where = locationWhere(f, args);
     const r = await this.db.query(
       `${this.SELECT.replace('select f.*', 'select f.*, u.display_name as citizen, coalesce(t.score, 70) as trust')}
          join users u on u.id = f.user_id left join trust_scores t on t.user_id = f.user_id
-        where ($1 = 'all' or f.state = $1) order by f.state = 'appealed' desc, f.created_at desc limit 100`,
-      [state],
+        where ($1 = 'all' or f.state = $1) and ${where} order by f.state = 'appealed' desc, f.created_at desc limit 100`,
+      args,
     );
     const counts = (await this.db.query(`select state, count(*)::int as n from fines group by state`)).rows;
     return {

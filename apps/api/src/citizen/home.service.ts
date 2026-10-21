@@ -1,6 +1,8 @@
 // Home: household members (B4 step 8), devices and camera access (B6), device fault → repair (B5).
 // Boards: Household invite, My home devices, Camera view, Camera offline, Street light view,
 // Report a device problem, Repair status.
+import { locationWhere, type LocationFilter } from '../core/location-filter';
+import { coveringStation } from '../core/jurisdiction';
 import { checkRepairReport, DEVICE_RULES, HOUSEHOLD_RULES, problemLabel, repairStep, subscriptionFeatures } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomInt } from 'node:crypto';
@@ -391,13 +393,7 @@ export class HomeService {
       await notify(c, admins, { type: 'repair_reported', grp: 'account', title: urgent ? 'Urgent: device damaged' : 'Device problem', body: `${d.name ?? d.type} at ${d.postcode ?? 'a home'}: ${problemLabel(b.problem)}. ${number}.`, link: '/admin/repairs' });
       if (urgent) {
         // Damage or tampering may be a crime in progress: tell the station that covers this home.
-        const station = (
-          await c.query(
-            `select s.id from stations s join agencies a on a.id = s.agency_id and a.kind = 'police' left join locations sl on sl.id = s.location_id
-              where s.status = 'active' order by st_distance(coalesce(sl.geom, s.zone::geography), (select geom from locations where id = $1)) nulls last limit 1`,
-            [h.locationId],
-          )
-        ).rows[0];
+        const station = await coveringStation(c, h.locationId);
         if (station) {
           const heads = (await c.query(`select user_id from user_roles where scope_type = 'station' and scope_id = $1 and role in ('head', 'dispatcher')`, [station.id])).rows.map((x) => x.user_id);
           await notify(c, heads, { type: 'device_tamper', grp: 'dispatch', title: 'Home device damaged', body: `A camera or light at ${d.postcode ?? 'a home'} may have been damaged or moved. The owner reported it.`, link: '/incidents' });
@@ -488,15 +484,18 @@ export class HomeService {
     if (!hasRole(p, 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
   }
 
-  async adminList(p: Principal) {
+  async adminList(p: Principal, f?: LocationFilter) {
     this.admin(p);
+    const args: unknown[] = [];
+    const where = locationWhere(f, args);
     const r = await this.db.query(
       `select j.id, j.number, j.problem, j.description, j.best_time, j.urgent, j.state, j.created_at, j.fault_confirmed_at, j.booked_at, j.fixed_at, j.confirmed_at,
               j.scheduled_at, j.visit_window, j.covered, d.name as device, d.status as device_status, l.postcode, l.address_text, u.display_name as owner, tu.display_name as tech
          from install_jobs j join properties pr on pr.id = j.property_id join users u on u.id = pr.owner_id join locations l on l.id = pr.location_id
          left join devices d on d.id = j.device_id left join users tu on tu.id = j.technician_id
-        where j.kind = 'repair' and (j.confirmed_at is null or j.confirmed_at > now() - interval '7 days') and j.state <> 'cancelled'
+        where j.kind = 'repair' and (j.confirmed_at is null or j.confirmed_at > now() - interval '7 days') and j.state <> 'cancelled' and ${where}
         order by j.confirmed_at is not null, j.urgent desc, j.created_at`,
+      args,
     );
     const techs = await this.db.query(`select t.user_id as id, u.display_name as name from technicians t join users u on u.id = t.user_id where t.active order by u.display_name`);
     return {

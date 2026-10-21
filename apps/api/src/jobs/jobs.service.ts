@@ -1,5 +1,6 @@
 // Time-based rules nobody presses a button for. Each run is idempotent: rows are
 // picked with "for update skip locked" so two API instances never double-apply.
+import { AdminOversightService } from '../dashboards/admin-oversight.service';
 import { applyEvent, FIX_SILENCE_DAYS, formatNaira, issueCategory, issueMachine, tipMachine } from '@erp/domain';
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { CONFIG, type AppConfig } from '../core/config';
@@ -24,6 +25,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     @Inject(FinesService) private readonly fines: FinesService,
     @Inject(BillingService) private readonly billing: BillingService,
     @Inject(StationService) private readonly station: StationService,
+    @Inject(AdminOversightService) private readonly crm: AdminOversightService,
   ) {}
 
   onModuleInit() {
@@ -38,7 +40,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async runAll() {
-    return { fixSilence: await this.fixSilence(), bountyRelease: await this.bountyRelease(), withdrawalsReleased: await this.withdrawals.releaseHeld(), falseAlarmsConfirmed: await this.fines.autoConfirm(), plansBilled: await this.billing.billDue(), dunningMoved: await this.billing.advanceDunning(), messagesTexted: await this.station.smsFallback() };
+    return { fixSilence: await this.fixSilence(), bountyRelease: await this.bountyRelease(), withdrawalsReleased: await this.withdrawals.releaseHeld(), falseAlarmsConfirmed: await this.fines.autoConfirm(), plansBilled: await this.billing.billDue(), dunningMoved: await this.billing.advanceDunning(), messagesTexted: await this.station.smsFallback(), campaignsMoved: await this.crm.crmDue() };
   }
 
   /** Public issues: no reporter said "not fixed" within FIX_SILENCE_DAYS of the fix, so it is fixed. */

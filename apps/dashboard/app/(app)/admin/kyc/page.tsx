@@ -4,6 +4,7 @@
 import { api, ApiError } from '@erp/web-ui/api';
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/Agency';
+import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface K {
   id: string;
@@ -24,14 +25,16 @@ export default function KycQueue() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useToast();
+  const [loc, setLoc] = useState<LocFilter>({});
+  const lq = locQuery(loc);
   const load = useCallback(() => {
-    api<K[]>('/admin/kyc')
+    api<K[]>(`/admin/kyc${lq ? `?${lq}` : ''}`)
       .then((x) => {
         setList(x);
         setSel((s) => s ?? x.find((k) => k.status === 'manual_review')?.id ?? null);
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load the queue.'));
-  }, []);
+  }, [lq]);
   useEffect(load, [load]);
   const k = list?.find((x) => x.id === sel);
   const decide = async (decision: 'approve' | 'reject' | 'more') => {
@@ -54,6 +57,7 @@ export default function KycQueue() {
           <p className="lede">Identity checks the provider could not settle on its own. IDs stay masked.</p>
         </div>
       </div>
+      <LocationFilter value={loc} onChange={setLoc} />
       {error && (
         <div className="banner critical" role="alert">
           {error}

@@ -41,7 +41,7 @@ const StationBody = z.object({
   phone: z.string().regex(/^\+234\d{10}$/, 'Enter a Nigerian phone number.').optional(),
 });
 const HeadBody = z.object({ headUserId: z.string().uuid() });
-const AreasBody = z.object({ areas: z.array(z.object({ level: z.enum(['district', 'area']), areaId: z.string().trim().min(2).max(40) })).min(1, 'Choose at least one area.') });
+const AreasBody = z.object({ areas: z.array(z.object({ level: z.enum(['lga', 'district', 'area']), areaId: z.string().trim().min(2).max(40) })).min(1, 'Choose at least one area.') });
 const OfficerBody = z.object({ userId: z.string().uuid(), badgeNo: z.string().trim().min(2).max(30), rank: z.string().trim().max(40).optional() });
 const PayoutBody = z.object({
   bankCode: z.string().trim().min(3).max(10),

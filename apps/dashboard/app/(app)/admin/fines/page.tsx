@@ -7,6 +7,7 @@ import { ErrorBox, focusFirstError, useSubmit } from '@erp/web-ui/CloseReportShe
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
 import { dateTime, useToast } from '@/components/Agency';
+import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface Fine {
   id: string;
@@ -39,11 +40,13 @@ export default function FinesAdmin() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Fine | null>(null);
   const [toast, setToast] = useToast();
+  const [loc, setLoc] = useState<LocFilter>({});
+  const lq = locQuery(loc);
   const load = useCallback(() => {
-    api<{ counts: Record<string, number>; items: Fine[] }>(`/admin/fines?state=${filter}`)
+    api<{ counts: Record<string, number>; items: Fine[] }>(`/admin/fines?status=${filter}${lq ? `&${lq}` : ''}`)
       .then(setD)
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load fines.'));
-  }, [filter]);
+  }, [filter, lq]);
   useEffect(() => {
     setD(null);
     load();
@@ -58,6 +61,7 @@ export default function FinesAdmin() {
           <p className="lede">False alarms after a warning become fines. Citizens can appeal within 14 days; each decision needs a reason they will read.</p>
         </div>
       </div>
+      <LocationFilter value={loc} onChange={setLoc} />
       {error && (
         <div className="banner critical" role="alert">
           {error}

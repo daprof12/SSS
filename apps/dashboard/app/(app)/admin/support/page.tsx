@@ -6,6 +6,7 @@ import { api, ApiError } from '@erp/web-ui/api';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
 import { dateTime, useToast } from '@/components/Agency';
+import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface Ticket {
   id: string;
@@ -35,11 +36,13 @@ export default function SupportInbox() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Ticket | null>(null);
   const [toast, setToast] = useToast();
+  const [loc, setLoc] = useState<LocFilter>({});
+  const lq = locQuery(loc);
   const load = useCallback(() => {
-    api<Inbox>(`/admin/support?state=${filter}`)
+    api<Inbox>(`/admin/support?status=${filter}${lq ? `&${lq}` : ''}`)
       .then(setD)
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load messages.'));
-  }, [filter]);
+  }, [filter, lq]);
   useEffect(() => {
     setD(null);
     load();
@@ -54,6 +57,7 @@ export default function SupportInbox() {
           <p className="lede">Messages from citizens and officers. Reply within one working day; they see it in Help and support.</p>
         </div>
       </div>
+      <LocationFilter value={loc} onChange={setLoc} />
       {error && (
         <div className="banner critical" role="alert">
           {error}

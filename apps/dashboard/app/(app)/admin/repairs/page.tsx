@@ -6,6 +6,7 @@ import { ErrorBox, focusFirstError, useSubmit } from '@erp/web-ui/CloseReportShe
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
 import { dateTime, useToast } from '@/components/Agency';
+import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface Ticket {
   id: string;
@@ -38,11 +39,13 @@ export default function RepairsAdmin() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Ticket | null>(null);
   const [toast, setToast] = useToast();
+  const [loc, setLoc] = useState<LocFilter>({});
+  const lq = locQuery(loc);
   const load = useCallback(() => {
-    api<{ technicians: { id: string; name: string }[]; items: Ticket[] }>('/admin/repairs')
+    api<{ technicians: { id: string; name: string }[]; items: Ticket[] }>(`/admin/repairs${lq ? `?${lq}` : ''}`)
       .then(setD)
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load repairs.'));
-  }, []);
+  }, [lq]);
   useEffect(() => {
     load();
   }, [load]);
@@ -57,6 +60,7 @@ export default function RepairsAdmin() {
           <p className="lede">New installs paid for by households, and faults owners report. Damage is urgent and the local station is told.</p>
         </div>
       </div>
+      <LocationFilter value={loc} onChange={setLoc} />
       {error && (
         <div className="banner critical" role="alert">
           {error}
@@ -79,7 +83,7 @@ export default function RepairsAdmin() {
           <small>Damaged or moved</small>
         </div>
       </div>
-      <Installs technicians={d?.technicians ?? []} onToast={setToast} />
+      <Installs technicians={d?.technicians ?? []} onToast={setToast} lq={lq} />
       <h2 style={{ margin: '24px 0 8px' }}>Repairs</h2>
       <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
         {!d && !error ? (
@@ -275,15 +279,15 @@ interface Install {
 }
 
 /** New installs (board "Admin install job"): book the visit, then mark installed; the plan starts then. */
-function Installs({ technicians, onToast }: { technicians: { id: string; name: string }[]; onToast: (m: string) => void }) {
+function Installs({ technicians, onToast, lq }: { technicians: { id: string; name: string }[]; onToast: (m: string) => void; lq: string }) {
   const [list, setList] = useState<Install[] | null>(null);
   const [booking, setBooking] = useState<Install | null>(null);
   const [date, setDate] = useState(() => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
   const [win, setWin] = useState(WINDOWS[0]!);
   const s = useSubmit();
   const load = useCallback(() => {
-    api<Install[]>('/admin/installs').then(setList).catch(() => setList([]));
-  }, []);
+    api<Install[]>(`/admin/installs${lq ? `?${lq}` : ''}`).then(setList).catch(() => setList([]));
+  }, [lq]);
   useEffect(load, [load]);
   const act = (j: Install, body: object) =>
     s.run(async () => {

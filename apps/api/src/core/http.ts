@@ -1,4 +1,5 @@
-import { BadRequestException, HttpException, type PipeTransform, Catch, type ArgumentsHost, type ExceptionFilter, Logger } from '@nestjs/common';
+import { BadRequestException, HttpException, Inject, type PipeTransform, Catch, type ArgumentsHost, type ExceptionFilter, Logger } from '@nestjs/common';
+import { Audit } from './audit';
 import type { ZodSchema } from 'zod';
 
 /** Validates a body or query with zod and returns field errors in the States doc shape. */
@@ -25,10 +26,20 @@ export class AppError extends HttpException {
 @Catch()
 export class ErrorFilter implements ExceptionFilter {
   private readonly log = new Logger('Error');
+  constructor(@Inject(Audit) private readonly audit: Audit) {}
+
   catch(err: unknown, host: ArgumentsHost) {
     const res = host.switchToHttp().getResponse();
     if (err instanceof HttpException) {
       const body = err.getResponse();
+      // Audit log "Refused attempts": a signed-in person was refused permission.
+      const req = host.switchToHttp().getRequest();
+      if (err.getStatus() === 403 && req?.principal?.userId) {
+        const role = req.principal.roles?.[0]?.role ?? null;
+        void this.audit
+          .write({ actorId: req.principal.userId, actorRole: role, action: 'access.refused', entity: 'route', entityId: `${req.method} ${req.route?.path ?? req.path}`, ip: req.ip?.replace(/^::ffff:/, ''), payload: { code: (body as { code?: string })?.code ?? 'forbidden', userAgent: String(req.headers?.['user-agent'] ?? '').slice(0, 200) } })
+          .catch((e) => this.log.warn(`audit refused: ${e}`));
+      }
       return res.status(err.getStatus()).json(typeof body === 'string' ? { code: 'error', message: body } : body);
     }
     const supportCode = Math.random().toString(36).slice(2, 10).toUpperCase();

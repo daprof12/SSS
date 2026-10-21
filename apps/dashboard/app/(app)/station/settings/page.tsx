@@ -4,6 +4,13 @@ import { api, ApiError } from '@erp/web-ui/api';
 import { useEffect, useState } from 'react';
 import { useToast } from '@/components/Agency';
 
+interface Area {
+  level: 'lga' | 'district' | 'area';
+  areaId: string;
+  label: string;
+}
+const LEVEL_LABEL: Record<Area['level'], string> = { lga: 'Whole LGA', district: 'District', area: 'Area' };
+
 interface S {
   canEdit: boolean;
   name: string;
@@ -15,7 +22,7 @@ interface S {
   acceptWindowSeconds: number;
   minOnDuty: number;
   settings: { openingHours: string; ifNobodyAccepts: string; alerts: Record<string, boolean> };
-  areas: { area_id?: string; lga_id?: string; district_id?: string }[];
+  areas: Area[];
   access: { head: number; dispatcher: number; officer: number };
 }
 const ALERTS: [string, string, string][] = [
@@ -141,6 +148,7 @@ export default function StationSettings() {
               </p>
             </section>
           </div>
+          <Coverage areas={s.areas} ro={ro} onSaved={setToast} />
           <div className="grid two">
             <section className="card" aria-labelledby="alerts">
               <h2 id="alerts" style={{ marginTop: 0 }}>
@@ -183,5 +191,105 @@ export default function StationSettings() {
         </>
       )}
     </>
+  );
+}
+
+type Opt = { id: string; name: string };
+
+/** "Area this station covers": reports from here are offered to this station before any other. */
+function Coverage({ areas: initial, ro, onSaved }: { areas: Area[]; ro: boolean; onSaved: (m: string) => void }) {
+  const [areas, setAreas] = useState<Area[]>(initial);
+  const [pick, setPick] = useState<{ state?: string; lga?: string; district?: string; area?: string }>({});
+  const [opts, setOpts] = useState<{ state?: Opt[]; lga?: Opt[]; district?: Opt[]; area?: Opt[] }>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    const load = (level: 'state' | 'lga' | 'district' | 'area', parent?: string) =>
+      api<Opt[]>(`/places/levels/${level}${parent ? `?parent=${encodeURIComponent(parent)}` : ''}`)
+        .then((xs) => setOpts((o) => ({ ...o, [level]: xs })))
+        .catch(() => setErr('Postcode lookup is not available.'));
+    void load('state');
+    if (pick.state) void load('lga', pick.state);
+    if (pick.lga) void load('district', pick.lga);
+    if (pick.district) void load('area', pick.district);
+  }, [pick.state, pick.lga, pick.district]);
+  // The deepest level chosen is what gets added.
+  const chosen: Area | null = pick.area
+    ? { level: 'area', areaId: pick.area, label: opts.area?.find((o) => o.id === pick.area)?.name ?? pick.area }
+    : pick.district
+      ? { level: 'district', areaId: pick.district, label: opts.district?.find((o) => o.id === pick.district)?.name ?? pick.district }
+      : pick.lga
+        ? { level: 'lga', areaId: pick.lga, label: opts.lga?.find((o) => o.id === pick.lga)?.name ?? pick.lga }
+        : null;
+  const save = async (next: Area[]) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      onSaved((await api<{ message: string }>('/me/station/areas', { method: 'PUT', body: JSON.stringify({ areas: next }) })).message);
+      setAreas(next);
+      setPick({});
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : 'Could not save the area.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const sel = (key: 'state' | 'lga' | 'district' | 'area', label: string, all: string, disabled: boolean, reset: Partial<typeof pick>) => (
+    <label className="field" style={{ margin: 0 }}>
+      <span>{label}</span>
+      <select value={pick[key] ?? ''} disabled={disabled || ro} onChange={(e) => setPick({ ...pick, ...reset, [key]: e.target.value || undefined })}>
+        <option value="">{all}</option>
+        {(disabled ? [] : (opts[key] ?? [])).map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  return (
+    <section className="card" aria-labelledby="cov">
+      <h2 id="cov" style={{ marginTop: 0 }}>
+        Area this station covers
+      </h2>
+      <p className="muted" style={{ marginTop: 0 }}>
+        Reports from these places are offered to your officers first. A report from outside every station&apos;s area goes to the nearest station and is marked as outside its area.
+      </p>
+      {err && (
+        <div className="banner critical" role="alert" style={{ margin: '0 0 8px' }}>
+          {err}
+        </div>
+      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+        {!areas.length && <span className="chip warning">No area set. Reports reach you only as the nearest station.</span>}
+        {areas.map((a) => (
+          <span key={`${a.level}:${a.areaId}`} className="chip info" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            {LEVEL_LABEL[a.level]}: {a.label}
+            {!ro && areas.length > 1 && (
+              <button type="button" className="link" aria-label={`Remove ${a.label}`} disabled={busy} onClick={() => save(areas.filter((x) => x !== a))}>
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+      {!ro && (
+        <div className="loc-grid">
+          {sel('state', 'State', 'Choose a state', false, { lga: undefined, district: undefined, area: undefined })}
+          {sel('lga', 'LGA', 'Choose an LGA', !pick.state, { district: undefined, area: undefined })}
+          {sel('district', 'District', 'Whole LGA', !pick.lga, { area: undefined })}
+          {sel('area', 'Area', 'Whole district', !pick.district, {})}
+          <button
+            className="btn"
+            type="button"
+            style={{ alignSelf: 'end' }}
+            disabled={busy || !chosen || areas.some((a) => a.level === chosen.level && a.areaId === chosen.areaId)}
+            onClick={() => chosen && save([...areas, chosen])}
+          >
+            {busy ? 'Saving…' : 'Add to area'}
+          </button>
+        </div>
+      )}
+    </section>
   );
 }

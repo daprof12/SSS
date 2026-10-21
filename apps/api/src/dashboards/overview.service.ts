@@ -288,7 +288,9 @@ export class OverviewService {
         `select count(*) filter (where s.state = 'active')::int as active, coalesce(sum(pl.price_kobo) filter (where s.state in ('active', 'grace', 'extras_paused', 'sharing_paused')), 0)::bigint as mrr,
                 count(*) filter (where s.state in ('grace', 'extras_paused', 'sharing_paused', 'switched_off'))::int as due,
                 count(*) filter (where s.state = 'cancelled' and s.updated_at > ${MONTH})::int as cancelled
-           from subscriptions s join plans pl on pl.code = s.plan_code`,
+           from subscriptions s join plans pl on pl.code = s.plan_code join properties pr on pr.id = s.property_id join locations l on l.id = pr.location_id
+          where ${place}`,
+        largs,
       )
     ).rows[0];
     return {
@@ -349,14 +351,20 @@ export class OverviewService {
     return { message: b.action === 'pause' ? 'Paused.' : 'Resumed.' };
   }
 
-  async kycQueue(p: Principal) {
+  async kycQueue(p: Principal, f?: LocationFilter) {
     this.admin(p);
+    const args: unknown[] = [];
+    const home = locationWhere(f, args);
+    const station = locationWhere(f, args);
     const r = await this.db.query(
       `select k.id, k.user_id, k.id_type, k.id_masked, k.selfie_match, k.liveness, k.status, k.failure_reason, k.created_at, u.display_name,
               (select string_agg(distinct r.role, ',') from user_roles r where r.user_id = u.id) as roles
          from kyc_verifications k join users u on u.id = k.user_id
         where k.status in ('manual_review', 'failed') and not exists (select 1 from kyc_verifications k2 where k2.user_id = k.user_id and k2.created_at > k.created_at)
+          and (${home === 'true' ? 'true' : `exists (select 1 from saved_places sp join locations l on l.id = sp.location_id where sp.user_id = u.id and sp.is_home and ${home})
+               or exists (select 1 from officers o join stations st on st.id = o.station_id join locations l on l.id = st.location_id where o.user_id = u.id and ${station})`})
         order by k.status = 'manual_review' desc, k.created_at`,
+      args,
     );
     return r.rows.map((k) => ({
       id: k.id,

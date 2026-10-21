@@ -39,6 +39,13 @@ const ADMIN_BUILT: Record<string, NavItem> = {
   'Fines and appeals': { label: 'Fines and appeals', href: '/admin/fines', built: true },
   'Installation team': { label: 'Installation team', href: '/admin/repairs', built: true },
   'Help inbox': { label: 'Help inbox', href: '/admin/support', built: true },
+  'Coverage map': { label: 'Coverage map', href: '/admin/coverage', built: true },
+  'Device wall': { label: 'Device wall', href: '/admin/devices', built: true },
+  Inventory: { label: 'Inventory', href: '/admin/inventory', built: true },
+  Agencies: { label: 'Agencies', href: '/admin/agencies', built: true },
+  'Audit log': { label: 'Audit log', href: '/admin/audit', built: true },
+  'AI and LLM': { label: 'AI and LLM', href: '/admin/ai', built: true },
+  'CRM messaging': { label: 'CRM messaging', href: '/admin/crm', built: true },
 };
 
 // Sidebar orders from the Public Issues doc: Settings last, Messaging above it.

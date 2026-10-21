@@ -7,6 +7,7 @@ import { ErrorBox, focusFirstError, useSubmit } from '@erp/web-ui/CloseReportShe
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
 import { dateTime, useToast } from '@/components/Agency';
+import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface Payout {
   id: string;
@@ -51,7 +52,7 @@ const inFilter = (p: Payout, f: Filter) =>
   f === 'all' || (f === 'waiting' ? ['pending', 'awaiting_second_approval', 'processing'].includes(p.state) : p.state === f);
 
 export default function PayoutsAdmin() {
-  const [tab, setTab] = useState<'payouts' | 'donations'>('payouts');
+  const [tab, setTab] = useState<'payouts' | 'donations'>('donations');
   return (
     <>
       <div className="page-head">
@@ -75,10 +76,7 @@ export default function PayoutsAdmin() {
       {tab === 'payouts' ? (
         <Payouts />
       ) : (
-        <div className="card empty" role="tabpanel">
-          <strong>No donations yet.</strong>
-          Donations to stations and officers appear here once citizens can give from the app.
-        </div>
+        <Donations />
       )}
     </>
   );
@@ -365,5 +363,130 @@ function PayoutSheet({ p, onClose, onDone }: { p: Payout; onClose: () => void; o
         </>
       )}
     </Sheet>
+  );
+}
+
+interface DonationsView {
+  stats: { donatedMonthKobo: number; waitingKobo: number; paidOutMonthKobo: number; feePct: number; nextRun: string };
+  donations: { id: string; donor: string; recipient: string; level: string; amountKobo: number; netKobo: number; paidVia: string; payout: 'queued' | 'paid' | 'failed'; failure: string | null; at: string }[];
+}
+const PAYOUT: Record<string, [string, string]> = {
+  queued: ['Queued', 'var(--color-warning-text)'],
+  paid: ['Paid', 'var(--color-success-text)'],
+  failed: ['Failed', 'var(--color-emergency-text)'],
+};
+
+/** Board "Donations and payouts": gifts to agencies, stations and officers, by the receiving station's place. */
+function Donations() {
+  const [loc, setLoc] = useState<LocFilter>({});
+  const [d, setD] = useState<DonationsView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useToast();
+  const lq = locQuery(loc);
+  const load = useCallback(() => {
+    api<DonationsView>(`/admin/donations${lq ? `?${lq}` : ''}`)
+      .then((x) => {
+        setD(x);
+        setError(null);
+      })
+      .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load donations.'));
+  }, [lq]);
+  useEffect(load, [load]);
+  const run = async () => {
+    setBusy(true);
+    try {
+      setToast((await api<{ message: string }>('/admin/donations/payout', { method: 'POST', body: '{}' })).message);
+      load();
+    } catch (e) {
+      setToast(e instanceof ApiError ? e.message : 'Could not run the payout.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div role="tabpanel">
+      {toast}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button className="btn signal" type="button" onClick={run} disabled={busy || !d?.stats.waitingKobo}>
+          {busy ? 'Running…' : 'Run payout'}
+        </button>
+      </div>
+      <div className="stats">
+        <div className="stat">
+          <span>Donated this month</span>
+          <strong className="success">{d ? naira(d.stats.donatedMonthKobo) : '—'}</strong>
+          <small>Before platform fee</small>
+        </div>
+        <div className="stat">
+          <span>Waiting for payout</span>
+          <strong className="warning">{d ? naira(d.stats.waitingKobo) : '—'}</strong>
+          <small>Next run {d ? new Date(`${d.stats.nextRun}T00:00:00`).toLocaleDateString([], { day: 'numeric', month: 'short' }) : ''}</small>
+        </div>
+        <div className="stat">
+          <span>Paid out</span>
+          <strong>{d ? naira(d.stats.paidOutMonthKobo) : '—'}</strong>
+          <small>This month</small>
+        </div>
+        <div className="stat">
+          <span>Platform fee</span>
+          <strong className="info">{d ? `${d.stats.feePct}%` : '—'}</strong>
+          <small>Set in Settings</small>
+        </div>
+      </div>
+      <LocationFilter value={loc} onChange={setLoc} title="Filter by location of the receiving station" />
+      {error && (
+        <div className="banner critical" role="alert">
+          {error}
+        </div>
+      )}
+      <section className="card" style={{ padding: 0, overflowX: 'auto' }} aria-labelledby="rd">
+        <h2 id="rd" style={{ margin: 0, padding: '16px 16px 0' }}>
+          Recent donations
+        </h2>
+        {!d && !error ? (
+          <div style={{ padding: 20 }}>
+            <div className="skeleton" />
+          </div>
+        ) : !d?.donations.length ? (
+          <div className="empty">No donations here yet.</div>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Donor</th>
+                <th>Recipient</th>
+                <th>Level</th>
+                <th>Amount</th>
+                <th>Paid via</th>
+                <th>Payout</th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.donations.map((x) => (
+                <tr key={x.id}>
+                  <td>
+                    <strong>{x.donor}</strong>
+                    <div className="muted">{dateTime(x.at)}</div>
+                  </td>
+                  <td>{x.recipient}</td>
+                  <td>{x.level}</td>
+                  <td>
+                    <strong>{naira(x.amountKobo)}</strong>
+                    <div className="muted">{naira(x.netKobo)} after fee</div>
+                  </td>
+                  <td>{x.paidVia}</td>
+                  <td>
+                    <strong style={{ color: PAYOUT[x.payout]?.[1] }} title={x.failure ?? undefined}>
+                      {PAYOUT[x.payout]?.[0]}
+                    </strong>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </div>
   );
 }

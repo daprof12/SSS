@@ -34,6 +34,9 @@ const RosterReq = z.object({
   note: z.string().max(500).optional(),
 });
 const Decide = z.object({ decision: z.enum(['approve', 'decline']), reason: z.string().max(500).optional() });
+const Areas = z.object({
+  areas: z.array(z.object({ level: z.enum(['lga', 'district', 'area']), areaId: z.string().trim().min(2).max(60), label: z.string().trim().max(120).optional() })).max(50),
+});
 const Settings = z.object({
   phone: z.string().max(20).optional(),
   acceptWindowSeconds: z.number().int().optional(),
@@ -172,6 +175,11 @@ export class DashboardsController {
     return this.station.saveSettings(p, b);
   }
 
+  @Put('me/station/areas')
+  saveAreas(@CurrentUser() p: Principal, @Body(new ZodPipe(Areas)) b: z.infer<typeof Areas>) {
+    return this.station.saveAreas(p, b.areas);
+  }
+
   // Officer: a station message
   @Get('me/messages/:id')
   officerMessage(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
@@ -218,8 +226,8 @@ export class DashboardsController {
   }
 
   @Get('admin/kyc')
-  kyc(@CurrentUser() p: Principal) {
-    return this.overview.kycQueue(p);
+  kyc(@CurrentUser() p: Principal, @Query(new ZodPipe(LocationQuery)) f: z.infer<typeof LocationQuery>) {
+    return this.overview.kycQueue(p, f);
   }
 
   @Post('admin/kyc/:id')

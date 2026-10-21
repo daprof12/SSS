@@ -1,5 +1,6 @@
 // Citizen profile rows (UX Gap Analysis §2.1): Security, Donations, Payments and receipts,
 // Fines and appeals, Help and support. Admin review of fines lives here too (B8 step 4).
+import { LocationQuery, locationWhere } from '../core/location-filter';
 import { donationFee, formatNaira } from '@erp/domain';
 import { Body, Controller, Delete, Get, Headers, HttpCode, Inject, Ip, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
@@ -312,8 +313,8 @@ export class AdminFinesController {
   constructor(@Inject(FinesService) private readonly fines: FinesService) {}
 
   @Get('fines')
-  queue(@CurrentUser() p: Principal, @Query('state') state = 'appealed') {
-    return this.fines.queue(p, ['all', 'open', 'appealed', 'waived', 'reduced', 'upheld', 'paid'].includes(state) ? state : 'appealed');
+  queue(@CurrentUser() p: Principal, @Query('status') state = 'appealed', @Query(new ZodPipe(LocationQuery)) f?: z.infer<typeof LocationQuery>) {
+    return this.fines.queue(p, ['all', 'open', 'appealed', 'waived', 'reduced', 'upheld', 'paid'].includes(state) ? state : 'appealed', f);
   }
 
   @Post('fines/:id/decision')
@@ -337,13 +338,17 @@ export class AdminSupportController {
   }
 
   @Get()
-  async inbox(@CurrentUser() p: Principal, @Query('state') state = 'open') {
+  async inbox(@CurrentUser() p: Principal, @Query('status') state = 'open', @Query(new ZodPipe(LocationQuery)) f?: z.infer<typeof LocationQuery>) {
     this.admin(p);
     const st = ['open', 'answered', 'closed', 'all'].includes(state) ? state : 'open';
+    const args: unknown[] = [st];
+    const where = locationWhere(f, args);
     const r = await this.db.query(
       `select t.*, u.display_name, u.phone, ru.display_name as replied_by_name from support_tickets t join users u on u.id = t.user_id left join users ru on ru.id = t.replied_by
-        where ($1 = 'all' or t.state = $1) order by t.state = 'open' desc, t.created_at desc limit 100`,
-      [st],
+        where ($1 = 'all' or t.state = $1)
+          and (${where === 'true' ? 'true' : `exists (select 1 from saved_places sp join locations l on l.id = sp.location_id where sp.user_id = t.user_id and sp.is_home and ${where})`})
+        order by t.state = 'open' desc, t.created_at desc limit 100`,
+      args,
     );
     const counts = (await this.db.query(`select state, count(*)::int as n from support_tickets group by state`)).rows;
     const translator = (

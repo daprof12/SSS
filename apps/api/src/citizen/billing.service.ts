@@ -2,6 +2,7 @@
 // Subscribe: pay the install fee and the first month → install job → booked → installed (devices
 // created, first period starts then). Each month: charge; a failed charge starts dunning, whose stage
 // follows the days since it failed. Paying at any time restores everything the same day.
+import { locationWhere, type LocationFilter } from '../core/location-filter';
 import { applyEvent, DUNNING, dunningStage, firstPayment, formatNaira, subscriptionMachine } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomInt } from 'node:crypto';
@@ -243,15 +244,18 @@ export class BillingService {
     if (!hasRole(p, 'platform_admin')) throw new AppError(403, 'forbidden', 'This page is for platform staff.');
   }
 
-  async installs(p: Principal) {
+  async installs(p: Principal, f?: LocationFilter) {
     this.admin(p);
+    const args: unknown[] = [];
+    const where = locationWhere(f, args);
     const r = await this.db.query(
       `select j.id, j.number, j.state, j.scheduled_at, j.visit_window, j.created_at, s.id as sub_id, s.state as sub_state, pl.name as plan, pl.devices_included,
               u.display_name as owner, l.postcode, l.address_text, tu.display_name as tech
          from install_jobs j join subscriptions s on s.id = j.subscription_id join plans pl on pl.code = s.plan_code
          join properties pr on pr.id = j.property_id join users u on u.id = pr.owner_id join locations l on l.id = pr.location_id
          left join users tu on tu.id = j.technician_id
-        where j.kind = 'install' and (j.state <> 'done' or j.created_at > now() - interval '14 days') order by j.state = 'done', j.created_at`,
+        where j.kind = 'install' and (j.state <> 'done' or j.created_at > now() - interval '14 days') and ${where} order by j.state = 'done', j.created_at`,
+      args,
     );
     return r.rows.map((j) => ({
       id: j.id,

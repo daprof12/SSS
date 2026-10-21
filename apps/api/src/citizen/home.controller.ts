@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Headers, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { LocationQuery } from '../core/location-filter';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentUser, type Principal } from '../core/auth';
 import { ZodPipe } from '../core/http';
@@ -144,8 +145,8 @@ export class AdminInstallsController {
   constructor(@Inject(BillingService) private readonly billing: BillingService) {}
 
   @Get()
-  list(@CurrentUser() p: Principal) {
-    return this.billing.installs(p);
+  list(@CurrentUser() p: Principal, @Query(new ZodPipe(LocationQuery)) f: z.infer<typeof LocationQuery>) {
+    return this.billing.installs(p, f);
   }
 
   @Post(':id')
@@ -160,8 +161,8 @@ export class AdminRepairsController {
   constructor(@Inject(HomeService) private readonly home: HomeService) {}
 
   @Get()
-  list(@CurrentUser() p: Principal) {
-    return this.home.adminList(p);
+  list(@CurrentUser() p: Principal, @Query(new ZodPipe(LocationQuery)) f: z.infer<typeof LocationQuery>) {
+    return this.home.adminList(p, f);
   }
 
   @Post(':id')

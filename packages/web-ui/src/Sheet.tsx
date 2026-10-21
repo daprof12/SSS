@@ -11,6 +11,8 @@ interface Props {
   busy?: boolean;
   children: React.ReactNode;
   footer: React.ReactNode;
+  /** A wider dialog for side-by-side content (device modal). */
+  wide?: boolean;
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -20,7 +22,7 @@ const FOCUSABLE = 'a[href], button:not([disabled]), select:not([disabled]), text
  * under 768 px, centred dialog above; focus trapped; Esc and scrim close it
  * unless busy; focus returns to whatever opened it. Never stacks.
  */
-export function Sheet({ open, title, description, onClose, busy, children, footer }: Props) {
+export function Sheet({ open, title, description, onClose, busy, children, footer, wide }: Props) {
   const panel = useRef<HTMLDivElement>(null);
   const opener = useRef<Element | null>(null);
   const titleId = useId();
@@ -68,7 +70,7 @@ export function Sheet({ open, title, description, onClose, busy, children, foote
   if (!open) return null;
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div ref={panel} className="sheet" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descId : undefined}>
+      <div ref={panel} className={wide ? 'sheet wide' : 'sheet'} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descId : undefined}>
         <div className="sheet-grip" aria-hidden />
         <h2 id={titleId}>{title}</h2>
         {description && (
