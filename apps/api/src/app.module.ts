@@ -17,6 +17,9 @@ import { CONFIG, type AppConfig } from './core/config';
 import { Db } from './core/db';
 import { ErrorFilter } from './core/http';
 import { DevController } from './dev/dev.controller';
+import { DashboardsController } from './dashboards/dashboards.controller';
+import { OverviewService } from './dashboards/overview.service';
+import { StationService } from './dashboards/station.service';
 import { MockTranslateAdapter, TRANSLATE } from './adapters/translate';
 import { StatementsController } from './statements/statements.controller';
 import { StatementsService } from './statements/statements.service';
@@ -75,6 +78,7 @@ export class AppModule {
       controllers: [
         HealthController,
         CitizenController,
+        DashboardsController,
         StatementsController,
         AdminFinesController,
         AdminSupportController,
@@ -103,6 +107,8 @@ export class AppModule {
       providers: [
         { provide: CONFIG, useValue: config },
         DonationsService,
+        StationService,
+        OverviewService,
         BillingService,
         StatementsService,
         { provide: TRANSLATE, useValue: new MockTranslateAdapter() },
