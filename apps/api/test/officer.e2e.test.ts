@@ -97,7 +97,7 @@ describe('team and profile', () => {
   it('shows the profile with sub-ratings from rating tags', async () => {
     const p = (await http.get('/me/officer/profile').set(as('officer')).expect(200)).body;
     expect(p).toMatchObject({ station: 'Station 4 Ikeja', badge: { status: 'verified' }, team: { officers: 2 } });
-    expect(Object.keys(p.rating)).toEqual(expect.arrayContaining(['overall', 'count', 'arrival', 'care', 'communication']));
+    expect(Object.keys(p.rating)).toEqual(expect.arrayContaining(['overall', 'count', 'arrival', 'care', 'solved']));
     const s = (await http.get('/me/officer/shifts').set(as('officer')).expect(200)).body;
     expect(s.shifts[0]).toMatchObject({ kind: expect.any(String) });
   });
@@ -134,5 +134,35 @@ describe('field reports', () => {
     const mine = (await http.get('/me/officer/field-reports').set(as(who)).expect(200)).body;
     expect(mine[0]).toMatchObject({ title: 'Other danger', linked: false, files: 1 });
     expect(mine[1]).toMatchObject({ title: 'Robbery, CD34E', linked: true });
+  });
+});
+
+describe('report map', () => {
+  it('shows each side its distance, time and route to the report', async () => {
+    const id = (await http.post('/incidents').set(as('citizen')).send({ type: 'riot', postcode: 'AB12C', clientRef: ref() }).expect(201)).body.id;
+    await waitFor(() => view('citizen', id), (x) => x.state === 'offered');
+    const offered = (await db.query(`select officer_id from incident_units where incident_id = $1 and state = 'offered'`, [id])).rows[0].officer_id;
+    const who = Object.keys(users).find((k) => users[k] === offered)!;
+
+    // The offered officer sees how far they are, from the phone position they send.
+    const o = (await http.get(`/incidents/${id}/map?lat=6.6&lng=3.35`).set(as(who)).expect(200)).body;
+    expect(o.incident).toMatchObject({ lat: expect.any(Number), lng: expect.any(Number), label: expect.stringMatching(/^Riot, /) });
+    expect(o.you).toEqual({ lat: 6.6, lng: 3.35 });
+    expect(o.route).toMatchObject({ from: 'you', source: 'estimate', distanceM: expect.any(Number), durationS: expect.any(Number) });
+    expect(o.route.line).toHaveLength(2);
+    expect(o.route.distanceM).toBeGreaterThan(o.youDistanceM);
+
+    // The citizen sees no one until an officer accepts, then the officer's way to them.
+    const before = (await http.get(`/incidents/${id}/map`).set(as('citizen')).expect(200)).body;
+    expect(before).toMatchObject({ unit: null, route: null });
+    await http.post(`/incidents/${id}/actions`).set(as(who)).send({ event: 'accept' }).expect(201);
+    const after = (await http.get(`/incidents/${id}/map`).set(as('citizen')).expect(200)).body;
+    expect(after.unit).toMatchObject({ state: 'accepted', isYou: false, name: expect.any(String) });
+    expect(after.route).toMatchObject({ from: 'unit', source: 'estimate' });
+
+    // Station staff see it too; anyone else does not.
+    expect((await http.get(`/incidents/${id}/map`).set(as('head')).expect(200)).body.route.from).toBe('unit');
+    await http.get(`/incidents/${id}/map`).set(as('neighbour')).expect(404);
+    await http.get(`/incidents/${id}/map?lat=200&lng=3`).set(as(who)).expect(400);
   });
 });

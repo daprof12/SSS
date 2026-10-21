@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { api, ApiError } from '@/lib/client';
 
@@ -12,6 +12,8 @@ export default function SignIn() {
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [signedOut, setSignedOut] = useState(false);
+  useEffect(() => setSignedOut(new URLSearchParams(window.location.search).get('signedOut') === '1'), []);
 
   const go = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,6 +32,11 @@ export default function SignIn() {
 
   return (
     <main className="app bare">
+      {signedOut && (
+        <div className="banner success" role="status">
+          You are signed out. Sign in again with your phone number.
+        </div>
+      )}
       <div style={{ width: 64, height: 64, borderRadius: 18, background: 'var(--color-action-primary)', color: 'var(--color-on-action-primary)', display: 'grid', placeItems: 'center', fontWeight: 800, margin: '32px 0 20px' }}>ERP</div>
       <h1 style={{ fontSize: 'var(--text-xxl)', margin: '0 0 8px', lineHeight: 1.1 }}>Help in two taps</h1>
       <p className="muted" style={{ marginTop: 0, fontSize: 'var(--text-md)' }}>

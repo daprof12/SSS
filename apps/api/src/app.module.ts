@@ -40,6 +40,8 @@ import { BillingService } from './citizen/billing.service';
 import { HomeService } from './citizen/home.service';
 import { IncidentRepo } from './incidents/incident.repo';
 import { IncidentsController } from './incidents/incidents.controller';
+import { IncidentMapController } from './incidents/map.controller';
+import { ROUTING, routingFromEnv } from './adapters/routing';
 import { IncidentsService } from './incidents/incidents.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
@@ -91,6 +93,7 @@ export class AppModule {
         AdminController,
         AgencyOpsController,
         HelpChatController,
+        IncidentMapController,
         AdminHelpChatController,
         StatementsController,
         AdminFinesController,
@@ -129,6 +132,7 @@ export class AppModule {
         BillingService,
         StatementsService,
         { provide: TRANSLATE, useValue: new MockTranslateAdapter() },
+        { provide: ROUTING, useValue: routingFromEnv(config.env, process.env.ROUTING_URL) },
         // The help assistant uses Claude when an Anthropic key is configured (never in tests).
         { provide: ASSISTANT, useValue: config.env !== 'test' && (process.env.ANTHROPIC_API_KEY || process.env.ASSISTANT_PROVIDER === 'anthropic') ? new AnthropicAssistantAdapter() : new MockAssistantAdapter() },
         { provide: WHATSAPP, useValue: new MockWhatsAppAdapter() },

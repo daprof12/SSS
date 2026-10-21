@@ -4,7 +4,7 @@ import { Sheet } from '@erp/web-ui/Sheet';
 import { useRouter } from 'next/navigation';
 import { use, useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/Icon';
-import { MiniMap } from '@/components/MiniMap';
+import { IncidentMap } from '@erp/web-ui/IncidentMap';
 import { api, ApiError, haptic, locate, typeInfo } from '@/lib/client';
 
 interface OfferStatus {
@@ -39,7 +39,6 @@ export default function OfferPage({ params }: { params: Promise<{ id: string }> 
   const router = useRouter();
   const [o, setO] = useState<OfferStatus | null | undefined>(undefined);
   const [detail, setDetail] = useState<OfficerView | null>(null);
-  const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const [left, setLeft] = useState(0);
   const [declining, setDeclining] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,7 +57,6 @@ export default function OfferPage({ params }: { params: Promise<{ id: string }> 
         if (first) {
           haptic([200, 100, 200]);
           api<OfficerView>(`/incidents/${id}`).then(setDetail).catch(() => {});
-          locate(5000).then(setMe).catch(() => {});
         }
         first = false;
         setTimeout(poll, 2000);
@@ -102,7 +100,6 @@ export default function OfferPage({ params }: { params: Promise<{ id: string }> 
   if (!o || o.state !== 'offered') return <Ended o={o} onHome={() => router.replace('/officer')} />;
 
   const info = typeInfo(o.report.type);
-  const eta = etaFor(o.distanceM);
   const pct = Math.max(0, Math.min(1, left / Math.max(1, o.windowSeconds)));
   const hurry = left <= 10;
   const where = detail?.building.address ?? o.report.address;
@@ -125,14 +122,9 @@ export default function OfferPage({ params }: { params: Promise<{ id: string }> 
         {where ? `${where}, ` : ''}
         {o.report.postcode ? `postcode ${o.report.postcode}` : 'GPS location'}
       </p>
-      {o.distanceM != null && (
-        <p style={{ margin: '4px 0 12px', color: 'var(--color-signal-text)', fontWeight: 700 }}>
-          {(o.distanceM / 1000).toFixed(1)} km away{eta ? `, about ${eta} min` : ''}
-        </p>
-      )}
       {detail && (
         <div style={{ margin: '8px 0 12px' }}>
-          <MiniMap building={detail.building.location} unit={me ?? undefined} label="Route to the incident" />
+          <IncidentMap incidentId={id} perspective="officer" getPosition={() => locate(5000)} refreshMs={15_000} />
         </div>
       )}
 

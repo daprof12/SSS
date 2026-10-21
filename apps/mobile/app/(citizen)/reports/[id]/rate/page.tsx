@@ -9,11 +9,11 @@ import { api, ApiError, haptic } from '@/lib/client';
 const TAGS = [
   ['fast', 'Arrived fast'],
   ['polite', 'Polite'],
-  ['clear', 'Explained clearly'],
+  ['solved', 'Problem solved'],
   ['professional', 'Professional'],
   ['slow', 'Slow'],
   ['rude', 'Rude'],
-  ['unclear', 'Unclear'],
+  ['not_solved', 'Not solved'],
 ] as const;
 const WORDS = ['', 'Very poor', 'Poor', 'Okay', 'Good', 'Excellent'];
 

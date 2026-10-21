@@ -398,10 +398,10 @@ describe('officer sub-ratings', () => {
   it('moves each sub-score with good and bad tags', () => {
     const r = subRatings([
       { stars: 4, tags: ['fast', 'polite'] },
-      { stars: 5, tags: ['fast', 'clear'] },
-      { stars: 3, tags: ['slow', 'unclear'] },
+      { stars: 5, tags: ['fast', 'solved'] },
+      { stars: 3, tags: ['slow', 'not_solved'] },
     ]);
-    expect(r).toMatchObject({ overall: 4, count: 3, arrival: 4.2, care: 4.2, communication: 4 });
+    expect(r).toMatchObject({ overall: 4, count: 3, arrival: 4.2, care: 4.2, solved: 4 });
     expect(subRatings([])).toMatchObject({ overall: null, count: 0 });
   });
 });

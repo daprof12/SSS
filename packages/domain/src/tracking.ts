@@ -124,11 +124,11 @@ export function freshness(lastUpdateAt: Date, now: Date, socketConnected: boolea
   return { kind: 'live' };
 }
 
-/** Rating tags a citizen can add (incidents controller), grouped into the officer's three sub-scores. */
+/** Rating tags a citizen can add (incidents controller), grouped into the officer's three sub-scores: how fast help came, how they were treated, and whether the problem was solved. */
 export const RATING_DIMENSIONS = {
   arrival: { label: 'Arrival speed', good: ['fast'], bad: ['slow'] },
   care: { label: 'Care and manner', good: ['polite', 'professional'], bad: ['rude'] },
-  communication: { label: 'Communication', good: ['clear'], bad: ['unclear'] },
+  solved: { label: 'Report solved', good: ['solved'], bad: ['not_solved'] },
 } as const;
 export type RatingDimension = keyof typeof RATING_DIMENSIONS;
 
@@ -137,7 +137,7 @@ export type RatingDimension = keyof typeof RATING_DIMENSIONS;
  * starts from it and moves up to half a star with the share of good versus bad tags.
  */
 export function subRatings(ratings: { stars: number; tags: readonly string[] }[]): { overall: number | null; count: number } & Record<RatingDimension, number | null> {
-  if (!ratings.length) return { overall: null, count: 0, arrival: null, care: null, communication: null };
+  if (!ratings.length) return { overall: null, count: 0, arrival: null, care: null, solved: null };
   const overall = ratings.reduce((s, r) => s + r.stars, 0) / ratings.length;
   const round = (n: number) => Math.round(Math.min(5, Math.max(1, n)) * 10) / 10;
   const dim = (d: RatingDimension) => {
@@ -150,5 +150,5 @@ export function subRatings(ratings: { stars: number; tags: readonly string[] }[]
     }
     return round(overall + ((g - b) / ratings.length) * 0.5);
   };
-  return { overall: round(overall), count: ratings.length, arrival: dim('arrival'), care: dim('care'), communication: dim('communication') };
+  return { overall: round(overall), count: ratings.length, arrival: dim('arrival'), care: dim('care'), solved: dim('solved') };
 }

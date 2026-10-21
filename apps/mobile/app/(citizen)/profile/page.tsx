@@ -1,5 +1,6 @@
 'use client';
 
+import { SignOutButton } from '@/components/SignOutButton';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { Rating } from '@erp/web-ui/Rating';
 import { formatNaira } from '@erp/domain';
@@ -118,23 +119,7 @@ export default function Profile() {
       </div>
 
       <div className="list">
-        <button
-          className="row"
-          type="button"
-          onClick={async () => {
-            // Revoke on the server first, so this device's tokens stop working at once.
-            await api('/auth/sign-out', { method: 'POST' }).catch(() => {});
-            setSession(null);
-            router.replace('/sign-in');
-          }}
-        >
-          <span className="icon">
-            <Icon name="out" />
-          </span>
-          <span className="grow">
-            <strong>Sign out</strong>
-          </span>
-        </button>
+        <SignOutButton />
       </div>
     </main>
   );

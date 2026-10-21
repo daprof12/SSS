@@ -32,7 +32,8 @@ const DeclineBody = z.object({ reason: z.string() });
 const Other = z.object({ otherId: z.string().uuid() });
 const SplitBody = z.object({ reportId: z.string().uuid() });
 const AssignBody = z.object({ officerId: z.string().uuid() });
-const RATING_TAGS = ['fast', 'polite', 'clear', 'professional', 'slow', 'rude', 'unclear'] as const;
+// 'clear' and 'unclear' are kept so older app versions can still send them.
+const RATING_TAGS = ['fast', 'polite', 'solved', 'professional', 'slow', 'rude', 'not_solved', 'clear', 'unclear'] as const;
 const RatingBody = z.object({
   stars: z.number().int().min(1, 'Choose 1 to 5 stars.').max(5, 'Choose 1 to 5 stars.'),
   tags: z.array(z.enum(RATING_TAGS)).max(7).default([]),

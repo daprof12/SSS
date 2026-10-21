@@ -574,3 +574,12 @@ Migration 027. Tests: `apps/api/test/help.e2e.test.ts` (notification sounds).
   - Used in the officer home, profile, team and history; the citizen's officer card, profile, household and contacts; and the station and agency officer lists.
 - **Officer sign-out** works while on duty. It asks first, takes the officer off duty, then signs out. The app's bottom padding leaves room for the Help button, so it no longer covers the last row.
 - **Demo offer:** `/dev/seed` (outside tests) keeps one live report: Ada's robbery at AB12C, offered to Insp. Musa Bello. Each seed keeps the offer open for 30 more minutes. The citizen, officer, station, agency and admin all see it. `POST /dev/demo-offer` starts a fresh one.
+
+## Live report map with distance and drive time
+
+- `GET /incidents/:id/map?lat=&lng=` returns the report point, where you are, the responding unit and the route between them, with distance (metres) and driving time (seconds). Who can see it: the officer offered or sent to the report, the person who reported it (or joined it), the station head and dispatchers, the agency admin and platform staff with live access. Anyone else gets 404.
+- An officer sees the way from their phone position (or their last known one) to the report. That helps them decide whether to accept an offer, and then get there. A citizen sees the responding officer's way to them, only once an officer has accepted: "Help is 660 m away, about 1 min".
+- Routes come from OSRM (`ROUTING_URL`). Development uses the public OSRM demo server; set `ROUTING_URL=off` to stop calling it. Production uses the estimate unless `ROUTING_URL` points at your own server. Tests always use the estimate: the straight line, roads taken as 1.35 times longer, at 25 km/h. The map marks an estimate as "Straight-line estimate" and draws it dashed. Only coordinates are sent to the routing server.
+- `@erp/web-ui/StreetMap` draws street tiles with the report pin, the "You" dot, the officer marker and the route line. You can zoom, drag and press "Show everything" to fit it all again. `@erp/web-ui/IncidentMap` loads the map endpoint and refreshes it every 10 seconds. These replace the old drawn mini-map on the officer offer, officer incident and citizen report pages.
+- Ratings: "Communication" is replaced by "Report solved" (tags `solved` and `not_solved`).
+- Sign-out on the phone app asks in an in-app sheet. An officer on duty is taken off duty first. Afterwards the sign-in page says "You are signed out".

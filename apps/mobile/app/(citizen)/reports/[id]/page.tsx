@@ -1,6 +1,7 @@
 'use client';
 
 import { Avatar } from '@erp/web-ui/Avatar';
+import { IncidentMap } from '@erp/web-ui/IncidentMap';
 import { Rating } from '@erp/web-ui/Rating';
 import { timelineSteps } from '@erp/domain';
 import { Sheet } from '@erp/web-ui/Sheet';
@@ -9,8 +10,7 @@ import { useRouter } from 'next/navigation';
 import { use, useEffect, useRef, useState } from 'react';
 import { Header, Toast, useToast } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
-import { MiniMap } from '@/components/MiniMap';
-import { api, ApiError, haptic, typeInfo } from '@/lib/client';
+import { api, ApiError, haptic, locate, typeInfo } from '@/lib/client';
 import { FreshLabel, useIncident } from '@/lib/useIncident';
 import { AttachPicker, uploadPicked, usePicked } from '@/components/reports/Attach';
 
@@ -91,23 +91,16 @@ export default function LiveStatus({ params }: { params: Promise<{ id: string }>
 
   return (
     <main className="app bare" style={{ paddingTop: 0 }}>
-      {s.showLiveMap ? (
-        <div style={{ position: 'relative' }}>
-          <MiniMap building={v.building?.location} unit={v.officerLocation} label="Map of your location and the responding unit" />
-          <button className="back" type="button" aria-label="Back" onClick={() => router.push('/home')} style={{ position: 'absolute', top: 16, left: 0 }}>
-            <Icon name="back" />
-          </button>
-          <span className="chip critical" style={{ position: 'absolute', top: 24, right: 0 }}>
+      <div style={{ paddingTop: 16 }}>
+        <Header back="/home">
+          <span className={`chip ${live ? 'critical' : 'neutral'}`}>
             {info.label}, {live ? 'live' : 'closed'}
           </span>
-        </div>
-      ) : (
-        <div style={{ paddingTop: 16 }}>
-          <Header back="/home">
-            <span className={`chip ${live ? 'critical' : 'neutral'}`}>
-              {info.label}, {live ? 'live' : 'closed'}
-            </span>
-          </Header>
+        </Header>
+      </div>
+      {s.showLiveMap && (
+        <div style={{ margin: '4px 0 20px' }}>
+          <IncidentMap incidentId={id} perspective="citizen" getPosition={() => locate(5000)} />
         </div>
       )}
 

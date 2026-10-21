@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { use, useEffect, useRef, useState } from 'react';
 import { Header, Toast, useToast } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
-import { MiniMap } from '@/components/MiniMap';
+import { IncidentMap } from '@erp/web-ui/IncidentMap';
 import { IncidentStatements } from '@/components/OfficerStatements';
 import { api, ApiError, haptic, locate, typeInfo } from '@/lib/client';
 import { FreshLabel, useIncident } from '@/lib/useIncident';
@@ -142,7 +142,7 @@ export default function OfficerIncident({ params }: { params: Promise<{ id: stri
 
       {live && (
         <div style={{ margin: '12px 0' }}>
-          <MiniMap building={v.building.location} unit={me ?? undefined} label="Map to the building" />
+          <IncidentMap incidentId={id} perspective="officer" getPosition={async () => me ?? (await locate(5000))} />
         </div>
       )}
 

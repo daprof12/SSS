@@ -1,5 +1,6 @@
 'use client';
 // Board "Officer profile and rating", plus the §2.2 rows (documents, duty, alerts, security, help).
+import { SignOutButton } from '@/components/SignOutButton';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { Rating } from '@erp/web-ui/Rating';
 import { formatNaira } from '@erp/domain';
@@ -19,7 +20,7 @@ interface Profile {
   serviceNo: string;
   rank: string | null;
   badge: { status: string; expiresOn: string | null };
-  rating: { overall: number | null; count: number; arrival: number | null; care: number | null; communication: number | null };
+  rating: { overall: number | null; count: number; arrival: number | null; care: number | null; solved: number | null };
   team: { name: string; officers: number; rating: number | null };
   wallet: { availableKobo: number; heldKobo: number };
   rewardsAndDonationsKobo: number;
@@ -38,7 +39,6 @@ const BADGE: Record<string, [string, string]> = {
 
 export default function OfficerProfile() {
   const router = useRouter();
-  const [signingOut, setSigningOut] = useState(false);
   const [p, setP] = useState<Profile | null>(null);
   const [theme, setTheme] = useState('System');
   const [wa, setWa] = useState<boolean | null>(null);
@@ -98,7 +98,7 @@ export default function OfficerProfile() {
         </div>
         {bar('Arrival speed', p?.rating.arrival ?? null)}
         {bar('Care and manner', p?.rating.care ?? null)}
-        {bar('Communication', p?.rating.communication ?? null)}
+        {bar('Report solved', p?.rating.solved ?? null)}
         <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--color-divider)', marginTop: 12, paddingTop: 12 }}>
           <span className="muted">Acceptance, last 30 days</span>
           <strong>{p ? (p.acceptance.ratePct == null ? 'No offers yet' : `${p.acceptance.ratePct}%`) : ''}</strong>
@@ -163,29 +163,7 @@ export default function OfficerProfile() {
       <div className="list">
         {row('/officer/security', 'lock', 'Security')}
         {row('/officer/help', 'help', 'Help')}
-        <button
-          className="row"
-          type="button"
-          disabled={signingOut}
-          onClick={async () => {
-            // On duty: confirm, then go off duty first so the station does not keep offering reports.
-            if (p?.onDuty && !window.confirm('You are on duty. Signing out takes you off duty. Sign out?')) return;
-            setSigningOut(true);
-            if (p?.onDuty) await api('/me/officer/duty', { method: 'PATCH', body: JSON.stringify({ onDuty: false }) }).catch(() => {});
-            // Revoke on the server first, so this device's tokens stop working at once.
-            await api('/auth/sign-out', { method: 'POST', body: '{}' }).catch(() => {});
-            setSession(null);
-            router.replace('/sign-in');
-          }}
-        >
-          <span className="icon">
-            <Icon name="out" />
-          </span>
-          <span className="grow">
-            <strong>{signingOut ? 'Signing out…' : 'Sign out'}</strong>
-            {p?.onDuty && <span className="sub">You will be taken off duty</span>}
-          </span>
-        </button>
+        <SignOutButton onDuty={!!p?.onDuty} />
       </div>
     </main>
   );

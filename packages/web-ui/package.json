@@ -15,7 +15,9 @@
     "./NotificationSounds": "./src/NotificationSounds.tsx",
     "./SoundSettings": "./src/SoundSettings.tsx",
     "./Avatar": "./src/Avatar.tsx",
-    "./Rating": "./src/Rating.tsx"
+    "./Rating": "./src/Rating.tsx",
+    "./StreetMap": "./src/StreetMap.tsx",
+    "./IncidentMap": "./src/IncidentMap.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
