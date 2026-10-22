@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { createHash, randomBytes } from 'node:crypto';
 import {
   applyIncidentEvent,
@@ -70,9 +70,10 @@ export interface CreateIncidentInput {
 }
 
 @Injectable()
-export class IncidentsService implements OnModuleDestroy {
+export class IncidentsService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger('Incidents');
   private readonly timers = new Map<string, NodeJS.Timeout>();
+  private sweeper?: NodeJS.Timeout;
 
   constructor(
     @Inject(Db) private readonly db: Db,
@@ -86,9 +87,66 @@ export class IncidentsService implements OnModuleDestroy {
     @Inject(FinesService) private readonly fines: FinesService,
   ) {}
 
+  onModuleInit() {
+    // Tests sweep on demand; everywhere else straight away (timers from before a restart are gone)
+    // and then every few seconds.
+    if (this.config.env === 'test') return;
+    const every = Number(process.env.SWEEP_MS ?? 5000);
+    const tick = () => this.sweepOverdue().catch((e) => this.log.error(`sweep: ${e.message}`));
+    void tick();
+    this.sweeper = setInterval(tick, every);
+    this.sweeper.unref();
+  }
+
   onModuleDestroy() {
     for (const t of this.timers.values()) clearTimeout(t);
     this.timers.clear();
+    if (this.sweeper) clearInterval(this.sweeper);
+  }
+
+  /**
+   * The timers above live in this process: a restart or a second server loses them. This sweep,
+   * from the database, finishes whatever is overdue:
+   * - a cancel window that has passed (the report is sent on);
+   * - an offer nobody answered in time (it goes to the next officer);
+   * - a report waiting to be routed whose routing never ran (the server stopped in between).
+   * Every step is guarded in the database, so two servers sweeping at once never double-apply.
+   */
+  async sweepOverdue(graceMs = 2000) {
+    const done = { windows: 0, offers: 0, routed: 0 };
+    const windows = await this.db.query(
+      `select id from incidents where state = 'pending_cancel' and created_at < now() - make_interval(secs => $1) order by created_at limit 50`,
+      [(this.config.cancelWindowMs + graceMs) / 1000],
+    );
+    for (const r of windows.rows) {
+      clearTimeout(this.timers.get(`window:${r.id}`));
+      this.timers.delete(`window:${r.id}`);
+      await this.afterCancelWindow(r.id).then(() => done.windows++, (e) => this.log.warn(`window ${r.id}: ${e.message}`));
+    }
+    const offers = await this.db.query(
+      `select incident_id, officer_id from incident_units where state = 'offered' and offer_expires_at < now() - make_interval(secs => $1) order by offer_expires_at limit 50`,
+      [graceMs / 1000],
+    );
+    for (const r of offers.rows) {
+      clearTimeout(this.timers.get(`offer:${r.incident_id}:${r.officer_id}`));
+      this.timers.delete(`offer:${r.incident_id}:${r.officer_id}`);
+      await this.offerTimeout(r.incident_id, r.officer_id, []).then(() => done.offers++, (e) => this.log.warn(`offer ${r.incident_id}: ${e.message}`));
+    }
+    // Waiting to be routed, nothing offered, and the last thing that happened was the step before
+    // routing (not "nobody free" or "no station", which already told the station to act).
+    const stranded = await this.db.query(
+      `select i.id from incidents i
+         cross join lateral (select e.kind, e.at from incident_events e where e.incident_id = i.id order by e.id desc limit 1) last
+        where i.state in ('received', 'escalated', 'reassigning', 'transferred')
+          and not exists (select 1 from incident_units u where u.incident_id = i.id and u.state = 'offered')
+          and last.kind in ('window_elapsed', 'offer_timeout', 'declined', 'officer_drop', 'cant_go', 'transfer')
+          and last.at < now() - make_interval(secs => $1)
+        order by i.created_at limit 50`,
+      [Math.max(10, graceMs / 1000)],
+    );
+    for (const r of stranded.rows) await this.route(r.id).then(() => done.routed++, (e) => this.log.warn(`route ${r.id}: ${e.message}`));
+    if (done.windows || done.offers || done.routed) this.log.log(`sweep finished overdue work: ${JSON.stringify(done)}`);
+    return done;
   }
 
   // ---------------------------------------------------------------- create
@@ -208,7 +266,7 @@ export class IncidentsService implements OnModuleDestroy {
 
   private schedule(key: string, ms: number, fn: () => Promise<unknown>) {
     clearTimeout(this.timers.get(key));
-    // Production: a durable job queue (TRD: NATS/Kafka); in-process timers are for the foundation only.
+    // Fast path only: if this process stops, sweepOverdue() finishes the job from the database.
     this.timers.set(
       key,
       setTimeout(() => {

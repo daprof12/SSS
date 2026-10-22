@@ -653,3 +653,13 @@ Sign-in codes, security codes, statement codes and SMS alerts go through one ada
 - **Log:** every message, sent or failed, is saved in `sms_log` (provider, message id, phone, body, error), with codes blanked out (`••••••`). Migration `032_sms_log.sql`.
 - **When sending fails:** the person is told "We could not send the code just now…" and the unsent code is removed, so they can ask again at once instead of waiting out the resend timer. Broadcasts already record failures per recipient.
 - **Development and tests** use the mock outbox (`GET /dev/sms`); set `SMS_PROVIDER=termii` locally to try real sends.
+
+## Surviving a restart (cancel windows and offers)
+
+The 5-second cancel window and each offer's accept time are timed in the API process, so they react to the second. A restart, a deploy or a second API server would lose those timers, so `IncidentsService.sweepOverdue()` finishes the job from the database. It runs once at start-up and then every few seconds (`SWEEP_MS`, default 5000). It handles:
+
+- **A cancel window that has passed:** the report is sent on as usual (merged if it is a duplicate, contacts told, routed).
+- **An offer nobody answered in time:** it is marked missed and goes to the next free officer.
+- **A report waiting to be routed whose routing never ran** (the server stopped in between): it is routed now. A report where nobody was free is left alone; the station was already told.
+
+Every step is guarded in the database (a state check under a row lock, or a guarded update), so two servers sweeping at once never double-apply. This also makes running more than one API server safe for dispatch. Tests: `test/restart.e2e.test.ts`.
