@@ -595,3 +595,17 @@ Reports still go to the nearest free officer automatically. The station head or 
 - **Reassign** (`POST /incidents/:id/reassign`, reason required). The report moves from the officer on it to the officer the station picks. The officer taken off is told why, and the reporter is told a new officer is coming. The old "Next free officer" option is still in the same sheet.
 - **"I can't go"** (`POST /incidents/:id/cant-go`). An officer the station sent (directly, by reassigning, or as the second unit) can answer with a reason: already on another job, no vehicle, not safe alone, too far, unwell, or other with a note. It is not counted against them. The station is told at once. A first unit's report goes on to the next free officer; a second unit is simply stood down. An officer who accepted an offer themselves uses Hand over instead.
 - The station's "Units on this report" list shows how each officer was put on it, by whom and why, plus withdrawn offers and "can't go" answers. Migration `028_station_assign.sql` adds these columns.
+
+## Where each report goes, overviews, ratings, date ranges
+
+- **Routing, checked end to end** (`apps/api/test/routing.e2e.test.ts`):
+  - **Emergency:** goes to the agency and station that cover the place, is offered to the nearest free officer, and shows in the station queue, the station map, the agency live map and the admin live map. Other agencies do not see it.
+  - **Tip:** goes to the agency for its category and the station covering the place, then the agency's tips queue and the live maps.
+  - **Public issue:** goes to the agency for its category, its issues queue and the live maps.
+  - Tips and issues used to go to the first agency of the right kind anywhere in the country. Now, among agencies of that kind, the one with a station covering the place wins, then the nearest. Each tip and issue keeps its station (migration `029_tip_issue_station.sql`), shown in the queues and on the live maps.
+  - Tips and issues are casework for agency staff; they are not offered to officers.
+- **Overviews** (admin and agency) count emergencies, tips and public issues: open now, received in the chosen dates, reports per day (per month for long ranges), and the latest open ones. An agency sees only the kinds it handles.
+- **Ratings:** the third sub-score is now "Resolved". The same rule is used everywhere: an officer's rating counts only reports they accepted (not offers they declined), and a team rating counts each rating once. The citizen's report page shows the officer's rating, or "Not rated yet".
+- **Buttons:** links that sat among buttons are now `LinkButton` (`@erp/web-ui/LinkButton`), a real button that navigates, so they line up with the others.
+- **One agency per demo admin:** "Agency Admin" is the police admin. NAPTIP and FERMA have their own demo admins ("NAPTIP Admin", "FERMA Admin"), and the agency switcher is gone.
+- **Date range** (`from`/`to`, Lagos days, both included; `core/date-range.ts` and `components/DateRange.tsx`) on: the admin and agency overviews, station reports, tips, public issues, statements, fines, the support inbox, donations and the audit log.

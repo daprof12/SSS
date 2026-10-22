@@ -1,6 +1,6 @@
 'use client';
 // Agency "Statements": every statement on the agency's reports, across its stations.
-import { AgencySwitcher, WithAgency } from '@/components/Agency';
+import { WithAgency } from '@/components/Agency';
 import { StatementsList } from '@/components/StatementsList';
 
 export default function AgencyStatements() {
@@ -13,7 +13,6 @@ export default function AgencyStatements() {
               <h1>Statements</h1>
               <p className="lede">Every statement on {a.name}&apos;s reports, from every station. Open a report to ask for one.</p>
             </div>
-            <AgencySwitcher />
           </div>
           <StatementsList key={a.id} path={`/agencies/${a.id}/statements`} showStation />
         </>

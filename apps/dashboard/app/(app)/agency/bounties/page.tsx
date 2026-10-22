@@ -5,9 +5,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, ApiError } from '@erp/web-ui/api';
-import { AgencySwitcher, WithAgency, dateTime, useToast, type MyAgency } from '@/components/Agency';
+import { WithAgency, dateTime, useToast, type MyAgency } from '@/components/Agency';
 import { FeeSheet, FundSheet, RateSheet, naira, type PoolSummary } from '@/components/BountyPool';
 import { TipStateChip, outcomeLabel } from '@/components/IssueChips';
+import { DateRange, useDateRange } from '@/components/DateRange';
 
 interface TipRow {
   id: string;
@@ -54,6 +55,7 @@ function Bounties({ agency }: { agency: MyAgency }) {
   const [sheet, setSheet] = useState<{ kind: 'fund' } | { kind: 'fee' } | { kind: 'rate'; category: string } | null>(null);
   const [toast, setToast] = useToast();
   const [n, setN] = useState(0);
+  const dates = useDateRange('all');
   const reload = () => setN((x) => x + 1);
 
   useEffect(() => {
@@ -63,13 +65,13 @@ function Bounties({ agency }: { agency: MyAgency }) {
 
   useEffect(() => {
     // All three tabs at once so the counts are right.
-    Promise.all(TABS.map(([t]) => api<TipRow[]>(`/agencies/${agency.id}/tips?tab=${t}`)))
+    Promise.all(TABS.map(([t]) => api<TipRow[]>(`/agencies/${agency.id}/tips?tab=${t}${dates.q ? `&${dates.q}` : ''}`)))
       .then(([n, c, d]) => {
         setData({ new: n, claims: c, closed: d });
         setError(null);
       })
       .catch(setError);
-  }, [agency.id, n]);
+  }, [agency.id, n, dates.q]);
 
   const pick = (t: Tab) => {
     setTab(t);
@@ -88,13 +90,15 @@ function Bounties({ agency }: { agency: MyAgency }) {
           <p className="lede">{agency.handles.bounties ? 'What you pay people whose tips lead to a verified result.' : 'Tips citizens send to your agency.'}</p>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <AgencySwitcher />
           {agency.handles.bounties && (
             <button className="btn primary" type="button" disabled={!pool || pool.closed} title={pool?.closed ? 'Your agency is leaving, so the pool is closed.' : undefined} onClick={() => setSheet({ kind: 'fund' })}>
               Fund bounty pool
             </button>
           )}
         </div>
+      </div>
+      <div className="card">
+        <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} />
       </div>
       {sheet?.kind === 'fund' && pool && (
         <FundSheet

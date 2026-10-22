@@ -67,7 +67,7 @@ export class AgencyOpsService {
     const r = await this.db.query(
       `select o.user_id as id, u.display_name as name, u.phone, o.badge_no, o.rank, o.badge_status, o.on_duty, o.invited_at, s.id as station_id, s.name as station,
               exists (select 1 from user_roles ur where ur.user_id = o.user_id and ur.role = 'head' and ur.scope_id = s.id) as is_head,
-              (select round(avg(rt.stars)::numeric, 1) from ratings rt join incident_units x on x.incident_id = rt.incident_id where x.officer_id = o.user_id) as rating,
+              (select round(avg(rt.stars)::numeric, 1) from ratings rt join incident_units x on x.incident_id = rt.incident_id where x.officer_id = o.user_id and x.accepted_at is not null) as rating,
               (select coalesce(sum((sh->>'kobo')::bigint), 0) from reward_payments rp, jsonb_array_elements(rp.shares) sh where rp.state = 'paid' and sh->>'id' = o.user_id::text) as rewards,
               exists (select 1 from incident_units x where x.officer_id = o.user_id and x.state in ('accepted', 'en_route', 'on_scene')) as busy
          from officers o join stations s on s.id = o.station_id join users u on u.id = o.user_id left join locations l on l.id = s.location_id
@@ -672,7 +672,7 @@ export class AgencyOpsService {
         `select o.user_id as id, u.display_name as name, o.on_duty, o.badge_status, (s.head_user_id = o.user_id) as is_head,
                 (select i.type || ', ' || coalesce(l.postcode, 'GPS') from incident_units x join incidents i on i.id = x.incident_id left join locations l on l.id = i.location_id
                   where x.officer_id = o.user_id and x.state in ('accepted', 'en_route', 'on_scene') limit 1) as task,
-                (select round(avg(rt.stars)::numeric, 1) from ratings rt join incident_units x on x.incident_id = rt.incident_id where x.officer_id = o.user_id) as rating,
+                (select round(avg(rt.stars)::numeric, 1) from ratings rt join incident_units x on x.incident_id = rt.incident_id where x.officer_id = o.user_id and x.accepted_at is not null) as rating,
                 (select min(d.starts_at) from duty_shifts d where d.officer_id = o.user_id and d.starts_at > now() and d.kind in ('day', 'night')) as next_shift
            from officers o join stations s on s.id = o.station_id join users u on u.id = o.user_id where o.station_id = $1 order by is_head desc, o.on_duty desc, u.display_name`,
         [stationId],

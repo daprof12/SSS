@@ -1,6 +1,7 @@
 'use client';
 // Board "Station dashboard": stats, the priority queue, the live map of the zone, and the selected
 // report with its brief, timeline, Reinforce and Transfer. Polls every 3 s (the station socket replaces it).
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -237,9 +238,9 @@ function Selected({ id, onToast, onChanged }: { id: string | null; onToast: (m: 
             Reinforce
           </button>
         )}
-        <Link className="btn" href={`/incidents/${v.id}`}>
+        <LinkButton className="btn" href={`/incidents/${v.id}`}>
           Open
-        </Link>
+        </LinkButton>
       </div>
       <StationActions incidentId={v.id} state={v.state} actions={v.actions} canDirectAssign={!!v.canDirectAssign} onDone={(m) => (onToast(m), onChanged())} />
       {reinforcing && (

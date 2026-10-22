@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { use, useState } from 'react';
 import { Header } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
@@ -9,11 +9,11 @@ import { api, ApiError, haptic } from '@/lib/client';
 const TAGS = [
   ['fast', 'Arrived fast'],
   ['polite', 'Polite'],
-  ['solved', 'Problem solved'],
+  ['solved', 'Resolved'],
   ['professional', 'Professional'],
   ['slow', 'Slow'],
   ['rude', 'Rude'],
-  ['not_solved', 'Not solved'],
+  ['not_solved', 'Not resolved'],
 ] as const;
 const WORDS = ['', 'Very poor', 'Poor', 'Okay', 'Good', 'Excellent'];
 
@@ -57,12 +57,12 @@ export default function Rate({ params }: { params: Promise<{ id: string }> }) {
             Check on the people around you, keep any evidence safe, and rest. If anything changes, report again in two taps.
           </p>
         </div>
-        <Link href="/donate" className="btn block" style={{ marginBottom: 8 }}>
+        <LinkButton href="/donate" className="btn block" style={{ marginBottom: 8 }}>
           <Icon name="heart" /> Support responders
-        </Link>
-        <Link href="/home" className="btn block signal">
+        </LinkButton>
+        <LinkButton href="/home" className="btn block signal">
           Back to Home
-        </Link>
+        </LinkButton>
       </main>
     );
   }
@@ -112,9 +112,9 @@ export default function Rate({ params }: { params: Promise<{ id: string }> }) {
       <button className="btn block signal" type="button" onClick={submit} disabled={busy}>
         {busy ? 'Sending…' : 'Send rating'}
       </button>
-      <Link href="/home" className="btn block" style={{ marginTop: 8 }}>
+      <LinkButton href="/home" className="btn block" style={{ marginTop: 8 }}>
         Skip
-      </Link>
+      </LinkButton>
       <p className="muted center">You can rate this later from Activity.</p>
     </main>
   );

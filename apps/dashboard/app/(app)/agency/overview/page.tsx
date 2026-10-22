@@ -1,21 +1,22 @@
 'use client';
 // Board "Agency overview": how your stations are doing today.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { AgencySwitcher, WithAgency, type MyAgency } from '@/components/Agency';
-import { ago, HBars, mmss, naira, STATE_LABEL, stateTone } from '@/components/Dash';
+import { WithAgency, type MyAgency } from '@/components/Agency';
+import { DateRange, useDateRange } from '@/components/DateRange';
+import { mmss, naira } from '@/components/Dash';
+import { MixChart, MixLatest, MixStats, type Mix } from '@/components/ReportMix';
 
 interface O {
   stats: { open: number; avgResponseS: number | null; acceptancePct: number | null; rating: number | null; donationsMonthKobo: number };
-  live: { id: string; label: string; state: string; station: string | null; at: string }[];
+  reports: Mix;
   stations: { id: string; name: string; status: string; onDuty: number; open: number; rating: number | null }[];
-  week: { day: string; n: number }[];
   attention: { key: string; title: string; line: string; count: string; href: string }[];
 }
-const tone: Record<string, string> = { critical: 'var(--color-emergency-text)', warning: 'var(--color-warning-text)', success: 'var(--color-success-text)', info: 'var(--color-signal-text)' };
 
 export default function AgencyOverviewPage() {
   return <WithAgency>{(a) => <Overview key={a.id} agency={a} />}</WithAgency>;
@@ -24,28 +25,29 @@ export default function AgencyOverviewPage() {
 function Overview({ agency }: { agency: MyAgency }) {
   const [o, setO] = useState<O | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const dates = useDateRange('7d');
   useEffect(() => {
+    if (dates.q === null) return;
     const load = () =>
-      api<O>(`/agencies/${agency.id}/overview`)
-        .then(setO)
+      api<O>(`/agencies/${agency.id}/overview${dates.q ? `?${dates.q}` : ''}`)
+        .then((x) => (setO(x), setError(null)))
         .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load the overview.'));
     void load();
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
-  }, [agency.id]);
+  }, [agency.id, dates.q]);
   const s = o?.stats;
   return (
     <>
       <div className="page-head">
         <div>
           <h1>Overview</h1>
-          <p className="lede">How your stations are doing today.</p>
+          <p className="lede">Emergencies{agency.handles.tips ? ', tips' : ''}{agency.handles.issues ? ' and public issues' : ''} for {agency.name}, and how your stations are doing.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <AgencySwitcher />
-          <Link className="btn" href="/agency/live">
+          <LinkButton className="btn" href="/agency/live">
             View live map
-          </Link>
+          </LinkButton>
         </div>
       </div>
       {error && (
@@ -53,12 +55,11 @@ function Overview({ agency }: { agency: MyAgency }) {
           {error}
         </div>
       )}
+      <div className="card">
+        <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} allowAll={false} />
+      </div>
       <div className="stats">
-        <div className="stat">
-          <span>Open reports</span>
-          <strong className="critical">{s?.open ?? '—'}</strong>
-          <small>Across all stations</small>
-        </div>
+        <MixStats m={o?.reports} />
         <div className="stat">
           <span>Average response</span>
           <strong className="info">{mmss(s?.avgResponseS)}</strong>
@@ -85,18 +86,9 @@ function Overview({ agency }: { agency: MyAgency }) {
       <div className="grid two">
         <section className="card" aria-labelledby="live">
           <h2 id="live" style={{ marginTop: 0 }}>
-            Live reports for your agency
+            Latest open reports
           </h2>
-          {o && !o.live.length && <p className="muted">No open reports right now.</p>}
-          {o?.live.map((l) => (
-            <div className="row" key={l.id}>
-              <div className="label">
-                <strong>{l.label}</strong>
-                <span>{l.station ? `${l.station}, ${ago(l.at)} ago` : 'Waiting for a station'}</span>
-              </div>
-              <strong style={{ color: tone[stateTone(l.state)] }}>{STATE_LABEL[l.state] ?? l.state}</strong>
-            </div>
-          ))}
+          {o ? <MixLatest m={o.reports} /> : <div className="skeleton" />}
         </section>
         <section className="card" aria-labelledby="perf">
           <h2 id="perf" style={{ marginTop: 0 }}>
@@ -116,9 +108,9 @@ function Overview({ agency }: { agency: MyAgency }) {
       <div className="grid two">
         <section className="card" aria-labelledby="week">
           <h2 id="week" style={{ marginTop: 0 }}>
-            This week
+            Reports received
           </h2>
-          {o && <HBars rows={o.week.map((d) => ({ label: d.day, value: d.n }))} />}
+          {o ? <MixChart m={o.reports} /> : <div className="skeleton" />}
         </section>
         <section className="card" aria-labelledby="att">
           <h2 id="att" style={{ marginTop: 0 }}>

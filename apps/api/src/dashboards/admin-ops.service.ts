@@ -7,6 +7,7 @@ import { DONATION_RULES, donationFee, problemLabel, ROLE_LABEL, ROLE_SCOPE_NOTE,
 import { Audit } from '../core/audit';
 import { requirePerm, type Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
+import { dateWhere, type DateRange } from '../core/date-range';
 import { AppError } from '../core/http';
 import { coveringStation } from '../core/jurisdiction';
 import { stateLabels, type AgencyRow } from '../agencies/agency.lifecycle';
@@ -507,7 +508,7 @@ export class AdminOpsService {
   // ---------------------------------------------------------------- donations and payouts
 
   /** Location of the receiving station: the station itself, an officer's station, or the agency's address. */
-  async donations(p: Principal, f: LocationFilter) {
+  async donations(p: Principal, f: LocationFilter & DateRange) {
     requirePerm(p, 'platform.money');
     const args: unknown[] = [];
     const where = locationWhere(f, args);
@@ -526,13 +527,16 @@ export class AdminOpsService {
       )
     ).rows[0];
     const net = (k: number) => k - donationFee(k);
+    // The dates narrow the list; the totals above stay "this month" and "waiting now".
+    const listArgs = [...args];
     const list = (
       await this.db.query(
         `select d.id, d.amount_kobo, d.target_type, d.show_name, d.payout_state, d.payout_failure, d.paid_at, d.method,
                 du.display_name as donor, coalesce(case d.target_type when 'officer' then ou.display_name when 'station' then st.name else ag.name end, '—') as recipient
            ${base.replace('where d.state', 'left join users du on du.id = d.donor_id left join users ou on d.target_type = \'officer\' and ou.id = d.target_id where d.state')}
+            and ${dateWhere(f, listArgs, 'd.paid_at')}
           order by d.paid_at desc nulls last limit 50`,
-        args,
+        listArgs,
       )
     ).rows;
     const tue = new Date();

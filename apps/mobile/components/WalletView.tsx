@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/AppFrame';
@@ -63,13 +64,13 @@ export function WalletView({ base, back, tabs, canFund }: { base: string; back: 
       </div>
       <div className="btn-row" style={{ marginBottom: 12 }}>
         {canFund && (
-          <Link href={`${base}/fund`} className="btn signal">
+          <LinkButton href={`${base}/fund`} className="btn signal">
             Fund wallet
-          </Link>
+          </LinkButton>
         )}
-        <Link href={`${base}/withdraw`} className="btn">
+        <LinkButton href={`${base}/withdraw`} className="btn">
           Withdraw
-        </Link>
+        </LinkButton>
       </div>
       {w && (
         <div className="list">

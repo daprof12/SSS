@@ -170,7 +170,7 @@ describe('agency boards', () => {
     expect(d.areas[0].id).toBe('LA-IKJ-01');
     expect(d.equipment.map((e: any) => e.name)).toContain('Drone, model A');
     expect(d.devices.cameras.total).toBeGreaterThan(0);
-    await http.get(`/agencies/${naptipId}/stations/${stationId}/detail`).set(as('agencyAdmin')).expect(404);
+    await http.get(`/agencies/${naptipId}/stations/${stationId}/detail`).set(as('naptipAdmin')).expect(404);
   });
 
   it('messaging: an agency reaches its staff and the people living in its stations’ areas only', async () => {
@@ -179,7 +179,7 @@ describe('agency boards', () => {
     const citizens = (await http.post(`/agencies/${agencyId}/crm/audience`).set(as('agencyAdmin')).send({ who: ['citizen'], kind: 'safety' }).expect(201)).body;
     expect(citizens.people).toBeGreaterThanOrEqual(2);
     // NAPTIP's stations cover no area, so it reaches no citizens.
-    const none = (await http.post(`/agencies/${naptipId}/crm/audience`).set(as('agencyAdmin')).send({ who: ['citizen'], kind: 'safety' }).expect(201)).body;
+    const none = (await http.post(`/agencies/${naptipId}/crm/audience`).set(as('naptipAdmin')).send({ who: ['citizen'], kind: 'safety' }).expect(201)).body;
     expect(none.people).toBe(0);
     const sent = (
       await http
@@ -190,6 +190,6 @@ describe('agency boards', () => {
     ).body;
     expect((await http.get(`/agencies/${agencyId}/crm/campaigns`).set(as('agencyAdmin'))).body[0].id).toBe(sent.id);
     await http.get(`/admin/crm/campaigns/${sent.id}`).set(as('platformAdmin')).expect(404);
-    await http.get(`/agencies/${naptipId}/crm/campaigns/${sent.id}`).set(as('agencyAdmin')).expect(404);
+    await http.get(`/agencies/${naptipId}/crm/campaigns/${sent.id}`).set(as('naptipAdmin')).expect(404);
   });
 });

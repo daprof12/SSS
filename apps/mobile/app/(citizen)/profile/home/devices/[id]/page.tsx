@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { Header, Toast, useToast } from '@/components/AppFrame';
@@ -86,16 +87,16 @@ export default function DevicePage({ params }: { params: Promise<{ id: string }>
 function ReportLink({ d, primary, label }: { d: Base; primary?: boolean; label?: string }) {
   if (d.openRepair) {
     return (
-      <Link className={`btn block ${primary ? 'primary' : ''}`} href={`/profile/home/repairs/${d.openRepair.id}`} style={{ minHeight: 56 }}>
+      <LinkButton className={`btn block ${primary ? 'primary' : ''}`} href={`/profile/home/repairs/${d.openRepair.id}`} style={{ minHeight: 56 }}>
         See repair {d.openRepair.number}
-      </Link>
+      </LinkButton>
     );
   }
   if (!d.canReport) return null;
   return (
-    <Link className={`btn block ${primary ? 'primary' : ''}`} href={`/profile/home/report?device=${d.id}`} style={{ minHeight: 56 }}>
+    <LinkButton className={`btn block ${primary ? 'primary' : ''}`} href={`/profile/home/report?device=${d.id}`} style={{ minHeight: 56 }}>
       {label ?? 'Report a problem'}
-    </Link>
+    </LinkButton>
   );
 }
 
@@ -170,9 +171,9 @@ function CameraView({ d, onToast, onChanged }: { d: Camera; onToast: (m: string)
           <strong>{d.livePaused ? 'Live view is paused' : 'Live view is off for you'}</strong>
           <span className="muted">{d.livePaused ?? 'Ask the home owner to let you see live cameras.'}</span>
           {d.livePaused && (
-            <Link className="btn small" href="/profile/home/billing" style={{ marginTop: 8 }}>
+            <LinkButton className="btn small" href="/profile/home/billing" style={{ marginTop: 8 }}>
               See what is due
-            </Link>
+            </LinkButton>
           )}
         </div>
       )}
@@ -289,13 +290,13 @@ function CameraView({ d, onToast, onChanged }: { d: Camera; onToast: (m: string)
             {busy ? 'Saving…' : 'Save clip'}
           </button>
           {d.openRepair ? (
-            <Link className="btn signal" href={`/profile/home/repairs/${d.openRepair.id}`} style={{ minHeight: 56 }}>
+            <LinkButton className="btn signal" href={`/profile/home/repairs/${d.openRepair.id}`} style={{ minHeight: 56 }}>
               See repair
-            </Link>
+            </LinkButton>
           ) : d.canReport ? (
-            <Link className="btn primary" href={`/profile/home/report?device=${d.id}`} style={{ minHeight: 56 }}>
+            <LinkButton className="btn primary" href={`/profile/home/report?device=${d.id}`} style={{ minHeight: 56 }}>
               Report a problem
-            </Link>
+            </LinkButton>
           ) : null}
         </div>
       </Footer>

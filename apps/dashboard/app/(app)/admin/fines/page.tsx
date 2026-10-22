@@ -8,6 +8,7 @@ import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
 import { dateTime, useToast } from '@/components/Agency';
 import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
+import { DateRange, useDateRange } from '@/components/DateRange';
 
 interface Fine {
   id: string;
@@ -41,7 +42,8 @@ export default function FinesAdmin() {
   const [open, setOpen] = useState<Fine | null>(null);
   const [toast, setToast] = useToast();
   const [loc, setLoc] = useState<LocFilter>({});
-  const lq = locQuery(loc);
+  const dates = useDateRange('all');
+  const lq = [locQuery(loc), dates.q].filter(Boolean).join('&');
   const load = useCallback(() => {
     api<{ counts: Record<string, number>; items: Fine[] }>(`/admin/fines?status=${filter}${lq ? `&${lq}` : ''}`)
       .then(setD)
@@ -62,6 +64,9 @@ export default function FinesAdmin() {
         </div>
       </div>
       <LocationFilter value={loc} onChange={setLoc} />
+      <div className="card">
+        <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} />
+      </div>
       {error && (
         <div className="banner critical" role="alert">
           {error}

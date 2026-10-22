@@ -5,6 +5,7 @@ import { Audit } from '../core/audit';
 import { hasRole, type Principal } from '../core/auth';
 import { Bus } from '../core/bus';
 import { Db, type Queryable } from '../core/db';
+import { dateWhere, type DateRange } from '../core/date-range';
 import { AppError } from '../core/http';
 import { notify } from '../reports/shared';
 import { SMS, type SmsAdapter } from '../adapters/sms';
@@ -188,14 +189,22 @@ export class StationService {
         lastComment: o.last_comment,
       };
     });
-    const rated = list.filter((x) => x.rating != null);
+    // Team rating: every rating on a report one of these officers took, each counted once (not an
+    // average of each officer's average, which would weigh a single rating like fifty).
+    const team = (
+      await this.db.query(
+        `select round(avg(r.stars)::numeric, 1) as r from ratings r
+          where exists (select 1 from incident_units x join officers o on o.user_id = x.officer_id where x.incident_id = r.incident_id and x.accepted_at is not null and o.station_id = $1)`,
+        [sid],
+      )
+    ).rows[0].r;
     return {
       stats: {
         onDuty: list.filter((x) => x.onDuty).length,
         total: list.length,
         available: list.filter((x) => x.status === 'available').length,
         busy: list.filter((x) => x.status === 'busy').length,
-        rating: rated.length ? Number((rated.reduce((a, x) => a + x.rating!, 0) / rated.length).toFixed(1)) : null,
+        rating: team == null ? null : Number(team),
       },
       officers: list,
     };
@@ -302,9 +311,14 @@ export class StationService {
 
   // ---------------------------------------------------------------- reports
 
-  async reports(p: Principal, days: number) {
+  async reports(p: Principal, days: number, range?: DateRange) {
     const sid = this.station(p);
-    const base = `from incidents i where i.station_id = $1 and i.created_at > now() - make_interval(days => $2) and i.state not in ('pending_cancel', 'merged', 'cancelled')`;
+    // The dates chosen (Lagos days, both ends included), else the last `days` days.
+    const lagos = (d: string) => new Date(`${d}T00:00:00+01:00`);
+    if (range?.from && range?.to && range.from > range.to) dateWhere(range, [], 'x');
+    const start = range?.from ? lagos(range.from) : new Date(Date.now() - days * 86_400_000);
+    const end = range?.to ? new Date(+lagos(range.to) + 86_400_000) : new Date(Date.now() + 60_000);
+    const base = `from incidents i where i.station_id = $1 and i.created_at >= $2 and i.created_at < $3 and i.state not in ('pending_cancel', 'merged', 'cancelled')`;
     const totals = (
       await this.db.query(
         `select count(*)::int as n,
@@ -312,27 +326,27 @@ export class StationService {
                 count(*) filter (where i.state = 'resolved')::int as resolved,
                 count(*) filter (where i.state = 'unfounded')::int as unfounded
            ${base}`,
-        [sid, days],
+        [sid, start, end],
       )
     ).rows[0];
     const resp = (
       await this.db.query(
         `select avg(extract(epoch from (x.arrived_at - x.accepted_at))) as s from incident_units x join incidents i on i.id = x.incident_id
-          where i.station_id = $1 and x.arrived_at is not null and x.accepted_at > now() - make_interval(days => $2)`,
-        [sid, days],
+          where i.station_id = $1 and x.arrived_at is not null and x.accepted_at >= $2 and x.accepted_at < $3`,
+        [sid, start, end],
       )
     ).rows[0];
     const byDay = (
       await this.db.query(
         `select extract(isodow from x.accepted_at at time zone 'Africa/Lagos')::int as d, avg(extract(epoch from (x.arrived_at - x.accepted_at))) as s, count(*)::int as n
            from incident_units x join incidents i on i.id = x.incident_id
-          where i.station_id = $1 and x.arrived_at is not null and x.accepted_at > now() - make_interval(days => $2) group by 1`,
-        [sid, days],
+          where i.station_id = $1 and x.arrived_at is not null and x.accepted_at >= $2 and x.accepted_at < $3 group by 1`,
+        [sid, start, end],
       )
     ).rows;
-    const byType = (await this.db.query(`select i.type, count(*)::int as n ${base} group by 1 order by 2 desc`, [sid, days])).rows;
+    const byType = (await this.db.query(`select i.type, count(*)::int as n ${base} group by 1 order by 2 desc`, [sid, start, end])).rows;
     const ratings = (
-      await this.db.query(`select r.stars, count(*)::int as n from ratings r join incidents i on i.id = r.incident_id where i.station_id = $1 and r.created_at > now() - make_interval(days => $2) group by 1`, [sid, days])
+      await this.db.query(`select r.stars, count(*)::int as n from ratings r join incidents i on i.id = r.incident_id where i.station_id = $1 and r.created_at >= $2 and r.created_at < $3 group by 1`, [sid, start, end])
     ).rows;
     const recent = (
       await this.db.query(
@@ -342,13 +356,14 @@ export class StationService {
                 exists (select 1 from incident_events e where e.incident_id = i.id and e.kind = 'transfer') as transferred,
                 (select f.review_state from false_alarm_cases f where f.incident_id = i.id) as review
            from incidents i left join locations l on l.id = i.location_id
-          where i.station_id = $1 and i.state in ('resolved', 'unfounded') and i.closed_at > now() - make_interval(days => $2) order by i.closed_at desc limit 25`,
-        [sid, days],
+          where i.station_id = $1 and i.state in ('resolved', 'unfounded') and i.closed_at >= $2 and i.closed_at < $3 order by i.closed_at desc limit 25`,
+        [sid, start, end],
       )
     ).rows;
     const rated = ratings.reduce((a, r) => a + r.n, 0);
     return {
       days,
+      range: { from: start.toISOString(), to: end.toISOString() },
       stats: {
         reports: totals.n,
         avgResponseS: resp.s == null ? null : Math.round(Number(resp.s)),

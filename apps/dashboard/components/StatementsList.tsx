@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { dateTime } from '@/components/Agency';
 import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
+import { DateRange, useDateRange } from '@/components/DateRange';
 
 interface Item {
   id: string;
@@ -40,9 +41,10 @@ export function StatementsList({ path, showStation }: { path: string; showStatio
   const [status, setStatus] = useState('');
   const [role, setRole] = useState('');
   const [q, setQ] = useState('');
+  const dates = useDateRange('all');
   const [d, setD] = useState<List | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const query = [status && `status=${status}`, role && `role=${role}`, q.trim() && `q=${encodeURIComponent(q.trim())}`, locQuery(loc)].filter(Boolean).join('&');
+  const query = [status && `status=${status}`, role && `role=${role}`, q.trim() && `q=${encodeURIComponent(q.trim())}`, locQuery(loc), dates.q].filter(Boolean).join('&');
   useEffect(() => {
     const t = setTimeout(() => {
       api<List>(`${path}${query ? `?${query}` : ''}`)
@@ -79,6 +81,9 @@ export function StatementsList({ path, showStation }: { path: string; showStatio
         </div>
       </div>
       <LocationFilter value={loc} onChange={setLoc} title="Filter by place of the report" />
+      <div className="card">
+        <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} />
+      </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', margin: '0 0 12px' }}>
         <div className="segmented" role="group" aria-label="Status">
           {STATES.map(([k, l]) => (

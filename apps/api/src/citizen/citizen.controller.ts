@@ -10,6 +10,7 @@ import { Audit } from '../core/audit';
 import { CurrentUser, type Principal, requirePerm } from '../core/auth';
 import { CONFIG, type AppConfig } from '../core/config';
 import { Db } from '../core/db';
+import { DateFields, dateWhere, type DateRange } from '../core/date-range';
 import { AppError, ZodPipe } from '../core/http';
 import { DonationsService } from './donations.service';
 import { FinesService } from './fines.service';
@@ -313,7 +314,7 @@ export class AdminFinesController {
   constructor(@Inject(FinesService) private readonly fines: FinesService) {}
 
   @Get('fines')
-  queue(@CurrentUser() p: Principal, @Query('status') state = 'appealed', @Query(new ZodPipe(LocationQuery)) f?: z.infer<typeof LocationQuery>) {
+  queue(@CurrentUser() p: Principal, @Query('status') state = 'appealed', @Query(new ZodPipe(LocationQuery.extend(DateFields))) f?: z.infer<typeof LocationQuery> & DateRange) {
     return this.fines.queue(p, ['all', 'open', 'appealed', 'waived', 'reduced', 'upheld', 'paid'].includes(state) ? state : 'appealed', f);
   }
 
@@ -338,14 +339,14 @@ export class AdminSupportController {
   }
 
   @Get()
-  async inbox(@CurrentUser() p: Principal, @Query('status') state = 'open', @Query(new ZodPipe(LocationQuery)) f?: z.infer<typeof LocationQuery>) {
+  async inbox(@CurrentUser() p: Principal, @Query('status') state = 'open', @Query(new ZodPipe(LocationQuery.extend(DateFields))) f?: z.infer<typeof LocationQuery> & DateRange) {
     this.admin(p);
     const st = ['open', 'answered', 'closed', 'all'].includes(state) ? state : 'open';
     const args: unknown[] = [st];
     const where = locationWhere(f, args);
     const r = await this.db.query(
       `select t.*, u.display_name, u.phone, ru.display_name as replied_by_name from support_tickets t join users u on u.id = t.user_id left join users ru on ru.id = t.replied_by
-        where ($1 = 'all' or t.state = $1)
+        where ($1 = 'all' or t.state = $1) and ${dateWhere(f, args, 't.created_at')}
           and (${where === 'true' ? 'true' : `exists (select 1 from saved_places sp join locations l on l.id = sp.location_id where sp.user_id = t.user_id and sp.is_home and ${where})`})
         order by t.state = 'open' desc, t.created_at desc limit 100`,
       args,

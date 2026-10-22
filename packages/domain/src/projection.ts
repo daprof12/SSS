@@ -31,7 +31,7 @@ export interface IncidentRecord {
   building: { postcode: string; address: string; areaLabel: string; location: LatLng };
   reporterGps?: LatLng;
   assignedOfficerIds: string[];
-  officer?: { id: string; name: string; photoUrl?: string; badgeNo: string; stationName: string; rating: number; location?: LatLng };
+  officer?: { id: string; name: string; photoUrl?: string; badgeNo: string; stationName: string; rating: number | null; location?: LatLng };
   etaMinutes?: number;
   brief?: { summary: string; confidence: 'low' | 'medium' | 'high'; fields: Record<string, unknown> };
   clipIds: string[];

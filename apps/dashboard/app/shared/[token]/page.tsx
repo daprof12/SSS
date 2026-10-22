@@ -1,6 +1,7 @@
 'use client';
 // View-only issue brief for someone outside the platform (a superior, another office).
 // No sign-in, no reporter identities, no actions. Expires on the date shown.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { API_URL } from '@erp/web-ui/api';
 import { applyTheme, readTheme, type ThemeChoice } from '@erp/web-ui/theme';
 import { ThemeSwitch } from '@erp/web-ui/ThemeSwitch';
@@ -83,9 +84,9 @@ export default function SharedIssue({ params }: { params: Promise<{ token: strin
             {b.area ? ` · ${b.area}` : ''}
           </p>
         </div>
-        <a className="btn primary" href={`${API_URL}/shared/issues/${encodeURIComponent(token)}/brief.pdf`} rel="noreferrer">
+        <LinkButton className="btn primary" href={`${API_URL}/shared/issues/${encodeURIComponent(token)}/brief.pdf`}>
           Download PDF
-        </a>
+        </LinkButton>
       </div>
 
       <div className="banner info" style={{ marginBottom: 16 }}>

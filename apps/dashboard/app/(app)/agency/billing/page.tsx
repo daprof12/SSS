@@ -3,7 +3,7 @@
 // admins and agency finance can see it and pay.
 import { api, ApiError, downloadFile } from '@erp/web-ui/api';
 import { useCallback, useEffect, useState } from 'react';
-import { AgencySwitcher, shortDate, useToast, WithAgency, type MyAgency } from '@/components/Agency';
+import { shortDate, useToast, WithAgency, type MyAgency } from '@/components/Agency';
 import { naira } from '@/components/Dash';
 
 interface Billing {
@@ -67,7 +67,6 @@ function BillingBoard({ agency }: { agency: MyAgency }) {
           <p className="lede">What you pay the platform for onboarding and inventory.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <AgencySwitcher />
           <button className="btn" type="button" disabled={!b?.invoices.length} onClick={() => downloadFile(`/agencies/${agency.id}/invoices.csv`, 'invoices.csv').catch((e) => setToast(e.message))}>
             Download invoices
           </button>

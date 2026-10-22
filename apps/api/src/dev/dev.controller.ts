@@ -29,6 +29,9 @@ const PEOPLE = [
   { key: 'platformFinance', phone: '+2348030000011', name: 'Femi Ledger', kyc: true },
   { key: 'platformSupport', phone: '+2348030000012', name: 'Ifeoma Support', kyc: true },
   { key: 'platformOps', phone: '+2348030000013', name: 'Sani Field Ops', kyc: true },
+  // Each demo agency has its own admin; the police one is "Agency Admin".
+  { key: 'naptipAdmin', phone: '+2348030000014', name: 'NAPTIP Admin', kyc: true },
+  { key: 'fermaAdmin', phone: '+2348030000015', name: 'FERMA Admin', kyc: true },
 ] as const;
 
 @Public()
@@ -217,7 +220,7 @@ export class DevController {
           [u, role, st, sid],
         );
       }
-      await c.query(`update users set mfa_enabled = true where id = any($1::uuid[])`, [[ids.officer, ids.officer2, ids.head, ids.agencyAdmin, ids.platformAdmin, ids.technician, ids.dispatcher, ids.agencyFinance, ids.platformFinance, ids.platformSupport, ids.platformOps]]);
+      await c.query(`update users set mfa_enabled = true where id = any($1::uuid[])`, [[ids.officer, ids.officer2, ids.head, ids.agencyAdmin, ids.platformAdmin, ids.technician, ids.dispatcher, ids.agencyFinance, ids.platformFinance, ids.platformSupport, ids.platformOps, ids.naptipAdmin, ids.fermaAdmin]]);
       await c.query(
         `insert into plans (code, audience, name, price_kobo, install_fee_kobo, interval, devices_included) values
           ('household', 'household', 'Household', 1500000, 7500000, 'month', '{"camera":1,"street_light":1}'),
@@ -267,24 +270,26 @@ export class DevController {
         );
       }
       // Demo receiving agencies for tips (NAPTIP, with a funded bounty pool) and public issues (FERMA, roads).
-      const demoAgency = async (name: string, kind: string) => {
+      const demoAgency = async (name: string, kind: string, admin: string) => {
         const id =
           (await c.query(`select id from agencies where name = $1`, [name])).rows[0]?.id ??
           (
             await c.query(
               `insert into agencies (name, kind, status, contact_user_id, period_start, period_end) values ($1, $2, 'live', $3, current_date, current_date + interval '1 month') returning id`,
-              [name, kind, ids.agencyAdmin],
+              [name, kind, admin],
             )
           ).rows[0].id;
         await c.query(
           `insert into user_roles (user_id, role, scope_type, scope_id) select $1, 'agency_admin', 'agency', $2
            where not exists (select 1 from user_roles where user_id = $1 and role = 'agency_admin' and scope_id = $2)`,
-          [ids.agencyAdmin, id],
+          [admin, id],
         );
+        // The police admin used to hold these too; one agency each now, so nobody switches agency.
+        await c.query(`delete from user_roles where user_id = $1 and role = 'agency_admin' and scope_id = $2`, [ids.agencyAdmin, id]);
         return id as string;
       };
-      const naptip = await demoAgency('NAPTIP (demo)', 'naptip');
-      const ferma = await demoAgency('FERMA (demo)', 'roads');
+      const naptip = await demoAgency('NAPTIP (demo)', 'naptip', ids.naptipAdmin!);
+      const ferma = await demoAgency('FERMA (demo)', 'roads', ids.fermaAdmin!);
       await c.query(
         `insert into bounty_rates (agency_id, category, basis, tiers, cap_kobo) values ($1, 'human_trafficking', 'tiered', '{"min": 5000000, "max": 50000000}', 50000000)
          on conflict (agency_id, category) do nothing`,

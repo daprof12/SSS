@@ -5,7 +5,7 @@
 import { api, ApiError } from '@erp/web-ui/api';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
-import { AgencySwitcher, useToast, WithAgency, type MyAgency } from '@/components/Agency';
+import { useToast, WithAgency, type MyAgency } from '@/components/Agency';
 
 interface Rule {
   id: string;
@@ -68,7 +68,6 @@ function RoutingRules({ agency }: { agency: MyAgency }) {
           <p className="lede">Which station is offered a report first, and what happens if nobody accepts.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <AgencySwitcher />
           <button className="btn primary" type="button" disabled={!d} onClick={() => setEdit('new')}>
             Add rule
           </button>

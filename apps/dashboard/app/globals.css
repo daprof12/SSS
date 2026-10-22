@@ -991,16 +991,6 @@ input[type='text'] {
   flex: 1 1 320px;
   min-width: 0;
 }
-.agency-switch {
-  display: grid;
-  gap: 4px;
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  color: var(--color-text-secondary);
-}
-.agency-switch select {
-  min-width: 220px;
-}
 .field input {
   width: 100%;
   min-height: 40px;
@@ -1678,4 +1668,69 @@ input[type='text'] {
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.75);
   color: #333;
+}
+
+/* Date range: quick choices, or two dates. */
+.date-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: flex-end;
+}
+.date-range .segmented {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.date-range-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-end;
+}
+.date-range-fields .field {
+  margin: 0;
+  min-width: 150px;
+}
+.date-range-fields .field-error {
+  flex-basis: 100%;
+}
+
+/* Reports by day, one segment per kind of report. */
+.stack-bars {
+  display: grid;
+  gap: 6px;
+}
+.stack-bar {
+  display: grid;
+  grid-template-columns: minmax(84px, 120px) 1fr 40px;
+  gap: 10px;
+  align-items: center;
+  font-size: var(--text-sm);
+}
+.stack-bar .track {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.stack-bar strong {
+  text-align: right;
+}
+.stack-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: 10px;
+}
+.stack-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: -1px;
 }

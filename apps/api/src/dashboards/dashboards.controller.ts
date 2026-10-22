@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentUser, type Principal } from '../core/auth';
+import { DateRangeQuery, type DateRange } from '../core/date-range';
 import { ZodPipe } from '../core/http';
 import { LocationQuery } from '../core/location-filter';
 import { OverviewService } from './overview.service';
@@ -94,8 +95,8 @@ export class DashboardsController {
   }
 
   @Get('me/station/reports')
-  reports(@CurrentUser() p: Principal, @Query('days', new ZodPipe(Days)) days: number) {
-    return this.station.reports(p, days);
+  reports(@CurrentUser() p: Principal, @Query('days', new ZodPipe(Days)) days: number, @Query(new ZodPipe(DateRangeQuery)) r: DateRange) {
+    return this.station.reports(p, days, r);
   }
 
   @Get('me/station/roster')
@@ -194,8 +195,8 @@ export class DashboardsController {
 
   // Agency
   @Get('agencies/:agencyId/overview')
-  agencyOverview(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string) {
-    return this.overview.agencyOverview(p, a);
+  agencyOverview(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Query(new ZodPipe(DateRangeQuery)) r: DateRange) {
+    return this.overview.agencyOverview(p, a, r);
   }
 
   @Get('agencies/:agencyId/station-list')
@@ -205,8 +206,8 @@ export class DashboardsController {
 
   // Platform admin
   @Get('admin/overview')
-  adminOverview(@CurrentUser() p: Principal, @Query(new ZodPipe(LocationQuery)) f: z.infer<typeof LocationQuery>) {
-    return this.overview.adminOverview(p, f);
+  adminOverview(@CurrentUser() p: Principal, @Query(new ZodPipe(LocationQuery)) f: z.infer<typeof LocationQuery>, @Query(new ZodPipe(DateRangeQuery)) r: DateRange) {
+    return this.overview.adminOverview(p, f, r);
   }
 
   @Get('admin/users')

@@ -1,8 +1,8 @@
 'use client';
 // Board "Admin AI review detail": a low-confidence statement translation. The signed record never
 // changes: add a note, send it to a certified translator, or ask the reporter to record it again.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { api, ApiError } from '@erp/web-ui/api';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/Agency';
@@ -90,9 +90,9 @@ export default function AiReview() {
             {r ? `${r.language} to English, confidence ${r.confidencePct ?? '—'}%, signed ${new Date(r.signedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ' '}
           </p>
         </div>
-        <Link className="btn" href="/admin/ai">
+        <LinkButton className="btn" href="/admin/ai">
           Back to review queue
-        </Link>
+        </LinkButton>
       </div>
       {error && (
         <div className="banner critical" role="alert">

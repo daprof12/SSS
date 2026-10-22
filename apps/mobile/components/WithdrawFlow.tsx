@@ -2,8 +2,8 @@
 // Withdraw (States doc "withdraw flow"): bank account in the verified name, a PIN, then
 // amount → confirm "Withdraw [Amount] to [Bank] ending [0000]?" → on its way or scheduled.
 // Shared by citizens and officers; also the bank-account screen on its own.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { formatNaira } from '@erp/domain';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { Header } from '@/components/AppFrame';
@@ -651,9 +651,9 @@ export function WithdrawFlow({ base, mode = 'withdraw' }: { base: string; mode?:
                 ? `${naira(quote.netKobo)} goes to ${quote.bank.name}, ending ${quote.bank.lastFour}. ${result.message} ${quote.holdReason === 'pin_reset' ? 'Withdrawals wait 24 hours after a PIN reset' : 'Your first withdrawal to a new account waits 24 hours'}, to keep your money safe. We will tell you when it arrives.`
                 : result.message}
           </p>
-          <Link href={base} className="btn block primary">
+          <LinkButton href={base} className="btn block primary">
             Back to wallet
-          </Link>
+          </LinkButton>
         </div>
       )}
     </main>

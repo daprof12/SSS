@@ -3,6 +3,7 @@
 import { api, ApiError, downloadFile } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { DateRange, useDateRange } from '@/components/DateRange';
 
 interface Entry {
   id: number;
@@ -23,13 +24,13 @@ const hm = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2
 const day = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 export default function AuditLog() {
-  const [days, setDays] = useState('7');
+  const dates = useDateRange('7d');
   const [actor, setActor] = useState('');
   const [action, setAction] = useState('');
   const [postcode, setPostcode] = useState('');
   const [log, setLog] = useState<Log | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const q = [`days=${days}`, actor && `actor=${actor}`, action && `action=${action}`, postcode.trim() && `postcode=${encodeURIComponent(postcode.trim())}`].filter(Boolean).join('&');
+  const q = [dates.q, actor && `actor=${actor}`, action && `action=${action}`, postcode.trim() && `postcode=${encodeURIComponent(postcode.trim())}`].filter(Boolean).join('&');
   useEffect(() => {
     const t = setTimeout(() => {
       api<Log>(`/admin/audit?${q}`)
@@ -53,16 +54,10 @@ export default function AuditLog() {
         </button>
       </div>
       <section className="card">
+        <div style={{ marginBottom: 12 }}>
+          <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} allowAll={false} />
+        </div>
         <div className="loc-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-          <label className="field" style={{ margin: 0 }}>
-            <span>Date range</span>
-            <select value={days} onChange={(e) => setDays(e.target.value)}>
-              <option value="1">Today</option>
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-            </select>
-          </label>
           <label className="field" style={{ margin: 0 }}>
             <span>Person</span>
             <select value={actor} onChange={(e) => setActor(e.target.value)}>

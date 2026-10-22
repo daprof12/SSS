@@ -86,7 +86,7 @@ export class OfficersService {
       this.db.query(
         `select count(*) filter (where i.closed_at::date = current_date)::int as today,
                 avg(extract(epoch from (u.arrived_at - u.accepted_at))) filter (where u.arrived_at is not null) as avg_arrival_s,
-                (select round(avg(r.stars)::numeric, 1) from ratings r join incident_units x on x.incident_id = r.incident_id where x.officer_id = $1) as rating
+                (select round(avg(r.stars)::numeric, 1) from ratings r join incident_units x on x.incident_id = r.incident_id where x.officer_id = $1 and x.accepted_at is not null) as rating
            from incident_units u join incidents i on i.id = u.incident_id where u.officer_id = $1`,
         [p.userId],
       ),

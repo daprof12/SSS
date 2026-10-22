@@ -18,7 +18,8 @@
     "./Rating": "./src/Rating.tsx",
     "./StreetMap": "./src/StreetMap.tsx",
     "./IncidentMap": "./src/IncidentMap.tsx",
-    "./typeGlyphs": "./src/typeGlyphs.tsx"
+    "./typeGlyphs": "./src/typeGlyphs.tsx",
+    "./LinkButton": "./src/LinkButton.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

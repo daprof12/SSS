@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { applyEvent, availableEvents, bountyFee, bountyRangeText, formatNaira, percent, suggestBounty, type BountyRate, tipCategories, tipCategory, tipMachine, tipStatus } from '@erp/domain';
 import { POSTCODE, PostcodeUnavailable, type PostcodeAdapter } from '../adapters/postcode';
 import { AgencyLifecycle } from '../agencies/agency.lifecycle';
+import { dateWhere, type DateRange } from '../core/date-range';
 import { Audit } from '../core/audit';
 import type { Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
@@ -83,7 +84,6 @@ export class TipsService {
     if (b.postcode && !building) throw new AppError(422, 'postcode_not_found', 'We could not find that building. Check the postcode or leave it out.', { fields: [{ field: 'postcode', message: 'Check the postcode.' }] });
 
     return this.db.tx(async (c) => {
-      const agency = await receivingAgency(c, cat.agencyKinds);
       const locationId = building
         ? (
             await c.query(
@@ -94,12 +94,13 @@ export class TipsService {
             )
           ).rows[0].id
         : null;
+      const agency = await receivingAgency(c, cat.agencyKinds, { locationId });
       const no = await publicNo(c, 'tips', 'T');
       const tip = (
         await c.query(
-          `insert into tips (user_id, category, agency_id, agency_label, location_id, description, anonymous, public_no, details)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
-          [p.userId, cat.code, agency?.id ?? null, agency?.name ?? cat.agencyLabel, locationId, description, b.anonymous, no, { clientRef: b.clientRef }],
+          `insert into tips (user_id, category, agency_id, agency_label, location_id, description, anonymous, public_no, details, station_id)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+          [p.userId, cat.code, agency?.id ?? null, agency?.name ?? cat.agencyLabel, locationId, description, b.anonymous, no, { clientRef: b.clientRef }, agency?.stationId ?? null],
         )
       ).rows[0];
       await c.query(`insert into tip_events (tip_id, kind, actor_kind, payload) values ($1, 'received', 'system', '{}')`, [tip.id]);
@@ -206,15 +207,16 @@ export class TipsService {
 
   // ---------------------------------------------------------------- agency side
 
-  async queue(p: Principal, agencyId: string, tab: 'new' | 'claims' | 'closed') {
+  async queue(p: Principal, agencyId: string, tab: 'new' | 'claims' | 'closed', range?: DateRange) {
     await this.agencies.requireStaff(p, agencyId);
     await this.agencies.requireHandles(agencyId, 'tips');
     const filter = { new: `t.state in ('in_queue', 'more_info')`, claims: `t.state = 'claim_review'`, closed: `t.state not in ('in_queue', 'more_info', 'claim_review')` }[tab];
+    const args: unknown[] = [agencyId];
     const r = await this.db.query(
-      `select t.id, t.public_no, t.category, t.state, t.description, t.anonymous, t.created_at, l.postcode, l.area_label, u.display_name, c.outcome, c.suggested_kobo, c.approved_kobo
-         from tips t join users u on u.id = t.user_id left join locations l on l.id = t.location_id left join tip_claims c on c.tip_id = t.id
-        where t.agency_id = $1 and ${filter} order by t.created_at desc limit 100`,
-      [agencyId],
+      `select t.id, t.public_no, t.category, t.state, t.description, t.anonymous, t.created_at, l.postcode, l.area_label, u.display_name, c.outcome, c.suggested_kobo, c.approved_kobo, s.name as station
+         from tips t join users u on u.id = t.user_id left join locations l on l.id = t.location_id left join tip_claims c on c.tip_id = t.id left join stations s on s.id = t.station_id
+        where t.agency_id = $1 and ${filter} and ${dateWhere(range, args, 't.created_at')} order by t.created_at desc limit 100`,
+      args,
     );
     // Tipper identity is held by us; the agency sees an anonymous number unless the tipper agreed.
     return r.rows.map((t) => ({
@@ -224,6 +226,7 @@ export class TipsService {
       state: t.state,
       description: t.description,
       place: t.postcode ? `${t.postcode}, ${t.area_label}` : null,
+      station: t.station ?? null,
       tipper: t.anonymous ? `Anonymous tipper ${t.public_no}` : t.display_name,
       outcome: t.outcome ?? null,
       bountyKobo: t.approved_kobo != null ? Number(t.approved_kobo) : t.suggested_kobo != null ? Number(t.suggested_kobo) : null,
@@ -272,6 +275,7 @@ export class TipsService {
       state: t.state,
       description: t.description,
       place: t.postcode ? `${t.postcode}, ${t.area_label}` : null,
+      station: t.station ?? null,
       tipper: t.anonymous ? `Anonymous tipper ${t.public_no}` : t.display_name,
       createdAt: t.created_at,
       claim: t.outcome

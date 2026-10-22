@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/AppFrame';
@@ -87,9 +88,9 @@ export default function Devices() {
       )}
       {o?.home?.permissions.report && (
         <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, padding: '12px 16px calc(12px + env(safe-area-inset-bottom))', background: 'var(--color-bg)', maxWidth: 520, margin: '0 auto' }}>
-          <Link className="btn block" href="/profile/home/report" style={{ minHeight: 56 }}>
+          <LinkButton className="btn block" href="/profile/home/report" style={{ minHeight: 56 }}>
             Report a problem
-          </Link>
+          </LinkButton>
         </div>
       )}
     </main>

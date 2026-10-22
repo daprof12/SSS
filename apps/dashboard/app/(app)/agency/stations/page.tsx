@@ -5,7 +5,7 @@ import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { AgencySwitcher, WithAgency, type MyAgency } from '@/components/Agency';
+import { WithAgency, type MyAgency } from '@/components/Agency';
 
 interface St {
   id: string;
@@ -40,7 +40,6 @@ function Stations({ agency }: { agency: MyAgency }) {
           <h1>Stations</h1>
           <p className="lede">Every station in {agency.name}, who leads it and who is on duty.</p>
         </div>
-        <AgencySwitcher />
       </div>
       {error && (
         <div className="banner critical" role="alert">

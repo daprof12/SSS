@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { IncidentMap } from '@erp/web-ui/IncidentMap';
 import { Rating } from '@erp/web-ui/Rating';
@@ -26,7 +27,7 @@ interface CitizenView {
   reportCount: number;
   building?: { postcode: string; address: string; location?: LatLng };
   area?: string;
-  officer?: { name: string; badgeNo: string; stationName: string; rating: number };
+  officer?: { name: string; badgeNo: string; stationName: string; rating: number | null };
   officerLocation?: LatLng;
   etaMinutes?: number;
   mergedInto?: string;
@@ -149,6 +150,7 @@ export default function LiveStatus({ params }: { params: Promise<{ id: string }>
             <span className="muted">
               {v.officer.stationName}, badge {v.officer.badgeNo}
             </span>
+            <Rating value={v.officer.rating} empty="Not rated yet" style={{ display: 'flex', marginTop: 2 }} />
           </span>
           <span className="chip success">
             <Icon name="check" size={14} /> Badge verified
@@ -157,9 +159,9 @@ export default function LiveStatus({ params }: { params: Promise<{ id: string }>
       )}
 
       {s.actions.includes('rate') && !v.myRating && (
-        <Link href={`/reports/${id}/rate`} className="btn block signal" style={{ marginBottom: 8 }}>
+        <LinkButton href={`/reports/${id}/rate`} className="btn block signal" style={{ marginBottom: 8 }}>
           Rate the response
-        </Link>
+        </LinkButton>
       )}
       {v.myRating && <div className="banner success">You rated this response {v.myRating.stars} out of 5. Thank you.</div>}
 
@@ -185,14 +187,14 @@ export default function LiveStatus({ params }: { params: Promise<{ id: string }>
         </button>
       )}
       {s.actions.includes('call_112') && (
-        <a className="btn block" href="tel:112" style={{ marginBottom: 8 }}>
+        <LinkButton className="btn block" href="tel:112" style={{ marginBottom: 8 }}>
           <Icon name="phone" /> Call 112
-        </a>
+        </LinkButton>
       )}
       {s.actions.includes('share_contacts') && (
-        <Link className="btn block" href="/profile/contacts" style={{ marginBottom: 8 }}>
+        <LinkButton className="btn block" href="/profile/contacts" style={{ marginBottom: 8 }}>
           <Icon name="contacts" /> Emergency contacts
-        </Link>
+        </LinkButton>
       )}
       {s.actions.includes('cancel') && (
         <button className="link-btn" type="button" onClick={() => setSheet('cancel')} style={{ display: 'block', margin: '8px auto 0' }}>

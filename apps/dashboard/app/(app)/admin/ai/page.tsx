@@ -1,6 +1,7 @@
 'use client';
 // Board "Admin AI and LLM": where AI is used, which model runs it, the checks around it, cost, and
 // the safety switches. AI suggests; a person decides.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
@@ -81,9 +82,9 @@ export default function AiAdmin() {
           <p className="lede">Where AI is used, which model runs it, and the checks around it.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Link className="btn" href="/admin/audit?action=ai">
+          <LinkButton className="btn" href="/admin/audit?action=ai">
             Audit AI actions
-          </Link>
+          </LinkButton>
           <button className={`btn ${s?.paused ? 'primary' : 'danger'}`} type="button" disabled={!s || busy} onClick={() => flip({ paused: !s!.paused })}>
             {s?.paused ? 'Turn AI back on' : 'Pause all AI'}
           </button>

@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Inject, Param, ParseIntPipe, ParseUUIDPi
 import type { Response } from 'express';
 import { z } from 'zod';
 import { CurrentUser, type Principal } from '../core/auth';
+import { DateFields, type DateRange } from '../core/date-range';
 import { ZodPipe } from '../core/http';
 import { LocationQuery } from '../core/location-filter';
 import { AdminOpsService, PLATFORM_ROLES, STOCK_ITEMS } from './admin-ops.service';
@@ -19,6 +20,7 @@ const AddStock = z.object({ storeId: z.string().uuid('Choose a store.'), item: z
 const Transfer = z.object({ from: z.string().uuid('Choose a store.'), to: z.string().uuid('Choose a store.'), item: z.enum(STOCK_ITEMS), quantity: Qty, note: z.string().trim().max(200).optional() });
 const AuditQ = z.object({
   days: z.coerce.number().int().refine((d) => [1, 7, 30, 90].includes(d)).optional(),
+  ...DateFields,
   actor: z.string().uuid().optional(),
   action: z.string().max(20).optional(),
   postcode: z.string().max(20).optional(),
@@ -119,7 +121,7 @@ export class AdminController {
   }
 
   @Get('donations')
-  donations(@CurrentUser() p: Principal, @Query(new ZodPipe(LocationQuery)) q: z.infer<typeof LocationQuery>) {
+  donations(@CurrentUser() p: Principal, @Query(new ZodPipe(LocationQuery.extend(DateFields))) q: z.infer<typeof LocationQuery> & DateRange) {
     return this.ops.donations(p, q);
   }
 

@@ -1,6 +1,7 @@
 'use client';
 // Board "Station statement view": the reporter's original and the English record they signed, the
 // seal, the access log, and the two ways to question it (more detail, or a certified translator).
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { api, ApiError, downloadFile } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { use, useCallback, useEffect, useState } from 'react';
@@ -91,9 +92,9 @@ export default function StatementView({ params }: { params: Promise<{ id: string
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Link className="btn" href={`/incidents/${v.report.id}`}>
+          <LinkButton className="btn" href={`/incidents/${v.report.id}`}>
             Back to incident
-          </Link>
+          </LinkButton>
           {ver && (
             <button className="btn" type="button" onClick={() => downloadFile(`/statements/${v.id}/statement.pdf`, `${v.number}-v${ver.version}.pdf`).then(() => load()).catch((e) => setToast(e instanceof ApiError ? e.message : 'Could not download.'))}>
               Download PDF

@@ -1,7 +1,7 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { formatNaira } from '@erp/domain';
-import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { Header } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
@@ -64,9 +64,9 @@ export default function Confirm({ params }: { params: Promise<{ ref: string }> }
         <div className="big-number">+{formatNaira(shown)}</div>
         <p className="muted">{s.message}</p>
         <p className="muted" style={{ fontSize: 12 }}>Reference {s.reference}</p>
-        <Link href="/wallet" className="btn block signal">
+        <LinkButton href="/wallet" className="btn block signal">
           Back to wallet
-        </Link>
+        </LinkButton>
       </main>
     );
   }
@@ -77,9 +77,9 @@ export default function Confirm({ params }: { params: Promise<{ ref: string }> }
         <div className="banner critical" role="alert">
           {s.message}
         </div>
-        <Link href="/wallet/fund" className="btn block signal">
+        <LinkButton href="/wallet/fund" className="btn block signal">
           Try again
-        </Link>
+        </LinkButton>
       </main>
     );
   }
@@ -97,9 +97,9 @@ export default function Confirm({ params }: { params: Promise<{ ref: string }> }
       </p>
       <p className="muted" style={{ fontSize: 12 }}>Reference {ref}</p>
       {slow && (
-        <Link href="/wallet" className="btn block">
+        <LinkButton href="/wallet" className="btn block">
           Back to wallet
-        </Link>
+        </LinkButton>
       )}
       <style>{'@keyframes spin{to{transform:rotate(360deg)}}[data-motion="reduced"] svg{animation:none!important}'}</style>
     </main>

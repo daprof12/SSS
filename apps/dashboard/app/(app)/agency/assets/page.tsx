@@ -5,7 +5,7 @@ import { api, ApiError } from '@erp/web-ui/api';
 import { Sheet } from '@erp/web-ui/Sheet';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { AgencySwitcher, shortDate, useToast, WithAgency, type MyAgency } from '@/components/Agency';
+import { shortDate, useToast, WithAgency, type MyAgency } from '@/components/Agency';
 import { ago } from '@/components/Dash';
 import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
@@ -67,7 +67,6 @@ function Assets({ agency }: { agency: MyAgency }) {
           <p className="lede">Traffic lights, street lights and cameras you are in charge of.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <AgencySwitcher />
           <button className="btn" type="button" onClick={() => setSheet('add')}>
             Add asset
           </button>

@@ -4,7 +4,7 @@
 import { api, ApiError } from '@erp/web-ui/api';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
-import { AgencySwitcher, shortDate, useToast, WithAgency, type MyAgency } from '@/components/Agency';
+import { shortDate, useToast, WithAgency, type MyAgency } from '@/components/Agency';
 import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface Item {
@@ -68,7 +68,6 @@ function Inventory({ agency }: { agency: MyAgency }) {
           <p className="lede">Vehicles, drones, fire drop kits and radios, by station.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <AgencySwitcher />
           <button className="btn primary" type="button" onClick={() => setAdding(true)}>
             Add item
           </button>

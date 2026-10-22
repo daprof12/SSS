@@ -128,7 +128,7 @@ export function freshness(lastUpdateAt: Date, now: Date, socketConnected: boolea
 export const RATING_DIMENSIONS = {
   arrival: { label: 'Arrival speed', good: ['fast'], bad: ['slow'] },
   care: { label: 'Care and manner', good: ['polite', 'professional'], bad: ['rude'] },
-  solved: { label: 'Report solved', good: ['solved'], bad: ['not_solved'] },
+  solved: { label: 'Resolved', good: ['solved'], bad: ['not_solved'] },
 } as const;
 export type RatingDimension = keyof typeof RATING_DIMENSIONS;
 

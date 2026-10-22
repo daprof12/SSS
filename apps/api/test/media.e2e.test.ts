@@ -87,9 +87,9 @@ describe('attachments', () => {
     expect(own.headers['cache-control']).toBe('private, no-store');
     expect(Buffer.from(own.body).includes(Buffer.from('GPS'))).toBe(false);
 
-    await http.get(`/media/${up.id}/content`).set(as('agencyAdmin')).expect(200);
+    await http.get(`/media/${up.id}/content`).set(as('fermaAdmin')).expect(200);
     const logged = await db.query(`select actor_id from audit_log where action = 'media.view' and entity_id = $1`, [up.id]);
-    expect(logged.rows.map((r) => r.actor_id)).toEqual([seed.users.agencyAdmin]);
+    expect(logged.rows.map((r) => r.actor_id)).toEqual([seed.users.fermaAdmin]);
 
     // Someone who did not report it sees nothing.
     await http.get(`/media/${up.id}/content`).set(as('officer')).expect(404);
@@ -114,7 +114,7 @@ describe('attachments', () => {
     ).body;
     await attach('citizen', 'tip', tip.id, PNG, 'image/png');
     await http.post('/media').set(as('neighbour')).send({ ownerType: 'tip', ownerId: tip.id, contentType: 'image/png', sizeBytes: 10 }).expect(404);
-    expect((await http.get('/attachments').query({ ownerType: 'tip', ownerId: tip.id }).set(as('agencyAdmin')).expect(200)).body).toHaveLength(1);
+    expect((await http.get('/attachments').query({ ownerType: 'tip', ownerId: tip.id }).set(as('naptipAdmin')).expect(200)).body).toHaveLength(1);
   });
 
   it('adds a photo to a live report and tells responders', async () => {
@@ -137,7 +137,7 @@ describe('voice notes', () => {
     ).body;
     const up = (await attach('citizen', 'tip', tip.id, WEBM, 'audio/webm;codecs=opus', 200, { durationS: 14 })).body;
     expect(up).toMatchObject({ kind: 'voice' });
-    expect((await http.get('/attachments').query({ ownerType: 'tip', ownerId: tip.id }).set(as('agencyAdmin'))).body[0]).toMatchObject({ kind: 'voice', contentType: 'audio/webm', durationS: 14 });
+    expect((await http.get('/attachments').query({ ownerType: 'tip', ownerId: tip.id }).set(as('naptipAdmin'))).body[0]).toMatchObject({ kind: 'voice', contentType: 'audio/webm', durationS: 14 });
 
     // Over two minutes, or bytes that are not audio, are refused.
     expect((await http.post('/media').set(as('citizen')).send({ ownerType: 'tip', ownerId: tip.id, contentType: 'audio/webm', sizeBytes: 100, durationS: 200 }).expect(422)).body.message).toBe('Voice notes can be up to 2 minutes.');
@@ -173,7 +173,7 @@ describe('picking a building', () => {
 describe('scheduled rules', () => {
   it('closes a fix as confirmed after 7 days of silence', async () => {
     const caseId = await issue('citizen');
-    const act = (body: Record<string, unknown>) => http.post(`/agencies/${seed.fermaId}/issues/${caseId}/actions`).set(as('agencyAdmin')).send(body).expect(201);
+    const act = (body: Record<string, unknown>) => http.post(`/agencies/${seed.fermaId}/issues/${caseId}/actions`).set(as('fermaAdmin')).send(body).expect(201);
     await act({ event: 'assign' });
     await act({ event: 'mark_fixed', note: 'Patched' });
 
@@ -195,7 +195,7 @@ describe('scheduled rules', () => {
         .send({ category: 'human_trafficking', description: 'Girls are kept in a house on Allen and moved at night by a white bus.', clientRef: ref(), postcode: 'CD34E' })
         .expect(201)
     ).body;
-    const act = (body: Record<string, unknown>) => http.post(`/agencies/${seed.naptipId}/tips/${tip.id}/actions`).set(as('agencyAdmin')).send(body).expect(201);
+    const act = (body: Record<string, unknown>) => http.post(`/agencies/${seed.naptipId}/tips/${tip.id}/actions`).set(as('naptipAdmin')).send(body).expect(201);
     await act({ event: 'outcome_recorded', outcome: 'arrest' });
     await act({ event: 'approve' });
     expect((await http.get(`/tips/${tip.id}`).set(as('citizen'))).body.state).toBe('approved_held');
@@ -215,7 +215,7 @@ describe('issue brief and share link', () => {
   it('downloads a PDF brief, logged', async () => {
     const caseId = await issue('citizen');
     await issue('neighbour');
-    const r = await http.get(`/agencies/${seed.fermaId}/issues/${caseId}/brief.pdf`).set(as('agencyAdmin')).buffer(true).expect(200);
+    const r = await http.get(`/agencies/${seed.fermaId}/issues/${caseId}/brief.pdf`).set(as('fermaAdmin')).buffer(true).expect(200);
     expect(r.headers['content-type']).toBe('application/pdf');
     expect(Buffer.from(r.body).subarray(0, 5).toString()).toBe('%PDF-');
     expect((await db.query(`select 1 from audit_log where action = 'issue.brief_download' and entity_id = $1`, [caseId])).rowCount).toBe(1);
@@ -225,9 +225,9 @@ describe('issue brief and share link', () => {
   it('shares a view-only link that never names reporters, counts views, and can be turned off', async () => {
     const caseId = await issue('citizen');
     const base = `/agencies/${seed.fermaId}/issues/${caseId}/shares`;
-    expect((await http.post(base).set(as('agencyAdmin')).send({ note: 'x', days: 3 }).expect(400)).body.fields[0].message).toBe('Say why you are sharing this.');
-    await http.post(base).set(as('agencyAdmin')).send({ note: 'For the commissioner', days: 30 }).expect(400);
-    const s = (await http.post(base).set(as('agencyAdmin')).send({ note: 'For the commissioner', days: 3 }).expect(201)).body;
+    expect((await http.post(base).set(as('fermaAdmin')).send({ note: 'x', days: 3 }).expect(400)).body.fields[0].message).toBe('Say why you are sharing this.');
+    await http.post(base).set(as('fermaAdmin')).send({ note: 'For the commissioner', days: 30 }).expect(400);
+    const s = (await http.post(base).set(as('fermaAdmin')).send({ note: 'For the commissioner', days: 3 }).expect(201)).body;
     expect(s.path).toBe(`/shared/${s.token}`);
 
     const v = (await http.get(`/shared/issues/${s.token}`).expect(200)).body;
@@ -238,11 +238,11 @@ describe('issue brief and share link', () => {
     expect(text).not.toContain('agencyId');
     await http.get(`/shared/issues/${s.token}/brief.pdf`).expect(200);
 
-    const list = (await http.get(base).set(as('agencyAdmin')).expect(200)).body;
+    const list = (await http.get(base).set(as('fermaAdmin')).expect(200)).body;
     expect(list[0]).toMatchObject({ status: 'active', views: 2 });
     expect(JSON.stringify(list)).not.toContain(s.token);
 
-    await http.delete(`${base}/${s.id}`).set(as('agencyAdmin')).expect(200);
+    await http.delete(`${base}/${s.id}`).set(as('fermaAdmin')).expect(200);
     expect((await http.get(`/shared/issues/${s.token}`).expect(410)).body.message).toBe('This link has expired.');
     await http.get('/shared/issues/not-a-real-token-at-all-xx').expect(404);
   });

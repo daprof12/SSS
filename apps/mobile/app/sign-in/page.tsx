@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -74,9 +75,9 @@ export default function SignIn() {
         </button>
       </form>
 
-      <a className="btn block" href="tel:112" style={{ marginTop: 12 }}>
+      <LinkButton className="btn block" href="tel:112" style={{ marginTop: 12 }}>
         <Icon name="phone" /> In danger now? Call 112
-      </a>
+      </LinkButton>
       <p className="muted center" style={{ marginTop: 24 }}>
         By continuing you agree to the Terms and Privacy notice.
       </p>

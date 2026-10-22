@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { Sheet } from '@erp/web-ui/Sheet';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -130,9 +131,9 @@ function Report() {
         </div>
         <h1>Report cancelled</h1>
         <p className="muted">No one will be sent. Nothing was recorded against you.</p>
-        <Link href="/home" className="btn block signal">
+        <LinkButton href="/home" className="btn block signal">
           Back to Home
-        </Link>
+        </LinkButton>
       </main>
     );
   }
@@ -146,12 +147,12 @@ function Report() {
           We will keep trying and send it as soon as you are back online. You can also send it by SMS now.
         </div>
         <div style={{ display: 'grid', gap: 8 }}>
-          <a className="btn block primary" href={smsHref(queued)}>
+          <LinkButton className="btn block primary" href={smsHref(queued)}>
             Send by SMS now
-          </a>
-          <a className="btn block" href="tel:112">
+          </LinkButton>
+          <LinkButton className="btn block" href="tel:112">
             <Icon name="phone" /> Call 112
-          </a>
+          </LinkButton>
         </div>
       </main>
     );

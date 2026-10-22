@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { applyEvent, availableEvents, FIX_CONFIRMATIONS, ISSUE_MERGE_RADIUS_M, issueCategories, issueCategory, issueMachine, issueStatus, type IssueState } from '@erp/domain';
 import { POSTCODE, PostcodeUnavailable, type PostcodeAdapter } from '../adapters/postcode';
 import { AgencyLifecycle } from '../agencies/agency.lifecycle';
+import { dateWhere, type DateRange } from '../core/date-range';
 import { Audit } from '../core/audit';
 import type { Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
@@ -123,13 +124,13 @@ export class IssuesService {
         return { caseId: existing.id as string, joined: true, already: false };
       }
 
-      const agency = await receivingAgency(c, cat.agencyKinds);
+      const agency = await receivingAgency(c, cat.agencyKinds, { locationId, lat, lng });
       const no = await publicNo(c, 'issue_cases', 'P');
       const kase = (
         await c.query(
-          `insert into issue_cases (public_no, category, agency_id, agency_label, location_id, geom, severity)
-           values ($1, $2, $3, $4, $5, st_setsrid(st_makepoint($7, $6), 4326)::geography, $8) returning id`,
-          [no, cat.code, agency?.id ?? null, agency?.name ?? cat.agencyLabel, locationId, lat, lng, b.severity],
+          `insert into issue_cases (public_no, category, agency_id, agency_label, location_id, geom, severity, station_id)
+           values ($1, $2, $3, $4, $5, st_setsrid(st_makepoint($7, $6), 4326)::geography, $8, $9) returning id`,
+          [no, cat.code, agency?.id ?? null, agency?.name ?? cat.agencyLabel, locationId, lat, lng, b.severity, agency?.stationId ?? null],
         )
       ).rows[0];
       await c.query(
@@ -258,14 +259,15 @@ export class IssuesService {
 
   // ---------------------------------------------------------------- agency side
 
-  async queue(p: Principal, agencyId: string) {
+  async queue(p: Principal, agencyId: string, range?: DateRange) {
     await this.agencies.requireStaff(p, agencyId);
     await this.agencies.requireHandles(agencyId, 'issues');
+    const args: unknown[] = [agencyId];
     const r = await this.db.query(
-      `select k.id, k.public_no, k.category, k.state, k.severity, k.report_count, k.people_count, k.first_at, k.last_at, k.target_on, l.postcode, l.area_label
-         from issue_cases k left join locations l on l.id = k.location_id
-        where k.agency_id = $1 order by k.state = 'fixed', k.report_count desc, k.last_at desc limit 200`,
-      [agencyId],
+      `select k.id, k.public_no, k.category, k.state, k.severity, k.report_count, k.people_count, k.first_at, k.last_at, k.target_on, l.postcode, l.area_label, s.name as station
+         from issue_cases k left join locations l on l.id = k.location_id left join stations s on s.id = k.station_id
+        where k.agency_id = $1 and ${dateWhere(range, args, 'k.first_at')} order by k.state = 'fixed', k.report_count desc, k.last_at desc limit 200`,
+      args,
     );
     return r.rows.map((k) => ({ ...k, category: issueCategory(k.category)?.label ?? k.category }));
   }

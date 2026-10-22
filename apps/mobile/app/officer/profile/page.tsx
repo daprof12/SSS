@@ -3,7 +3,7 @@
 import { SignOutButton } from '@/components/SignOutButton';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { Rating } from '@erp/web-ui/Rating';
-import { formatNaira } from '@erp/domain';
+import { formatNaira, RATING_DIMENSIONS } from '@erp/domain';
 import { readTheme } from '@erp/web-ui/theme';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -98,7 +98,7 @@ export default function OfficerProfile() {
         </div>
         {bar('Arrival speed', p?.rating.arrival ?? null)}
         {bar('Care and manner', p?.rating.care ?? null)}
-        {bar('Report solved', p?.rating.solved ?? null)}
+        {bar(RATING_DIMENSIONS.solved.label, p?.rating.solved ?? null)}
         <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--color-divider)', marginTop: 12, paddingTop: 12 }}>
           <span className="muted">Acceptance, last 30 days</span>
           <strong>{p ? (p.acceptance.ratePct == null ? 'No offers yet' : `${p.acceptance.ratePct}%`) : ''}</strong>

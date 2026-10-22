@@ -1,13 +1,14 @@
 // Agency overview and stations (boards "Agency overview", "Agency stations"), and the platform admin
 // overview, users, subscriptions, KYC queue and live incident map (boards "Admin overview",
 // "Admin users and add user", "Admin subscriptions", "Admin KYC queue", "Admin live incident map").
-import type { Permission } from '@erp/domain';
+import { agencyHandles, type Permission } from '@erp/domain';
 import { Inject, Injectable } from '@nestjs/common';
 import { Audit } from '../core/audit';
-import { hasRole, requirePerm, type Principal } from '../core/auth';
+import { can, hasRole, requirePerm, type Principal } from '../core/auth';
 import { Db } from '../core/db';
 import { AppError } from '../core/http';
 import { notify } from '../reports/shared';
+import { dateWhere, type DateRange } from '../core/date-range';
 import { locationWhere, type LocationFilter } from '../core/location-filter';
 
 const OPEN = `('received', 'offered', 'escalated', 'accepted', 'en_route', 'reassigning', 'transferred', 'on_scene', 'closing')`;
@@ -50,8 +51,10 @@ export class OverviewService {
 
   // ---------------------------------------------------------------- agency
 
-  async agencyOverview(p: Principal, agencyId: string) {
+  async agencyOverview(p: Principal, agencyId: string, range?: DateRange) {
     await this.agencyStaff(p, agencyId);
+    const kind = (await this.db.query(`select kind from agencies where id = $1`, [agencyId])).rows[0]?.kind;
+    const reports = await this.reportMix(p, { agencyId, kind }, undefined, range);
     const open = (await this.db.query(`select count(*)::int as n from incidents where agency_id = $1 and state in ${OPEN}`, [agencyId])).rows[0].n;
     const resp = (
       await this.db.query(`select avg(extract(epoch from (x.arrived_at - x.accepted_at))) as s from incident_units x join incidents i on i.id = x.incident_id where i.agency_id = $1 and x.arrived_at > now() - interval '30 days'`, [agencyId])
@@ -93,6 +96,7 @@ export class OverviewService {
         donationsMonthKobo: Number(donations),
       },
       live: live.rows.map((i) => ({ id: i.id, label: `${cap(i.type)}, ${i.postcode ?? 'GPS'}`, state: i.state, station: i.station, at: i.created_at })),
+      reports,
       stations: stations.slice(0, 6),
       week: DAYS.map((d, i) => ({ day: d, n: week.rows.find((r) => r.d === i + 1)?.n ?? 0 })),
       attention: [
@@ -135,9 +139,66 @@ export class OverviewService {
     return this.stationRows(agencyId);
   }
 
+  // ---------------------------------------------------------------- every kind of report, for the overviews
+
+  /**
+   * Emergencies, tips and public issues together: open now, received in the date range (default the
+   * last 7 days), per day (per month for long ranges), and the latest open ones. An agency sees only
+   * what is routed to it and only the kinds it handles; the platform sees everything, by place.
+   */
+  private async reportMix(p: Principal, scope: { agencyId: string | null; kind?: string }, f?: LocationFilter, range?: DateRange) {
+    const handles = scope.kind ? agencyHandles(scope.kind) : { tips: true, issues: true };
+    const kinds: Kind[] = ['emergency', ...(handles.tips ? (['tip'] as const) : []), ...(handles.issues ? (['issue'] as const) : [])];
+    const today = new Date(Date.now() + 3600_000).toISOString().slice(0, 10);
+    const to = range?.to ?? today;
+    const from = range?.from ?? new Date(Date.parse(`${to}T00:00:00Z`) - 6 * 86_400_000).toISOString().slice(0, 10);
+    const r: DateRange = { from, to };
+    const span = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+    const byMonth = span > 62;
+    const bucket = (col: string) => (byMonth ? `to_char(${col} at time zone 'Africa/Lagos', 'YYYY-MM')` : `to_char(${col} at time zone 'Africa/Lagos', 'YYYY-MM-DD')`);
+    const tables: Record<Kind, { from: string; at: string; open: string; agency: string }> = {
+      emergency: { from: `incidents x left join locations l on l.id = x.location_id`, at: 'x.created_at', open: `x.state in ${OPEN}`, agency: 'x.agency_id' },
+      tip: { from: `tips x left join locations l on l.id = x.location_id`, at: 'x.created_at', open: `x.state in ('sent', 'in_queue', 'more_info', 'claim_review')`, agency: 'x.agency_id' },
+      issue: { from: `issue_cases x left join locations l on l.id = x.location_id`, at: 'x.first_at', open: `x.state <> 'fixed'`, agency: 'x.agency_id' },
+    };
+    const open: Partial<Record<Kind, number>> = {};
+    const received: Partial<Record<Kind, number>> = {};
+    const series = new Map<string, Partial<Record<Kind, number>>>();
+    for (const k of kinds) {
+      const t = tables[k];
+      const scoped = (args: unknown[]) => `${scope.agencyId ? `${t.agency} = $${args.push(scope.agencyId)}` : 'true'} and ${locationWhere(f, args)}${k === 'emergency' ? ` and x.state <> 'merged'` : ''}`;
+      const oa: unknown[] = [];
+      open[k] = (await this.db.query(`select count(*)::int as n from ${t.from} where ${scoped(oa)} and ${t.open}`, oa)).rows[0].n;
+      const ra: unknown[] = [];
+      const rows = (await this.db.query(`select ${bucket(t.at)} as b, count(*)::int as n from ${t.from} where ${scoped(ra)} and ${dateWhere(r, ra, t.at)} group by 1`, ra)).rows;
+      received[k] = rows.reduce((a, x) => a + x.n, 0);
+      for (const x of rows) series.set(x.b, { ...series.get(x.b), [k]: x.n });
+    }
+    const labels: { key: string; label: string }[] = [];
+    if (byMonth) {
+      for (let d = new Date(`${from.slice(0, 7)}-01T00:00:00Z`); d <= new Date(`${to}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + 1)) {
+        labels.push({ key: d.toISOString().slice(0, 7), label: d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }) });
+      }
+    } else {
+      for (let i = 0; i < span; i++) {
+        const d = new Date(Date.parse(`${from}T00:00:00Z`) + i * 86_400_000);
+        labels.push({ key: d.toISOString().slice(0, 10), label: d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }) });
+      }
+    }
+    const latest = (await this.live(p, { agencyId: scope.agencyId }, kinds, f)).items.sort((a, b) => +new Date(b.at) - +new Date(a.at)).slice(0, 10);
+    return {
+      kinds,
+      range: { from, to, by: byMonth ? 'month' : 'day' },
+      open,
+      received,
+      series: labels.map((l) => ({ label: l.label, emergency: series.get(l.key)?.emergency ?? 0, tip: series.get(l.key)?.tip ?? 0, issue: series.get(l.key)?.issue ?? 0 })),
+      latest: latest.map((x) => ({ id: x.id, kind: x.kind, type: x.type ?? null, label: x.label, state: x.state, line: x.line, at: x.at, href: x.href })),
+    };
+  }
+
   // ---------------------------------------------------------------- platform admin
 
-  async adminOverview(p: Principal, f?: LocationFilter) {
+  async adminOverview(p: Principal, f?: LocationFilter, range?: DateRange) {
     this.admin(p, 'platform.overview');
     const q = async (sql: string, args: unknown[] = []) => (await this.db.query(sql, args)).rows[0];
     // Every place-bound number follows "Filter by location": incidents by their building, devices
@@ -196,6 +257,8 @@ export class OverviewService {
         kycWaiting: kyc,
       },
       week: DAYS.map((d, i) => ({ day: d, n: week.find((r) => r.d === i + 1)?.n ?? 0 })),
+      // Staff without the live map see the overview without the report lists.
+      reports: can(p, 'platform.live') ? await this.reportMix(p, { agencyId: null }, f, range) : null,
       devices: { online: dev.online, low: dev.low, offline: dev.offline, repair: dev.repair, tamper: dev.tamper, total: dev.total },
       attention: [
         { key: 'tamper', title: 'Tamper alerts not yet handled', line: tamper.oldest ? `Oldest ${new Date(tamper.oldest).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'None', count: tamper.n, href: '/admin/repairs', tone: 'critical' },
@@ -445,21 +508,21 @@ export class OverviewService {
       const args: unknown[] = [scope.agencyId];
       const w = locationWhere(f, args);
       const r = await this.db.query(
-        `select t.id, t.public_no, t.category, t.state, t.created_at, l.postcode, st_y(l.geom::geometry) as lat, st_x(l.geom::geometry) as lng, a.name as agency
-           from tips t join locations l on l.id = t.location_id left join agencies a on a.id = t.agency_id
+        `select t.id, t.public_no, t.category, t.state, t.created_at, l.postcode, st_y(l.geom::geometry) as lat, st_x(l.geom::geometry) as lng, a.name as agency, s.name as station
+           from tips t join locations l on l.id = t.location_id left join agencies a on a.id = t.agency_id left join stations s on s.id = t.station_id
           where t.state in ('sent', 'in_queue', 'more_info', 'claim_review') and ($1::uuid is null or t.agency_id = $1) and ${w} order by t.created_at desc limit 300`,
         args,
       );
       for (const t of r.rows) {
-        items.push({ id: t.id, kind: 'tip', label: `Tip ${t.public_no}`, state: t.state, lat: t.lat, lng: t.lng, at: t.created_at, line: `${cap(t.category.replace(/_/g, ' '))} · ${t.agency ?? 'Not routed'}`, reports: 1, href: `/agency/tips/${t.id}` });
+        items.push({ id: t.id, kind: 'tip', label: `Tip ${t.public_no}`, state: t.state, lat: t.lat, lng: t.lng, at: t.created_at, line: `${cap(t.category.replace(/_/g, ' '))} · ${t.agency ?? 'Not routed'}${t.station ? `, ${t.station}` : ''}`, reports: 1, href: `/agency/tips/${t.id}` });
       }
     }
     if (want.has('issue')) {
       const args: unknown[] = [scope.agencyId];
       const w = locationWhere(f, args);
       const r = await this.db.query(
-        `select k.id, k.public_no, k.category, k.state, k.severity, k.report_count, k.first_at, k.agency_label, l.postcode, st_y(k.geom::geometry) as lat, st_x(k.geom::geometry) as lng
-           from issue_cases k left join locations l on l.id = k.location_id
+        `select k.id, k.public_no, k.category, k.state, k.severity, k.report_count, k.first_at, k.agency_label, l.postcode, st_y(k.geom::geometry) as lat, st_x(k.geom::geometry) as lng, s.name as station
+           from issue_cases k left join locations l on l.id = k.location_id left join stations s on s.id = k.station_id
           where k.state <> 'fixed' and ($1::uuid is null or k.agency_id = $1) and ${w} order by k.last_at desc limit 300`,
         args,
       );
@@ -472,7 +535,7 @@ export class OverviewService {
           lat: k.lat,
           lng: k.lng,
           at: k.first_at,
-          line: `${k.agency_label} · ${k.severity} · ${k.report_count} ${k.report_count === 1 ? 'report' : 'reports'}`,
+          line: `${k.agency_label}${k.station ? `, ${k.station}` : ''} · ${k.severity} · ${k.report_count} ${k.report_count === 1 ? 'report' : 'reports'}`,
           reports: k.report_count,
           href: `/agency/issues/${k.id}`,
         });

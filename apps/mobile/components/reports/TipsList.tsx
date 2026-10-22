@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/AppFrame';
@@ -54,9 +55,9 @@ export function TipsList({ base, back }: { base: string; back: string | false })
           <span className={`chip ${r.status.tone}`}>{r.status.chip}</span>
         </Link>
       ))}
-      <Link href={`${base}/new`} className="btn block primary" style={{ marginTop: 12 }}>
+      <LinkButton href={`${base}/new`} className="btn block primary" style={{ marginTop: 12 }}>
         <Icon name="tip" /> Report a tip
-      </Link>
+      </LinkButton>
     </main>
   );
 }

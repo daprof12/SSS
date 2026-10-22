@@ -1,6 +1,7 @@
 'use client';
 // Board "Station detail" (agency): who is on duty, live reports, the area the station covers, its
 // equipment and the devices watching nearby. Edit the station or add an officer from here.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
@@ -70,9 +71,9 @@ function StationDetail({ agency, id }: { agency: MyAgency; id: string }) {
           <button className="btn" type="button" onClick={() => setEditing(true)}>
             Edit station
           </button>
-          <Link className="btn primary" href="/agency/officers#add">
+          <LinkButton className="btn primary" href="/agency/officers#add">
             Add officer
-          </Link>
+          </LinkButton>
         </div>
       </div>
       <div className="segmented tabs" role="tablist">

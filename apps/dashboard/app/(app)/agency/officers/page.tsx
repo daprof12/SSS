@@ -1,11 +1,12 @@
 'use client';
 // Board "Agency officers and add user": officers and station heads, their ratings and rewards, and an
 // invite that the person completes by verifying their identity.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
 import { useCallback, useEffect, useState } from 'react';
-import { AgencySwitcher, useToast, WithAgency, type MyAgency } from '@/components/Agency';
+import { useToast, WithAgency, type MyAgency } from '@/components/Agency';
 import { naira } from '@/components/Dash';
 import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
@@ -48,10 +49,9 @@ function Officers({ agency }: { agency: MyAgency }) {
           <p className="lede">Officers and station heads in {agency.name}, with their ratings and rewards.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <AgencySwitcher />
-          <a className="btn primary" href="#add">
+          <LinkButton className="btn primary" href="#add">
             Add officer
-          </a>
+          </LinkButton>
         </div>
       </div>
       <LocationFilter value={loc} onChange={setLoc} title="Filter by station location" />

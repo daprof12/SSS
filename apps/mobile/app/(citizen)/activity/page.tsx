@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/AppFrame';
@@ -49,12 +50,12 @@ export default function Activity() {
         ))}
       </div>
       <div className="btn-row" style={{ marginBottom: 12 }}>
-        <Link href="/tips" className="btn small">
+        <LinkButton href="/tips" className="btn small">
           <Icon name="tip" size={18} /> My tips
-        </Link>
-        <Link href="/issues" className="btn small">
+        </LinkButton>
+        <LinkButton href="/issues" className="btn small">
           <Icon name="road" size={18} /> Public issues
-        </Link>
+        </LinkButton>
       </div>
       {err && (
         <div className="banner critical" role="alert">

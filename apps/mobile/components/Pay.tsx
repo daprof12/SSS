@@ -1,6 +1,7 @@
 'use client';
 // Pay with the wallet (PIN) or Paystack: card, bank transfer or USSD (B9). Used by Donate and Fines.
 // A wallet that is too low offers "Top up [shortfall]" (UX Gap Analysis §9 entry points).
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { formatNaira } from '@erp/domain';
 import { Sheet } from '@erp/web-ui/Sheet';
 import Link from 'next/link';
@@ -110,9 +111,9 @@ export function usePay(start: (method: PayMethod, key: string, pin?: string) => 
         <div className="banner critical" role="alert">
           {err.message}
           {err.shortfallKobo ? (
-            <Link className="btn small" href="/wallet/fund" style={{ marginTop: 8, display: 'inline-flex' }}>
+            <LinkButton className="btn small" href="/wallet/fund" style={{ marginTop: 8, display: 'inline-flex' }}>
               Top up {formatNaira(err.shortfallKobo)}
-            </Link>
+            </LinkButton>
           ) : null}
         </div>
       )}

@@ -5,6 +5,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Audit } from '../core/audit';
 import { requirePerm, type Principal } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
+import { dateWhere } from '../core/date-range';
 import { AppError } from '../core/http';
 import { locationWhere, type LocationFilter } from '../core/location-filter';
 import { SMS, type SmsAdapter } from '../adapters/sms';
@@ -113,9 +114,13 @@ export class AdminOversightService {
     left join locations sl on sl.id = s.location_id`;
   private auditPostcode = `coalesce(a.payload->>'postcode', il.postcode, dl.postcode, sl.postcode)`;
 
-  private auditWhere(b: { days?: number; actor?: string; action?: string; postcode?: string }, args: unknown[]) {
-    args.push(b.days ?? 7);
-    const parts = [`a.at > now() - make_interval(days => $${args.length})`];
+  private auditWhere(b: { days?: number; actor?: string; action?: string; postcode?: string; from?: string; to?: string }, args: unknown[]) {
+    const parts: string[] = [];
+    if (b.from || b.to) parts.push(dateWhere(b, args, 'a.at'));
+    else {
+      args.push(b.days ?? 7);
+      parts.push(`a.at > now() - make_interval(days => $${args.length})`);
+    }
     if (b.actor) {
       args.push(b.actor);
       parts.push(`a.actor_id = $${args.length}`);
@@ -146,7 +151,7 @@ export class AdminOversightService {
     };
   }
 
-  async auditLog(p: Principal, b: { days?: number; actor?: string; action?: string; postcode?: string }) {
+  async auditLog(p: Principal, b: { days?: number; actor?: string; action?: string; postcode?: string; from?: string; to?: string }) {
     requirePerm(p, 'platform.audit');
     const args: unknown[] = [];
     const where = this.auditWhere(b, args);

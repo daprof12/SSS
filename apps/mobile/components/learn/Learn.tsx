@@ -1,5 +1,6 @@
 'use client';
 // Learn tab (boards: Learn feed, For you, General, filter, end of feed).
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { Sheet } from '@erp/web-ui/Sheet';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -193,9 +194,9 @@ function FeedCard({ it, i, active, first, onToast, onHidden }: { it: LearnItem &
               <Icon name="article" size={18} /> Article, {lengthText(it)}
             </span>
             <p className="feed-excerpt">{(it.body ?? it.caption).split('\n').filter(Boolean).slice(0, 2).join(' ')}</p>
-            <Link href={`/learn/p/${it.id}`} className="btn signal small">
+            <LinkButton href={`/learn/p/${it.id}`} className="btn signal small">
               Read the article
-            </Link>
+            </LinkButton>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 'use client';
 // Board "Agency asset detail": status, signal plan, maintenance, remote actions (safety plan and a
 // second approver required) and fault history.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -91,9 +92,9 @@ function AssetDetail({ agency, id }: { agency: MyAgency; id: string }) {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Link className="btn" href="/agency/assets">
+          <LinkButton className="btn" href="/agency/assets">
             Back to assets
-          </Link>
+          </LinkButton>
           <button className="btn signal" type="button" disabled={busy} onClick={() => post(`assets/${a.id}/work-orders`, { kind: a.status === 'fault' ? 'repair' : 'service' })}>
             Create work order
           </button>

@@ -1,6 +1,7 @@
 'use client';
 // Board "Station reports": how this station is doing, by day, by type and by citizen rating; and the
 // false alarms waiting for the head to confirm (B8 step 1).
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError } from '@erp/web-ui/api';
@@ -8,6 +9,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/Agency';
 import { HBars, mmss } from '@/components/Dash';
+import { DateRange, useDateRange } from '@/components/DateRange';
 
 interface Rep {
   days: number;
@@ -28,17 +30,17 @@ const TYPE_COLOR: Record<string, string> = { robbery: '#ff3b5c', fire: '#ff7a45'
 const OUTCOME: Record<string, string> = { Resolved: 'var(--color-success-text)', Transferred: 'var(--color-signal-text)', 'False alarm': 'var(--color-warning-text)', Overturned: 'var(--color-text-secondary)' };
 
 export default function StationReports() {
-  const [days, setDays] = useState(30);
+  const dates = useDateRange('30d');
   const [r, setR] = useState<Rep | null>(null);
   const [reviews, setReviews] = useState<Review[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useToast();
   const load = useCallback(() => {
-    api<Rep>(`/me/station/reports?days=${days}`)
+    api<Rep>(`/me/station/reports${dates.q ? `?${dates.q}` : ''}`)
       .then(setR)
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load reports.'));
     api<Review[]>('/me/station/false-alarms').then(setReviews).catch(() => setReviews([]));
-  }, [days]);
+  }, [dates.q]);
   useEffect(load, [load]);
   const exportCsv = () => {
     if (!r) return;
@@ -46,7 +48,7 @@ export default function StationReports() {
     const url = URL.createObjectURL(new Blob([lines.map((l) => l.join(',')).join('\n')], { type: 'text/csv' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = `station-reports-${days}d.csv`;
+    a.download = `station-reports-${dates.range.from ?? 'start'}-to-${dates.range.to ?? 'today'}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -71,12 +73,10 @@ export default function StationReports() {
           <button className="btn" type="button" onClick={exportCsv} disabled={!r}>
             Export
           </button>
-          <select className="btn signal" value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Period">
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
-          </select>
         </div>
+      </div>
+      <div className="card">
+        <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} allowAll={false} />
       </div>
       {error && (
         <div className="banner critical" role="alert">
@@ -100,9 +100,9 @@ export default function StationReports() {
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <Link className="btn" href={`/incidents/${x.incidentId}`}>
+                <LinkButton className="btn" href={`/incidents/${x.incidentId}`}>
                   Review or overturn
-                </Link>
+                </LinkButton>
                 <button className="btn primary" type="button" onClick={() => confirm(x.incidentId)}>
                   Confirm
                 </button>

@@ -1,14 +1,17 @@
 'use client';
 // Board "Admin overview": the whole platform today.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { HBars, mmss, naira } from '@/components/Dash';
+import { DateRange, useDateRange } from '@/components/DateRange';
+import { mmss, naira } from '@/components/Dash';
+import { MixChart, MixLatest, MixStats, type Mix } from '@/components/ReportMix';
 import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
 
 interface O {
   stats: { open: number; avgResponseS: number | null; activeSubscriptions: number; devicesOnlinePct: number | null; falseAlarmPct: number | null; kycWaiting: number };
-  week: { day: string; n: number }[];
+  reports: Mix | null;
   devices: { online: number; low: number; offline: number; repair: number; tamper: number; total: number };
   attention: { key: string; title: string; line: string; count: number; href: string; tone: string }[];
   agencyResponse: { kind: string; label: string; acceptedPct: number | null; avgResponseS: number | null }[];
@@ -26,16 +29,18 @@ export default function AdminOverview() {
   const [o, setO] = useState<O | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loc, setLoc] = useState<LocFilter>({});
-  const q = locQuery(loc);
+  const dates = useDateRange('7d');
+  const q = [locQuery(loc), dates.q].filter(Boolean).join('&');
   useEffect(() => {
+    if (dates.q === null) return;
     const load = () =>
       api<O>(`/admin/overview${q ? `?${q}` : ''}`)
-        .then(setO)
+        .then((x) => (setO(x), setError(null)))
         .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load the overview.'));
     void load();
     const t = setInterval(load, 20000);
     return () => clearInterval(t);
-  }, [q]);
+  }, [q, dates.q]);
   const s = o?.stats;
   const d = o?.devices;
   return (
@@ -46,26 +51,25 @@ export default function AdminOverview() {
           <p className="lede">The whole platform today.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Link className="btn" href="/admin/live">
+          <LinkButton className="btn" href="/admin/live">
             Open live map
-          </Link>
+          </LinkButton>
           <button className="btn primary" type="button" onClick={() => window.print()}>
             Print daily report
           </button>
         </div>
       </div>
       <LocationFilter value={loc} onChange={setLoc} />
+      <div className="card">
+        <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} allowAll={false} />
+      </div>
       {error && (
         <div className="banner critical" role="alert">
           {error}
         </div>
       )}
       <div className="stats">
-        <div className="stat">
-          <span>Open reports</span>
-          <strong className="critical">{s?.open ?? '—'}</strong>
-          <small>Right now</small>
-        </div>
+        {o?.reports !== null && <MixStats m={o?.reports} />}
         <div className="stat">
           <span>Average response</span>
           <strong className="info">{mmss(s?.avgResponseS)}</strong>
@@ -95,9 +99,9 @@ export default function AdminOverview() {
       <div className="grid two">
         <section className="card" aria-labelledby="wk">
           <h2 id="wk" style={{ marginTop: 0 }}>
-            Reports in the last 7 days
+            Reports received
           </h2>
-          {o && <HBars rows={o.week.map((x) => ({ label: x.day, value: x.n }))} />}
+          {o?.reports ? <MixChart m={o.reports} /> : o ? <p className="muted">Your role does not include reports.</p> : <div className="skeleton" />}
         </section>
         <section className="card" aria-labelledby="dh">
           <h2 id="dh" style={{ marginTop: 0 }}>
@@ -120,6 +124,14 @@ export default function AdminOverview() {
           )}
         </section>
       </div>
+      {o?.reports && (
+        <section className="card" aria-labelledby="latest">
+          <h2 id="latest" style={{ marginTop: 0 }}>
+            Latest open reports
+          </h2>
+          <MixLatest m={o.reports} />
+        </section>
+      )}
       <section className="card" aria-labelledby="att">
         <h2 id="att" style={{ marginTop: 0 }}>
           Needs attention

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { dateTime, useToast } from '@/components/Agency';
 import { HelpChats } from '@/components/HelpChats';
 import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
+import { DateRange, useDateRange } from '@/components/DateRange';
 
 interface Ticket {
   id: string;
@@ -77,7 +78,8 @@ function TicketsInbox({ tabs }: { tabs: React.ReactNode }) {
   const [open, setOpen] = useState<Ticket | null>(null);
   const [toast, setToast] = useToast();
   const [loc, setLoc] = useState<LocFilter>({});
-  const lq = locQuery(loc);
+  const dates = useDateRange('all');
+  const lq = [locQuery(loc), dates.q].filter(Boolean).join('&');
   const load = useCallback(() => {
     api<Inbox>(`/admin/support?status=${filter}${lq ? `&${lq}` : ''}`)
       .then(setD)
@@ -99,6 +101,9 @@ function TicketsInbox({ tabs }: { tabs: React.ReactNode }) {
       </div>
       {tabs}
       <LocationFilter value={loc} onChange={setLoc} />
+      <div className="card">
+        <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} />
+      </div>
       {error && (
         <div className="banner critical" role="alert">
           {error}

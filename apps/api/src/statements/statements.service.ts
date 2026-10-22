@@ -12,6 +12,7 @@ import { Audit } from '../core/audit';
 import { hasRole, type Principal } from '../core/auth';
 import { Bus } from '../core/bus';
 import { Db, type Queryable } from '../core/db';
+import { dateWhere } from '../core/date-range';
 import { locationWhere, type LocationFilter } from '../core/location-filter';
 import { AppError } from '../core/http';
 import { notify } from '../reports/shared';
@@ -588,11 +589,11 @@ export class StatementsService {
   // ---------------------------------------------------------------- lists for the station and the agency
 
   /** Station "Statements" and agency "Statements": every statement on their reports, with filters. */
-  async list(p: Principal, scope: { stationId?: string; agencyId?: string }, b: { state?: string; role?: string; q?: string } & LocationFilter) {
+  async list(p: Principal, scope: { stationId?: string; agencyId?: string }, b: { state?: string; role?: string; q?: string; from?: string; to?: string } & LocationFilter) {
     if (scope.stationId && !(hasRole(p, 'head', scope.stationId) || hasRole(p, 'dispatcher', scope.stationId))) throw new AppError(403, 'forbidden', 'This is for the station head and dispatchers.');
     if (scope.agencyId && !hasRole(p, 'agency_admin', scope.agencyId)) throw new AppError(404, 'not_found', 'Agency not found.');
     const args: unknown[] = [scope.stationId ?? null, scope.agencyId ?? null, b.state ?? null, b.role ?? null, b.q?.trim() || null];
-    const where = locationWhere(b, args);
+    const where = `${locationWhere(b, args)} and ${dateWhere(b, args, 's.created_at')}`;
     const r = await this.db.query(
       `select s.id, s.number, s.state, s.role, s.mode, s.created_at, s.updated_at, i.id as incident_id, i.type, l.postcode, u.display_name as maker, st.name as station,
               (select max(version) from statement_versions v where v.statement_id = s.id) as versions,

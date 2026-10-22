@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '@erp/web-ui/api';
-import { AgencySwitcher, WithAgency, dateOnly, daysSince, plural, shortDate, type MyAgency } from '@/components/Agency';
+import { WithAgency, dateOnly, daysSince, plural, shortDate, type MyAgency } from '@/components/Agency';
 import { IssueStateChip, SeverityChip, isOverdue } from '@/components/IssueChips';
+import { DateRange, useDateRange } from '@/components/DateRange';
 
 export interface IssueRow {
   id: string;
@@ -42,7 +43,6 @@ export default function IssuesPage() {
           <h1>Public issues</h1>
           <p className="lede">Problems citizens reported in your area, most reported first.</p>
         </div>
-        <AgencySwitcher />
       </div>
       <WithAgency needs="issues">{(a) => <Issues key={a.id} agency={a} />}</WithAgency>
     </>
@@ -52,6 +52,7 @@ export default function IssuesPage() {
 function Issues({ agency }: { agency: MyAgency }) {
   const router = useRouter();
   const [rows, setRows] = useState<IssueRow[] | null>(null);
+  const dates = useDateRange('all');
   const [error, setError] = useState<ApiError | null>(null);
   const [cat, setCat] = useState('');
   const [area, setArea] = useState('');
@@ -59,13 +60,13 @@ function Issues({ agency }: { agency: MyAgency }) {
   const [postcode, setPostcode] = useState('');
 
   useEffect(() => {
-    api<IssueRow[]>(`/agencies/${agency.id}/issues`)
+    api<IssueRow[]>(`/agencies/${agency.id}/issues${dates.q ? `?${dates.q}` : ''}`)
       .then((r) => {
         setRows(r);
         setError(null);
       })
       .catch(setError);
-  }, [agency.id]);
+  }, [agency.id, dates.q]);
 
   const today = dateOnly(new Date());
   const areas = useMemo(() => [...new Set((rows ?? []).map((r) => r.area_label).filter(Boolean))].sort() as string[], [rows]);
@@ -102,6 +103,9 @@ function Issues({ agency }: { agency: MyAgency }) {
         </div>
       )}
 
+      <div className="card">
+        <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} />
+      </div>
       <div className="card filters" role="search" aria-label="Filter by location">
         <label className="field">
           <span>Area</span>

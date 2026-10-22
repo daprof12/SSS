@@ -5,7 +5,7 @@ import { ROLE_SCOPE_NOTE, type Role } from '@erp/domain';
 import { api, ApiError, downloadFile } from '@erp/web-ui/api';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
-import { AgencySwitcher, useToast, WithAgency, type MyAgency } from '@/components/Agency';
+import { useToast, WithAgency, type MyAgency } from '@/components/Agency';
 
 interface Settings {
   canEdit: boolean;
@@ -90,7 +90,6 @@ function AgencySettings({ agency }: { agency: MyAgency }) {
           <p className="lede">Agency profile, team access, alerts and privacy.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <AgencySwitcher />
           <button className="btn primary" type="button" onClick={save} disabled={busy || ro || !f}>
             {busy ? 'Saving…' : 'Save changes'}
           </button>

@@ -8,6 +8,7 @@ import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
 import { dateTime, useToast } from '@/components/Agency';
 import { LocationFilter, locQuery, type LocFilter } from '@/components/LocationFilter';
+import { DateRange, useDateRange } from '@/components/DateRange';
 
 interface Payout {
   id: string;
@@ -383,7 +384,8 @@ function Donations() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useToast();
-  const lq = locQuery(loc);
+  const dates = useDateRange('all');
+  const lq = [locQuery(loc), dates.q].filter(Boolean).join('&');
   const load = useCallback(() => {
     api<DonationsView>(`/admin/donations${lq ? `?${lq}` : ''}`)
       .then((x) => {
@@ -435,6 +437,9 @@ function Donations() {
         </div>
       </div>
       <LocationFilter value={loc} onChange={setLoc} title="Filter by location of the receiving station" />
+      <div className="card">
+        <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} />
+      </div>
       {error && (
         <div className="banner critical" role="alert">
           {error}

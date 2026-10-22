@@ -57,24 +57,6 @@ export function AgencyProvider({ children }: { children: React.ReactNode }) {
 
 export const useAgency = () => useContext(AgencyCtx);
 
-/** Shown in the page header only when the admin works for more than one agency. */
-export function AgencySwitcher() {
-  const { agencies, agency, choose } = useAgency();
-  if (!agencies || agencies.length < 2 || !agency) return null;
-  return (
-    <label className="agency-switch">
-      <span>Agency</span>
-      <select value={agency.id} onChange={(e) => choose(e.target.value)}>
-        {agencies.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.name}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 /** Loading, error and "no agency" states every agency page shares. Renders children with the chosen agency. */
 const NOT_HANDLED = {
   tips: ['Your agency does not receive tips.', 'Tips go to the agency for each category, such as NAPTIP for trafficking.'],
@@ -99,19 +81,13 @@ export function WithAgency({ children, needs }: { children: (agency: MyAgency) =
         Ask your agency to invite you.
       </div>
     );
-  // Reached by a link while another agency is chosen in the switcher.
+  // Reached by a link to a queue this agency does not have.
   if (needs && !agency.handles[needs])
     return (
-      <>
-        <div className="page-head">
-          <div />
-          <AgencySwitcher />
-        </div>
-        <div className="card empty">
-          <strong>{NOT_HANDLED[needs][0]}</strong>
-          {NOT_HANDLED[needs][1]}
-        </div>
-      </>
+      <div className="card empty">
+        <strong>{NOT_HANDLED[needs][0]}</strong>
+        {NOT_HANDLED[needs][1]}
+      </div>
     );
   return <>{children(agency)}</>;
 }

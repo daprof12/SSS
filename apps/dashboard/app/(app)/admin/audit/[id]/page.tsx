@@ -1,6 +1,7 @@
 'use client';
 // Board "Admin audit entry": one entry, read only, with where it came from, related entries and
 // whether its place in the hash chain still checks out.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { api, ApiError } from '@erp/web-ui/api';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -56,9 +57,9 @@ export default function AuditEntry() {
           <p className="lede">{e ? `${new Date(e.at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}, read only` : ' '}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Link className="btn" href="/admin/audit">
+          <LinkButton className="btn" href="/admin/audit">
             Back to log
-          </Link>
+          </LinkButton>
           <button className="btn" type="button" disabled={!e} onClick={exportEntry}>
             Export entry
           </button>

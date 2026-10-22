@@ -4,7 +4,7 @@
 import { formatNaira } from '@erp/domain';
 import { api, ApiError } from '@erp/web-ui/api';
 import { useEffect, useState } from 'react';
-import { AgencySwitcher, dateTime, useToast, WithAgency, type MyAgency } from '@/components/Agency';
+import { dateTime, useToast, WithAgency, type MyAgency } from '@/components/Agency';
 
 interface Summary {
   rule: { fiveStarKobo: number; fourStarPct: number; split: 'equal' | 'lead_first'; active: boolean };
@@ -41,7 +41,6 @@ function Payouts({ agency }: { agency: MyAgency }) {
           <h1>Payouts</h1>
           <p className="lede">Rewards for rated responses, paid to your officers’ wallets from the platform rewards pool.</p>
         </div>
-        <AgencySwitcher />
       </div>
       {error && (
         <div className="banner critical" role="alert">

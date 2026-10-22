@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -369,9 +370,9 @@ export function IssuesList({ base, back }: { base: string; back: string | false 
           <span className={`chip ${r.state === 'fixed' ? 'success' : r.state === 'awaiting_check' ? 'warning' : 'info'}`}>{r.status.title}</span>
         </Link>
       ))}
-      <Link href={`${base}/new`} className="btn block primary" style={{ marginTop: 12 }}>
+      <LinkButton href={`${base}/new`} className="btn block primary" style={{ marginTop: 12 }}>
         <Icon name="road" /> Report a problem
-      </Link>
+      </LinkButton>
     </main>
   );
 }

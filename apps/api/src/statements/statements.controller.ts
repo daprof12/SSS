@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import { CurrentUser, Public, type Principal } from '../core/auth';
 import { AppError, ZodPipe } from '../core/http';
+import { DateFields } from '../core/date-range';
 import { LocationQuery } from '../core/location-filter';
 import { hasRole } from '../core/auth';
 import { StatementsService } from './statements.service';
@@ -31,6 +32,7 @@ const ListQ = LocationQuery.extend({
   status: z.enum(['requested', 'draft', 'signed', 'change_requested']).optional(),
   role: z.enum(['complainant', 'victim', 'witness', 'suspect', 'officer']).optional(),
   q: z.string().max(60).optional(),
+  ...DateFields,
 });
 const Token = z.string().regex(/^[A-Za-z0-9_-]{20,64}$/, 'This link is not valid.');
 

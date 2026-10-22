@@ -4,15 +4,44 @@ import type { Queryable } from '../core/db';
 /** Live agencies receive reports; overdue ones too — billing never stops a report reaching them. */
 export const RECEIVING = ['live', 'overdue', 'offboarding'];
 
-/** First onboarded agency of the given kinds, in the catalogue's order. */
-export async function receivingAgency(c: Queryable, kinds: string[]): Promise<{ id: string; name: string } | null> {
+/**
+ * The agency that receives a tip or public issue, and its station for the place. Agencies are tried
+ * in the category's order of kinds; among agencies of one kind, the one with a station covering the
+ * place wins (its areas, or its zone), then the one with the nearest station. Without a place, or
+ * when the agency has no stations yet, there is no station.
+ */
+export async function receivingAgency(
+  c: Queryable,
+  kinds: string[],
+  place: { locationId?: string | null; lat?: number | null; lng?: number | null } = {},
+): Promise<{ id: string; name: string; stationId: string | null; stationName: string | null } | null> {
   if (!kinds.length) return null;
   const r = await c.query(
-    `select id, name from agencies where kind = any($1::text[]) and status = any($2::text[])
-      order by array_position($1::text[], kind), created_at limit 1`,
-    [kinds, RECEIVING],
+    `with place as (
+       select * from (
+         select 0 as k, l.geom, l.lga_id, l.district_id, l.area_id from locations l where l.id = $3::uuid
+         union all
+         select 1, st_setsrid(st_makepoint($5::float8, $4::float8), 4326)::geography, null::text, null::text, null::text where $4::float8 is not null and $5::float8 is not null
+       ) x order by k limit 1
+     )
+     select a.id, a.name, s.id as station_id, s.name as station_name
+       from agencies a
+       left join lateral (
+         select st.id, st.name,
+                (coalesce(st_covers(st.zone, p.geom), false) or exists (
+                   select 1 from station_areas sa where sa.station_id = st.id
+                      and ((sa.level = 'area' and sa.area_id = p.area_id) or (sa.level = 'district' and sa.area_id = p.district_id) or (sa.level = 'lga' and sa.area_id = p.lga_id)))) as covers,
+                st_distance(coalesce(st.zone::geometry, sl.geom::geometry)::geography, p.geom) as d
+           from stations st left join locations sl on sl.id = st.location_id cross join place p
+          where st.agency_id = a.id and st.status = 'active'
+          order by covers desc, d nulls last limit 1
+       ) s on true
+      where a.kind = any($1::text[]) and a.status = any($2::text[])
+      order by array_position($1::text[], a.kind), s.covers desc nulls last, s.d nulls last, a.created_at limit 1`,
+    [kinds, RECEIVING, place.locationId ?? null, place.lat ?? null, place.lng ?? null],
   );
-  return r.rows[0] ?? null;
+  const x = r.rows[0];
+  return x ? { id: x.id, name: x.name, stationId: x.station_id ?? null, stationName: x.station_name ?? null } : null;
 }
 
 /** Short public reference people can read out on the phone, e.g. T-482913. */

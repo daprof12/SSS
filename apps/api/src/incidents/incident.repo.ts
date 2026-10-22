@@ -76,7 +76,7 @@ export class IncidentRepo {
       this.db.query(
         `select iu.officer_id, iu.state, ou.display_name, o.badge_no, s.name as station_name,
                 st_y(o.last_location::geometry) as o_lat, st_x(o.last_location::geometry) as o_lng,
-                (select round(avg(r.stars)::numeric, 1) from ratings r join incident_units x on x.incident_id = r.incident_id where x.officer_id = iu.officer_id) as rating
+                (select round(avg(r.stars)::numeric, 1) from ratings r join incident_units x on x.incident_id = r.incident_id where x.officer_id = iu.officer_id and x.accepted_at is not null) as rating
            from incident_units iu
            join stations s on s.id = iu.station_id
            left join officers o on o.user_id = iu.officer_id
@@ -106,7 +106,7 @@ export class IncidentRepo {
         ? (
             await this.db.query(
               `select iu.officer_id, ou.display_name, o.badge_no, s.name as station_name, null::float8 as o_lat, null::float8 as o_lng,
-                      (select round(avg(r.stars)::numeric, 1) from ratings r join incident_units x on x.incident_id = r.incident_id where x.officer_id = iu.officer_id) as rating
+                      (select round(avg(r.stars)::numeric, 1) from ratings r join incident_units x on x.incident_id = r.incident_id where x.officer_id = iu.officer_id and x.accepted_at is not null) as rating
                  from incident_units iu join stations s on s.id = iu.station_id
                  left join officers o on o.user_id = iu.officer_id left join users ou on ou.id = iu.officer_id
                 where iu.incident_id = $1 and iu.accepted_at is not null order by iu.accepted_at desc limit 1`,
@@ -144,7 +144,7 @@ export class IncidentRepo {
         name: lead.display_name,
         badgeNo: lead.badge_no,
         stationName: lead.station_name,
-        rating: lead.rating ? Number(lead.rating) : 0,
+        rating: lead.rating != null ? Number(lead.rating) : null,
         location: lead.o_lat != null ? { lat: lead.o_lat, lng: lead.o_lng } : undefined,
       },
       etaMinutes: i.eta_minutes ?? undefined,

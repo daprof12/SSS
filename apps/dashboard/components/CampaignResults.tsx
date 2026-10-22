@@ -1,8 +1,8 @@
 'use client';
 // Board "Admin campaign results" (also used by agency messaging): who was reached by which channel, why some were not, the
 // fallback from push to SMS, and the cost. Waiting campaigns are approved here by a second admin.
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { api, ApiError, downloadFile } from '@erp/web-ui/api';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/Agency';
@@ -87,9 +87,9 @@ export function CampaignResults({ id, apiBase, backHref }: { id: string; apiBase
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Link className="btn" href={backHref}>
+          <LinkButton className="btn" href={backHref}>
             Back to campaigns
-          </Link>
+          </LinkButton>
           <button className="btn" type="button" disabled={!r?.sentAt} onClick={() => downloadFile(`${apiBase}/campaigns/${id}/results.csv`, 'campaign-results.csv').catch((e) => setToast(e.message))}>
             Export results
           </button>

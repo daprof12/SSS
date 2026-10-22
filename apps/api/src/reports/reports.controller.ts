@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentUser, type Principal } from '../core/auth';
+import { DateRangeQuery, type DateRange } from '../core/date-range';
 import { ZodPipe } from '../core/http';
 import { IssuesService } from './issues.service';
 import { TipsService } from './tips.service';
@@ -126,8 +127,8 @@ export class ReportsController {
 
   // ---------- agency side
   @Get('agencies/:agencyId/tips')
-  agencyTips(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Query('tab', new ZodPipe(AgencyTipTab)) tab: z.infer<typeof AgencyTipTab>) {
-    return this.tips.queue(p, a, tab);
+  agencyTips(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Query('tab', new ZodPipe(AgencyTipTab)) tab: z.infer<typeof AgencyTipTab>, @Query(new ZodPipe(DateRangeQuery)) r: DateRange) {
+    return this.tips.queue(p, a, tab, r);
   }
 
   @Get('agencies/:agencyId/tips/:tipId')
@@ -141,8 +142,8 @@ export class ReportsController {
   }
 
   @Get('agencies/:agencyId/issues')
-  agencyIssues(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string) {
-    return this.issues.queue(p, a);
+  agencyIssues(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Query(new ZodPipe(DateRangeQuery)) r: DateRange) {
+    return this.issues.queue(p, a, r);
   }
 
   @Get('agencies/:agencyId/issues/:caseId')

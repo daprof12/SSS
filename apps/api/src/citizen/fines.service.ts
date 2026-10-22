@@ -8,6 +8,7 @@ import { PAYMENTS, type PaymentsAdapter } from '../adapters/payments';
 import { Audit } from '../core/audit';
 import { hasRole, type Principal, requirePerm } from '../core/auth';
 import { Db, type Queryable } from '../core/db';
+import { dateWhere, type DateRange } from '../core/date-range';
 import { AppError } from '../core/http';
 import { notify } from '../reports/shared';
 import { WithdrawalsService } from '../wallet/withdrawals.service';
@@ -282,14 +283,14 @@ export class FinesService {
     requirePerm(p, 'platform.fines');
   }
 
-  async queue(p: Principal, state: string, f?: LocationFilter) {
+  async queue(p: Principal, state: string, f?: LocationFilter & DateRange) {
     this.admin(p);
     const args: unknown[] = [state];
     const where = locationWhere(f, args);
     const r = await this.db.query(
       `${this.SELECT.replace('select f.*', 'select f.*, u.display_name as citizen, coalesce(t.score, 70) as trust')}
          join users u on u.id = f.user_id left join trust_scores t on t.user_id = f.user_id
-        where ($1 = 'all' or f.state = $1) and ${where} order by f.state = 'appealed' desc, f.created_at desc limit 100`,
+        where ($1 = 'all' or f.state = $1) and ${where} and ${dateWhere(f, args, 'f.created_at')} order by f.state = 'appealed' desc, f.created_at desc limit 100`,
       args,
     );
     const counts = (await this.db.query(`select state, count(*)::int as n from fines group by state`)).rows;

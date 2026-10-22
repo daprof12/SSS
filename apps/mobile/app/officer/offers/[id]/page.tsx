@@ -1,5 +1,6 @@
 'use client';
 
+import { LinkButton } from '@erp/web-ui/LinkButton';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useRouter } from 'next/navigation';
 import { use, useEffect, useRef, useState } from 'react';
@@ -155,15 +156,13 @@ export default function OfferPage({ params }: { params: Promise<{ id: string }> 
         <button className="btn" type="button" disabled={!detail?.clipIds?.length} title={detail?.clipIds?.length ? undefined : 'No clips for this report'}>
           Watch clips
         </button>
-        <a
+        <LinkButton
           className="btn"
-          href={detail ? `https://www.google.com/maps/dir/?api=1&destination=${detail.building.location.lat},${detail.building.location.lng}` : undefined}
-          target="_blank"
-          rel="noreferrer"
-          aria-disabled={!detail}
+          href={detail ? `https://www.google.com/maps/dir/?api=1&destination=${detail.building.location.lat},${detail.building.location.lng}` : undefined} newTab
+          disabled={!detail}
         >
           Open map
-        </a>
+        </LinkButton>
       </div>
 
       <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, padding: '12px 16px calc(12px + env(safe-area-inset-bottom))', background: 'var(--color-bg)', maxWidth: 520, margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: 8 }}>
