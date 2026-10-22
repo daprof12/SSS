@@ -3,8 +3,8 @@
 // recovery codes). Development builds also list the demo accounts, which skip both steps.
 import { ROLE_LABEL, type Role } from '@erp/domain';
 import { api, ApiError, setSession } from '@erp/web-ui/api';
+import { Qr } from '@erp/web-ui/Qr';
 import { useRouter } from 'next/navigation';
-import qrcode from 'qrcode-generator';
 import { useEffect, useRef, useState } from 'react';
 
 const DEMO = process.env.NODE_ENV !== 'production';
@@ -230,7 +230,7 @@ export default function SignIn() {
           <>
             <p className="lede">Staff accounts need a second step. Scan this with an authenticator app (Google Authenticator, Microsoft Authenticator or similar), then enter the code it shows.</p>
             <div style={{ display: 'grid', justifyItems: 'center', gap: 8, margin: '8px 0 16px' }}>
-              <Qr text={setup.otpauthUrl} />
+              <Qr text={setup.otpauthUrl} label="QR code to add ERP to your authenticator app" />
               <small className="muted">Cannot scan? Enter this key in the app:</small>
               <code style={{ fontSize: 15, letterSpacing: 1, userSelect: 'all', textAlign: 'center' }}>{setup.key}</code>
             </div>
@@ -313,17 +313,3 @@ export default function SignIn() {
   );
 }
 
-/** The set-up link as a QR code, drawn as SVG squares (no HTML is injected). */
-function Qr({ text }: { text: string }) {
-  const q = qrcode(0, 'M');
-  q.addData(text);
-  q.make();
-  const n = q.getModuleCount();
-  const cells: string[] = [];
-  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) cells.push(`M${c + 4} ${r + 4}h1v1h-1z`);
-  return (
-    <svg viewBox={`0 0 ${n + 8} ${n + 8}`} width={200} height={200} role="img" aria-label="QR code to add ERP to your authenticator app" style={{ background: '#fff', borderRadius: 8 }}>
-      <path d={cells.join('')} fill="#000" shapeRendering="crispEdges" />
-    </svg>
-  );
-}

@@ -13,7 +13,6 @@
     "@erp/tokens": "*",
     "@erp/web-ui": "*",
     "next": "^15.5.0",
-    "qrcode-generator": "1.4.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { Header } from '@/components/AppFrame';
+import { TwoStep } from '@/components/TwoStep';
 import { api, ApiError, haptic, setSession } from '@/lib/client';
 
 interface Verified {
@@ -27,7 +28,8 @@ function Code() {
   const [shake, setShake] = useState(0);
   const [busy, setBusy] = useState(false);
   const [resendIn, setResendIn] = useState(60);
-  const [staffHold, setStaffHold] = useState(false);
+  // Officers and staff: the text-message code is the first step; the authenticator app is the second.
+  const [staff, setStaff] = useState<Verified | null>(null);
   const boxes = useRef<Array<HTMLInputElement | null>>([]);
 
   useEffect(() => {
@@ -45,16 +47,12 @@ function Code() {
         body: JSON.stringify({ phone, code, device: { label: navigator.userAgent.includes('Mobile') ? 'Phone browser' : 'Web browser', platform: 'pwa' } }),
       });
       if (r.secondFactorRequired) {
-        // Officers need two-step login (Public Issues doc §5); that screen is next.
-        setStaffHold(true);
+        setStaff(r);
         setBusy(false);
         return;
       }
-      setSession({ token: r.accessToken, refreshToken: r.refreshToken, name: '', roleLabel: r.surface === 'officer' ? 'Officer' : 'Citizen', surface: r.surface });
       haptic(30);
-      const me = await api<{ name: string; onboarding: { done: boolean } }>('/me');
-      setSession({ token: r.accessToken, refreshToken: r.refreshToken, name: me.name, roleLabel: 'Citizen', surface: r.surface });
-      router.replace(r.surface === 'officer' ? '/officer' : me.onboarding.done ? '/home' : '/welcome');
+      await finish(r, r.accessToken);
     } catch (x) {
       setErr(x instanceof ApiError ? x.message : 'Something went wrong. Try again.');
       setShake((n) => n + 1);
@@ -64,6 +62,15 @@ function Code() {
       // After re-enabling the boxes, or focus has nowhere to go.
       requestAnimationFrame(() => boxes.current[0]?.focus());
     }
+  };
+
+  /** Signed in (after the second step for staff): keep the session and open the right app. */
+  const finish = async (r: Verified, accessToken: string) => {
+    const roleLabel = r.surface === 'officer' ? 'Officer' : 'Citizen';
+    setSession({ token: accessToken, refreshToken: r.refreshToken, name: '', roleLabel, surface: r.surface });
+    const me = await api<{ name: string; onboarding: { done: boolean } }>('/me');
+    setSession({ token: accessToken, refreshToken: r.refreshToken, name: me.name, roleLabel, surface: r.surface });
+    router.replace(r.surface === 'officer' ? '/officer' : me.onboarding.done ? '/home' : '/welcome');
   };
 
   const setAt = (i: number, v: string) => {
@@ -98,15 +105,13 @@ function Code() {
     }
   };
 
-  if (staffHold) {
+  if (staff) {
     return (
-      <main className="app bare">
-        <Header title="Two-step login" back="/sign-in" />
-        <div className="banner warning">
-          <strong>Officers need a second step</strong>
-          Two-step login with an authenticator app comes next. Until then, use the demo officer accounts in development.
-        </div>
-      </main>
+      <TwoStep
+        token={staff.accessToken}
+        onDone={(accessToken) => void finish(staff, accessToken).catch((x) => (setStaff(null), setErr(x instanceof ApiError ? x.message : 'Could not sign in.')))}
+        onRestart={(reason) => router.replace(`/sign-in${reason ? `?note=${reason}` : ''}`)}
+      />
     );
   }
 

@@ -8,13 +8,25 @@ import { Icon } from '@/components/Icon';
 import { api, ApiError } from '@/lib/client';
 
 /** Welcome and phone entry (boards "Welcome sign up or log in", "Sign in"). Phone first (C6). */
+/** Fixed wording only: the address bar never puts its own text on this page. */
+const NOTES: Record<string, string> = {
+  mfa_locked: 'Too many wrong codes. Sign in again with your phone.',
+  session_ended: 'Your session ended. Sign in again with your phone.',
+};
+
 export default function SignIn() {
   const router = useRouter();
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [signedOut, setSignedOut] = useState(false);
-  useEffect(() => setSignedOut(new URLSearchParams(window.location.search).get('signedOut') === '1'), []);
+  // Why sign-in started again, from two-step login (for example too many wrong codes).
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    setSignedOut(q.get('signedOut') === '1');
+    setNote(NOTES[q.get('note') ?? ''] ?? null);
+  }, []);
 
   const go = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,6 +45,11 @@ export default function SignIn() {
 
   return (
     <main className="app bare">
+      {note && (
+        <div className="banner warning" role="alert">
+          {note}
+        </div>
+      )}
       {signedOut && (
         <div className="banner success" role="status">
           You are signed out. Sign in again with your phone number.
