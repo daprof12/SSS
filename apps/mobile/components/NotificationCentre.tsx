@@ -39,7 +39,7 @@ export function routeFor(link: string | null, surface: 'citizen' | 'officer' | u
 }
 
 /** Notification centre: tabs, unread dot, mark all read (States doc). Shared by both surfaces. */
-export function NotificationCentre({ back }: { back: string }) {
+export function NotificationCentre({ back, top }: { back: string; /** Shown above the tabs (the officer's alerts card). */ top?: React.ReactNode }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>('all');
   const [data, setData] = useState<{ unread: number; items: Note[]; empty: string } | null>(null);
@@ -80,6 +80,7 @@ export function NotificationCentre({ back }: { back: string }) {
           </button>
         )}
       </Header>
+      {top}
       <div className="tabs" role="tablist">
         {(['all', 'reports', 'money', 'account'] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} type="button" onClick={() => setTab(t)}>

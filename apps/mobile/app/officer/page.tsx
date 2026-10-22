@@ -9,6 +9,7 @@ import { Avatar } from '@erp/web-ui/Avatar';
 import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError, getSession, haptic, locate, typeInfo } from '@/lib/client';
 import { AgencyLogo } from '@erp/web-ui/AgencyLogo';
+import { AlertsCard } from '@/components/AlertsCard';
 
 interface Item {
   id: string;
@@ -135,6 +136,8 @@ export default function OfficerHome() {
           {unread > 0 && <span className="dot" />}
         </Link>
       </header>
+
+      <AlertsCard compact />
 
       {h?.banner && (
         <div className="banner warning" role="status">

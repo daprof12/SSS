@@ -11,6 +11,9 @@ import { KYC, MockKycAdapter } from './adapters/kyc';
 import { MockPaystackAdapter, PAYMENTS } from './adapters/payments';
 import { MockPostcodeAdapter, POSTCODE } from './adapters/postcode';
 import { LoggedSmsAdapter, SMS, smsFromEnv } from './adapters/sms';
+import { PUSH, pushFromEnv } from './adapters/push';
+import { PushController } from './push/push.controller';
+import { PushService } from './push/push.service';
 import { MockWhatsAppAdapter, WHATSAPP } from './adapters/whatsapp';
 import { MockStorageAdapter, STORAGE } from './adapters/storage';
 import { Audit } from './core/audit';
@@ -89,6 +92,7 @@ export class AppModule {
       module: AppModule,
       controllers: [
         HealthController,
+        PushController,
         AgencyLogoController,
         CitizenController,
         DashboardsController,
@@ -164,11 +168,14 @@ export class AppModule {
         BriefService,
         BountiesService,
         JobsService,
+        PushService,
         // Mock adapters — swap each for the real provider once its contract is signed.
         { provide: POSTCODE, useValue: new MockPostcodeAdapter() },
         { provide: KYC, useValue: new MockKycAdapter() },
         { provide: PAYMENTS, useValue: new MockPaystackAdapter(config.paystackSecret, config.publicBaseUrl) },
         // Termii in production (SMS_PROVIDER), the mock in development and tests; every send is logged.
+        // Web push with VAPID keys in production; a mock outbox in development without keys and in tests.
+        { provide: PUSH, useValue: pushFromEnv(config.env, process.env) },
         { provide: SMS, useFactory: (db: Db) => new LoggedSmsAdapter(smsFromEnv(config.env, process.env), db.pool), inject: [Db] },
         { provide: STORAGE, useValue: new MockStorageAdapter(config.publicBaseUrl) },
         { provide: APP_GUARD, useClass: AuthGuard },

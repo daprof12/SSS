@@ -663,3 +663,18 @@ The 5-second cancel window and each offer's accept time are timed in the API pro
 - **A report waiting to be routed whose routing never ran** (the server stopped in between): it is routed now. A report where nobody was free is left alone; the station was already told.
 
 Every step is guarded in the database (a state check under a row lock, or a guarded update), so two servers sweeping at once never double-apply. This also makes running more than one API server safe for dispatch. Tests: `test/restart.e2e.test.ts`.
+
+## Push alerts (officers get offers with the app closed)
+
+- **How it reaches the phone:**
+  - Web Push (VAPID) to the installed app.
+  - Every notification the platform already writes (offers, direct assignments, "officer needs help", report updates, ratings and so on) is picked up from the database every 1.5 seconds (`PUSH_POLL_MS`) and pushed to that person's devices. Like the incident sweep, it survives restarts, and several servers share the work.
+  - Offers and safety alerts go as **urgent**: they stay on screen until acted on, vibrate, expire after 2 minutes, and replace an earlier alert for the same report.
+  - Dispatch, safety, account and money alerts are always pushed. Learn and marketing are pushed only if the person turned them on. Notifications older than 10 minutes are not pushed.
+- **Phone app:**
+  - The officer home shows "Turn on offer alerts" until alerts are on.
+  - The officer's Notifications screen has "Alerts on this phone", with Turn on, Send a test and Turn off.
+  - iPhones need ERP added to the Home Screen first, and the card says so. If notifications are blocked, it explains how to allow them.
+  - Tapping an alert opens `/open`, which sends the person to the right page; only known app pages are allowed.
+- **API:** `GET /push/key`, `GET|POST|DELETE /me/push`, `POST /me/push/test`. Devices the browser has dropped are forgotten automatically. CRM campaigns now treat "has a push device" (not just "signed in") as reachable by push, and send SMS to everyone else. Migration `033_push.sql`.
+- **Production:** set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` contact). Make the keys once with `npx web-push generate-vapid-keys` and keep them: changing them drops every device. The API refuses to start in production without them. Development without keys uses a mock.

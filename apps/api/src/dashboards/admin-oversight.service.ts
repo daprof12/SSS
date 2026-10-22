@@ -458,7 +458,7 @@ export class AdminOversightService {
     const rows = (
       await c.query(
         `select u.id, u.phone, u.whatsapp_opt_in,
-                exists (select 1 from sessions x where x.user_id = u.id and x.revoked_at is null) as has_push,
+                exists (select 1 from push_subscriptions x where x.user_id = u.id) as has_push,
                 exists (select 1 from notification_prefs np where np.user_id = u.id and np.grp = 'marketing' and not np.enabled) as opted_out
            from users u
           where u.status = 'active'
@@ -683,12 +683,12 @@ export class AdminOversightService {
     const x = (
       await this.db.query(
         `select count(*)::int as people,
-                count(*) filter (where pushed_at is not null)::int as push_sent, count(*) filter (where pushed_at is not null and n.read_at is not null)::int as push_read,
-                count(*) filter (where sms_at is not null)::int as sms_sent, count(*) filter (where pushed_at is not null and sms_at is not null)::int as moved_sms,
-                count(*) filter (where whatsapp_at is not null)::int as wa_sent,
-                count(*) filter (where pushed_at is not null and n.read_at is not null and sms_at is null)::int as push_only,
-                count(*) filter (where pushed_at is null and sms_at is null and whatsapp_at is null)::int as nothing,
-                count(*) filter (where failure is not null)::int as failed,
+                count(*) filter (where x.pushed_at is not null)::int as push_sent, count(*) filter (where x.pushed_at is not null and n.read_at is not null)::int as push_read,
+                count(*) filter (where x.sms_at is not null)::int as sms_sent, count(*) filter (where x.pushed_at is not null and x.sms_at is not null)::int as moved_sms,
+                count(*) filter (where x.whatsapp_at is not null)::int as wa_sent,
+                count(*) filter (where x.pushed_at is not null and n.read_at is not null and x.sms_at is null)::int as push_only,
+                count(*) filter (where x.pushed_at is null and x.sms_at is null and x.whatsapp_at is null)::int as nothing,
+                count(*) filter (where x.failure is not null)::int as failed,
                 count(*) filter (where n.read_at is not null)::int as read
            from crm_deliveries x left join notifications n on n.id = x.notification_id where x.campaign_id = $1`,
         [id],
