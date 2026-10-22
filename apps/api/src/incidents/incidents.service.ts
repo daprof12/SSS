@@ -28,6 +28,9 @@ const PUBLIC_LABELS: Partial<Record<string, string>> = {
   window_elapsed: 'Report received',
   route: 'Sent to the nearest team',
   assign: 'Sent to a team',
+  direct_assign: 'Help accepted',
+  reassign: 'Changing officers',
+  cant_go: 'Changing teams',
   offer_timeout: 'Passed to the next team',
   reoffer: 'Sent to another officer',
   accept: 'Help accepted',
@@ -41,6 +44,15 @@ const PUBLIC_LABELS: Partial<Record<string, string>> = {
   cancel_in_window: 'Cancelled before sending',
   report_joined: 'Someone else reported this too',
   reinforce: 'More help is coming',
+};
+
+export const CANT_GO_LABELS: Record<string, string> = {
+  already_busy: 'Already on another job',
+  vehicle: 'No vehicle, or it broke down',
+  unsafe: 'Not safe to go alone',
+  too_far: 'Too far away',
+  unwell: 'Unwell or injured',
+  other: 'Other',
 };
 
 const DECLINE_LABELS: Record<string, string> = { busy: 'Busy on another incident', too_far: 'Too far away', off_duty: 'Going off duty', other: 'Other' };
@@ -766,7 +778,7 @@ export class IncidentsService implements OnModuleDestroy {
       await c.query(
         `select i.type, i.eta_minutes, l.postcode,
                 (select ou.display_name from incident_units u join users ou on ou.id = u.officer_id
-                  where u.incident_id = i.id and u.state in ('accepted', 'en_route', 'on_scene', 'dropped') order by u.accepted_at desc nulls last limit 1) as officer,
+                  where u.incident_id = i.id and u.state in ('accepted', 'en_route', 'on_scene', 'dropped', 'cant_go', 'released') order by u.accepted_at desc nulls last limit 1) as officer,
                 (select s.name from stations s where s.id = i.station_id) as station
            from incidents i left join locations l on l.id = i.location_id where i.id = $1`,
         [incidentId],
@@ -788,6 +800,11 @@ export class IncidentsService implements OnModuleDestroy {
         return toCitizens('report_received', 'Report received', 'We got your report. Finding the nearest team.');
       case 'accept':
         return toCitizens('team_accepted', 'Help accepted', `${info.officer ?? 'An officer'} from ${info.station ?? 'the station'} is on the way.${info.eta_minutes ? ` About ${info.eta_minutes} ${info.eta_minutes === 1 ? 'minute' : 'minutes'}.` : ''}`);
+      case 'direct_assign':
+        return toCitizens('team_accepted', 'Help accepted', `${info.officer ?? 'An officer'} from ${info.station ?? 'the station'} is on the way.`);
+      case 'reassign':
+        return toCitizens('officer_changed', 'New officer', `${info.officer ?? 'Another officer'} from ${info.station ?? 'the station'} is coming instead.`);
+      case 'cant_go':
       case 'officer_drop':
         return toCitizens('officer_cancelled', 'Changing teams', `${info.officer ?? 'The officer'} cannot come. We are sending another team.`);
       case 'arrive':
@@ -856,32 +873,231 @@ export class IncidentsService implements OnModuleDestroy {
     return { ok: true };
   }
 
-  /** Station hand-picks an officer (S-1 Assign unit). The officer still has to accept. */
-  async assign(p: Principal, id: string, officerId: string) {
-    const { row } = await this.pickActor(p, id, 'assign', ['station']);
-    const officer = (
+  // ---------------------------------------------------------------- station assign and reassign
+
+  /** Head or dispatcher, for the audit log. */
+  private staffRole(p: Principal, stationId: string | null) {
+    return stationId && hasRole(p, 'head', stationId) ? 'head' : 'dispatcher';
+  }
+
+  /** The officer the station chose: at this station, on duty, badge verified and not on another report. */
+  private async chosenOfficer(officerId: string, stationId: string | null) {
+    const o = (
       await this.db.query(
-        `select o.user_id, o.on_duty, o.badge_status,
-                exists (select 1 from incident_units u where u.officer_id = o.user_id and u.state in ('accepted', 'en_route', 'on_scene')) as busy
-           from officers o where o.user_id = $1 and o.station_id = $2`,
-        [officerId, row.station_id],
+        `select o.user_id, o.on_duty, o.badge_status, u.display_name as name,
+                exists (select 1 from incident_units x where x.officer_id = o.user_id and x.state in ('accepted', 'en_route', 'on_scene')) as busy
+           from officers o join users u on u.id = o.user_id where o.user_id = $1 and o.station_id = $2`,
+        [officerId, stationId],
       )
     ).rows[0];
-    if (!officer) throw new AppError(422, 'officer_not_found', 'Choose an officer from your station.');
-    if (officer.badge_status !== 'verified') throw new AppError(422, 'badge_not_verified', 'This officer cannot take reports until their badge is verified.');
-    if (!officer.on_duty) throw new AppError(422, 'off_duty', 'This officer is off duty.');
-    if (officer.busy) throw new AppError(422, 'officer_busy', 'This officer is already on a report.');
+    if (!o) throw new AppError(422, 'officer_not_found', 'Choose an officer from your station.');
+    if (o.badge_status !== 'verified') throw new AppError(422, 'badge_not_verified', 'This officer cannot take reports until their badge is verified.');
+    if (!o.on_duty) throw new AppError(422, 'off_duty', 'This officer is off duty.');
+    if (o.busy) throw new AppError(422, 'officer_busy', 'This officer is already on a report.');
+    return o as { user_id: string; name: string };
+  }
 
-    const windowS = (await this.db.query(`select accept_window_seconds from stations where id = $1`, [row.station_id])).rows[0].accept_window_seconds;
-    const to = await this.transition(id, 'assign', 'station', p.userId, async (c) => {
-      await c.query(
-        `insert into incident_units (incident_id, station_id, officer_id, role, offer_expires_at) values ($1, $2, $3, 'primary', now() + make_interval(secs => $4))`,
-        [id, row.station_id, officerId, windowS],
-      );
-      return { officerId };
-    });
-    this.schedule(`offer:${id}:${officerId}`, windowS * 1000, () => this.offerTimeout(id, officerId, []));
-    return to;
+  /**
+   * Stalled: nobody has the report and the normal offers are not getting anywhere. It escalated or
+   * is waiting to be routed, an officer already declined it or let it run out, or it has waited
+   * longer than two accept windows.
+   */
+  async stalled(row: IncidentRow): Promise<boolean> {
+    if (['received', 'escalated', 'reassigning', 'transferred'].includes(row.state)) return true;
+    if (row.state !== 'offered') return false;
+    const r = (
+      await this.db.query(
+        `select (select count(*) from incident_units x where x.incident_id = i.id and x.state in ('declined', 'expired', 'cant_go'))::int as passed,
+                extract(epoch from now() - coalesce(i.received_at, i.created_at))::int as age, coalesce(s.accept_window_seconds, 60) as w
+           from incidents i left join stations s on s.id = i.station_id where i.id = $1`,
+        [row.id],
+      )
+    ).rows[0];
+    return r.passed > 0 || r.age >= 2 * r.w;
+  }
+
+  /** Pulls offers still running; they do not count against those officers. */
+  private async withdrawOffers(c: Queryable, id: string, why: string) {
+    const w = await c.query(`update incident_units set state = 'withdrawn', ended_at = now() where incident_id = $1 and state = 'offered' returning officer_id`, [id]);
+    for (const r of w.rows) {
+      clearTimeout(this.timers.get(`offer:${id}:${r.officer_id}`));
+      await c.query(`insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'offer_withdrawn', 'dispatch', 'in_app', 'Offer withdrawn', $2, $3)`, [
+        r.officer_id,
+        `${why} Nothing was recorded against you.`,
+        `/offers/${id}`,
+      ]);
+    }
+  }
+
+  /**
+   * The station puts an officer on the report (S-1 Assign unit).
+   * - offer: the officer gets the offer and has to accept it in time. It replaces an offer still running.
+   * - direct: only once the report has stalled. The officer is on it at once, with the station's
+   *   reason, and can answer "can't go".
+   */
+  async assign(p: Principal, id: string, b: { officerId: string; mode?: 'offer' | 'direct'; reason?: string }) {
+    const mode = b.mode ?? 'offer';
+    const reason = b.reason?.trim() || null;
+    const event = mode === 'direct' ? 'direct_assign' : 'assign';
+    const { row } = await this.pickActor(p, id, event, ['station']);
+    const o = await this.chosenOfficer(b.officerId, row.station_id);
+    if (mode === 'direct') {
+      if (!reason) throw new AppError(422, 'reason_required', 'Say why you are sending this officer.');
+      if (!(await this.stalled(row))) {
+        throw new AppError(409, 'not_stalled', 'Send an officer directly only when nobody has taken the report. Offer it to them instead, or wait for the offer to run out.');
+      }
+    }
+    const pc = (await this.db.query(`select l.postcode from incidents i left join locations l on l.id = i.location_id where i.id = $1`, [id])).rows[0]?.postcode ?? 'GPS location';
+    const what = `${cap(row.type)} at ${pc}`;
+
+    if (mode === 'offer') {
+      const windowS = (await this.db.query(`select accept_window_seconds from stations where id = $1`, [row.station_id])).rows[0].accept_window_seconds;
+      const to = await this.transition(id, 'assign', 'station', p.userId, async (c) => {
+        await this.withdrawOffers(c, id, `The station offered ${what} to another officer.`);
+        await c.query(
+          `insert into incident_units (incident_id, station_id, officer_id, role, offer_expires_at, assign_mode, assigned_by, assign_reason)
+           values ($1, $2, $3, 'primary', now() + make_interval(secs => $4), 'offer', $5, $6)`,
+          [id, row.station_id, o.user_id, windowS, p.userId, reason],
+        );
+        return { officerId: o.user_id, reason, staffLabel: `Offered to ${o.name} by the station` };
+      });
+      this.schedule(`offer:${id}:${o.user_id}`, windowS * 1000, () => this.offerTimeout(id, o.user_id, []));
+      await this.audit.write({ actorId: p.userId, actorRole: this.staffRole(p, row.station_id), action: 'incident.assign_offer', entity: 'incident', entityId: id, payload: { officerId: o.user_id, reason } });
+      return { state: to, message: `Offered to ${o.name}. They have to accept in time.` };
+    }
+
+    const to = await this.transition(
+      id,
+      'direct_assign',
+      'station',
+      p.userId,
+      async (c) => {
+        await this.withdrawOffers(c, id, `The station sent another officer to ${what}.`);
+        await c.query(
+          `insert into incident_units (incident_id, station_id, officer_id, role, state, accepted_at, assign_mode, assigned_by, assign_reason)
+           values ($1, $2, $3, 'primary', 'accepted', now(), 'direct', $4, $5)`,
+          [id, row.station_id, o.user_id, p.userId, reason],
+        );
+        await c.query(`insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'direct_assignment', 'dispatch', 'in_app', 'Assigned by your station', $2, $3)`, [
+          o.user_id,
+          `Go to ${what} now. ${reason} If you cannot go, say so in the app.`,
+          `/incidents/${id}`,
+        ]);
+        return { officerId: o.user_id, reason, staffLabel: `Sent directly: ${o.name}. ${reason}` };
+      },
+      { eta_minutes: null },
+    );
+    await this.audit.write({ actorId: p.userId, actorRole: this.staffRole(p, row.station_id), action: 'incident.assign_direct', entity: 'incident', entityId: id, payload: { officerId: o.user_id, reason } });
+    return { state: to, message: `${o.name} is on the report now.` };
+  }
+
+  /** The station moves the report from the officer on it to another officer it chooses. */
+  async reassignTo(p: Principal, id: string, b: { officerId: string; reason: string }) {
+    const { row } = await this.pickActor(p, id, 'reassign', ['station']);
+    const reason = b.reason.trim();
+    if (!reason) throw new AppError(422, 'reason_required', 'Say why you are reassigning.');
+    const o = await this.chosenOfficer(b.officerId, row.station_id);
+    const pc = (await this.db.query(`select l.postcode from incidents i left join locations l on l.id = i.location_id where i.id = $1`, [id])).rows[0]?.postcode ?? 'GPS location';
+    const what = `${cap(row.type)} at ${pc}`;
+    const to = await this.transition(
+      id,
+      'reassign',
+      'station',
+      p.userId,
+      async (c) => {
+        const off = await c.query(
+          `update incident_units x set state = 'released', ended_at = now() from users u
+            where x.incident_id = $1 and x.role = 'primary' and x.state in ('accepted', 'en_route') and u.id = x.officer_id returning x.officer_id, u.display_name`,
+          [id],
+        );
+        for (const r of off.rows) {
+          await c.query(`insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'reassigned_off', 'dispatch', 'in_app', 'Taken off a report', $2, $3)`, [
+            r.officer_id,
+            `Your station moved ${what} to ${o.name}: ${reason}`,
+            `/incidents/${id}`,
+          ]);
+        }
+        await c.query(
+          `insert into incident_units (incident_id, station_id, officer_id, role, state, accepted_at, assign_mode, assigned_by, assign_reason)
+           values ($1, $2, $3, 'primary', 'accepted', now(), 'reassign', $4, $5)`,
+          [id, row.station_id, o.user_id, p.userId, reason],
+        );
+        await c.query(`insert into notifications (user_id, type, grp, channel, title, body, deep_link) values ($1, 'direct_assignment', 'dispatch', 'in_app', 'Assigned by your station', $2, $3)`, [
+          o.user_id,
+          `Go to ${what} now. It was moved to you: ${reason} If you cannot go, say so in the app.`,
+          `/incidents/${id}`,
+        ]);
+        const from = off.rows.map((r) => r.display_name).join(', ') || 'the officer';
+        return { officerId: o.user_id, from: off.rows.map((r) => r.officer_id), reason, staffLabel: `Reassigned from ${from} to ${o.name}. ${reason}` };
+      },
+      { eta_minutes: null },
+    );
+    await this.audit.write({ actorId: p.userId, actorRole: this.staffRole(p, row.station_id), action: 'incident.reassign', entity: 'incident', entityId: id, payload: { officerId: o.user_id, reason } });
+    return { state: to, message: `Moved to ${o.name}. The reporter is told a new officer is coming.` };
+  }
+
+  /**
+   * "Can't go": an officer the station sent (directly, by reassigning, or as the second unit) says
+   * they cannot. It is not held against them. The station is told; a first unit's report goes to
+   * the next free officer, a second unit is simply stood down.
+   */
+  async cantGo(p: Principal, id: string, b: { reason: string; note?: string }) {
+    const label = CANT_GO_LABELS[b.reason];
+    if (!label) throw new AppError(422, 'reason_required', 'Choose why you cannot go.');
+    const note = b.note?.trim() || null;
+    if (b.reason === 'other' && !note) throw new AppError(422, 'note_required', 'Say why you cannot go.');
+    const { row } = await this.pickActor(p, id, 'cant_go', ['officer']);
+    const u = (await this.db.query(`select id, role, state, assign_mode from incident_units where incident_id = $1 and officer_id = $2 and state in ('accepted', 'en_route') order by offered_at desc limit 1`, [id, p.userId])).rows[0];
+    if (!u) throw new AppError(409, 'not_on_way', 'You can say you cannot go only before you arrive.');
+    if (u.role !== 'reinforcement' && !['direct', 'reassign'].includes(u.assign_mode)) {
+      throw new AppError(409, 'self_accepted', 'You accepted this report yourself. Use Hand over to pass it on.');
+    }
+    const why = note ? `${label}: ${note}` : label;
+    const name = (await this.db.query(`select display_name from users where id = $1`, [p.userId])).rows[0]?.display_name ?? 'An officer';
+    const pc = (await this.db.query(`select l.postcode from incidents i left join locations l on l.id = i.location_id where i.id = $1`, [id])).rows[0]?.postcode ?? 'GPS location';
+    const otherFirst = (await this.db.query(`select 1 from incident_units where incident_id = $1 and role = 'primary' and state in ('accepted', 'en_route', 'on_scene') and id <> $2`, [id, u.id])).rowCount;
+    const markUnit = (c: Queryable) => c.query(`update incident_units set state = 'cant_go', cant_go_reason = $2, ended_at = now() where id = $1`, [u.id, why]);
+    const tellStation = (c: Queryable, after: string) =>
+      row.station_id ? this.notifyStationHeads(c, row.station_id, 'cant_go', "Officer can't go", `${name} can't go to ${cap(row.type)} at ${pc}: ${why}. ${after}`, id) : Promise.resolve();
+
+    if (u.role === 'reinforcement' || otherFirst) {
+      await this.db.tx(async (c) => {
+        await markUnit(c);
+        await this.logEvent(c, id, p.userId, 'officer', 'cant_go', null, null, { label: `${name} can't go: ${why}`, reason: b.reason, note }, false);
+        await tellStation(c, 'Send someone else if you still need a second unit.');
+      });
+      this.publish(id, 'cant_go');
+    } else {
+      await this.transition(id, 'cant_go', 'officer', p.userId, async (c) => {
+        await markUnit(c);
+        await tellStation(c, 'It is being offered to the next free officer.');
+        return { reason: b.reason, note, staffLabel: `${name} can't go: ${why}` };
+      }, { eta_minutes: null });
+      await this.route(id, [p.userId]);
+    }
+    await this.audit.write({ actorId: p.userId, actorRole: 'officer', action: 'incident.cant_go', entity: 'incident', entityId: id, payload: { reason: b.reason, note } });
+    return { ok: true, message: 'Your station has been told. This is not held against you.' };
+  }
+
+  /** What the officer sees about how they were put on the report. */
+  async assignmentFor(id: string, officerId: string) {
+    const u = (
+      await this.db.query(
+        `select x.role, x.state, x.assign_mode, x.assign_reason, a.display_name as by
+           from incident_units x left join users a on a.id = x.assigned_by
+          where x.incident_id = $1 and x.officer_id = $2 order by x.offered_at desc limit 1`,
+        [id, officerId],
+      )
+    ).rows[0];
+    if (!u) return null;
+    const sent = u.role === 'reinforcement' || ['direct', 'reassign'].includes(u.assign_mode);
+    return {
+      mode: u.role === 'reinforcement' ? 'reinforcement' : (u.assign_mode ?? 'self'),
+      by: u.by ?? null,
+      reason: u.assign_reason ?? null,
+      unitState: u.state,
+      canSayCantGo: sent && ['accepted', 'en_route'].includes(u.state),
+    };
   }
 
   // ---------------------------------------------------------------- emergency contacts (B1, decided: area only)

@@ -31,7 +31,9 @@ const ActBody = z.object({
 const DeclineBody = z.object({ reason: z.string() });
 const Other = z.object({ otherId: z.string().uuid() });
 const SplitBody = z.object({ reportId: z.string().uuid() });
-const AssignBody = z.object({ officerId: z.string().uuid() });
+const AssignBody = z.object({ officerId: z.string().uuid(), mode: z.enum(['offer', 'direct']).default('offer'), reason: z.string().max(300).optional() });
+const ReassignBody = z.object({ officerId: z.string().uuid(), reason: z.string().trim().min(1, 'Say why you are reassigning.').max(300) });
+const CantGoBody = z.object({ reason: z.enum(['already_busy', 'vehicle', 'unsafe', 'too_far', 'unwell', 'other']), note: z.string().max(300).optional() });
 // 'clear' and 'unclear' are kept so older app versions can still send them.
 const RATING_TAGS = ['fast', 'polite', 'solved', 'professional', 'slow', 'rude', 'not_solved', 'clear', 'unclear'] as const;
 const RatingBody = z.object({
@@ -181,7 +183,19 @@ export class IncidentsController {
 
   @Post('incidents/:id/assign')
   async assign(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(AssignBody)) b: z.infer<typeof AssignBody>) {
-    return { state: await this.incidents.assign(p, id, b.officerId) };
+    return this.incidents.assign(p, id, b);
+  }
+
+  /** The station moves the report to another officer it chooses, with a reason. */
+  @Post('incidents/:id/reassign')
+  reassign(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(ReassignBody)) b: z.infer<typeof ReassignBody>) {
+    return this.incidents.reassignTo(p, id, b);
+  }
+
+  /** An officer the station sent says they cannot go. */
+  @Post('incidents/:id/cant-go')
+  cantGo(@CurrentUser() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(CantGoBody)) b: z.infer<typeof CantGoBody>) {
+    return this.incidents.cantGo(p, id, b);
   }
 
   /** Officers at my station with what each is doing now — feeds the Assign sheet. */
@@ -281,7 +295,10 @@ export class IncidentsController {
             joined: viewer.kind === 'joiner' || rec.reportCount > 1,
           })
         : undefined;
-    return { ...view, status, actions, serverTime: new Date().toISOString() };
+    const assignment = viewer.kind === 'officer' ? await this.incidents.assignmentFor(id, p.userId) : undefined;
+    // Station staff: whether a direct assignment is allowed now (the report has stalled).
+    const canDirectAssign = actions.includes('direct_assign') && row ? await this.incidents.stalled(row) : undefined;
+    return { ...view, status, actions, assignment, canDirectAssign, serverTime: new Date().toISOString() };
   }
 
   private viewerFor(p: Principal, rec: { reporter: { userId: string }; joinerUserIds: string[]; assignedOfficerIds: string[]; stationId?: string; agencyId: string }): Viewer {

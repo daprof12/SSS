@@ -240,7 +240,7 @@ describe('station actions (Gap Analysis S-1)', () => {
     const free = (await http.get(`/me/station/officers?near=${id}`).set(as('head')).expect(200)).body;
     expect(free.find((o: any) => o.id === users.officer2)).toMatchObject({ available: true, distanceM: expect.any(Number) });
 
-    expect((await http.post(`/incidents/${id}/assign`).set(as('head')).send({ officerId: users.officer2 }).expect(201)).body).toEqual({ state: 'offered' });
+    expect((await http.post(`/incidents/${id}/assign`).set(as('head')).send({ officerId: users.officer2 }).expect(201)).body).toMatchObject({ state: 'offered' });
     expect((await view('officer2', id)).view).toBe('officer');
     expect((await view('citizen', id)).timeline.map((e: any) => e.label)).toContain('Sent to a team');
   });

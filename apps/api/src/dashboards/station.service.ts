@@ -253,9 +253,10 @@ export class StationService {
     const allowed = inc && ((inc.station_id && (hasRole(p, 'head', inc.station_id) || hasRole(p, 'dispatcher', inc.station_id))) || (inc.agency_id && hasRole(p, 'agency_admin', inc.agency_id)));
     if (!allowed) throw new AppError(404, 'not_found', 'This report could not be found.');
     const units = await this.db.query(
-      `select x.role, x.state, x.offered_at, x.accepted_at, x.offer_expires_at, x.decline_reason, u.display_name, o.badge_no,
+      `select x.role, x.state, x.offered_at, x.accepted_at, x.offer_expires_at, x.decline_reason, x.assign_mode, x.assign_reason, x.cant_go_reason, u.display_name, o.badge_no, ab.display_name as assigned_by,
               case when o.last_location is not null then round(st_distance(o.last_location, i.geom))::int end as distance_m
          from incident_units x join incidents i on i.id = x.incident_id left join officers o on o.user_id = x.officer_id left join users u on u.id = x.officer_id
+         left join users ab on ab.id = x.assigned_by
         where x.incident_id = $1 order by x.offered_at`,
       [incidentId],
     );
@@ -280,6 +281,10 @@ export class StationService {
         secondsLeft: u.state === 'offered' && u.offer_expires_at ? Math.max(0, Math.round((+new Date(u.offer_expires_at) - Date.now()) / 1000)) : null,
         distanceM: u.distance_m,
         declineReason: u.decline_reason,
+        assignMode: u.assign_mode,
+        assignedBy: u.assigned_by,
+        assignReason: u.assign_reason,
+        cantGoReason: u.cant_go_reason,
       })),
       reports: reports.rows.map((r, i) => ({
         id: r.id,

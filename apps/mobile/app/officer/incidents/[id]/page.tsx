@@ -32,7 +32,19 @@ interface OfficerView {
   notes: Array<{ text: string; at: string }>;
   rating?: { stars: number; comment?: string };
   actions: string[];
+  /** How you were put on this report, and whether you can still say you can't go. */
+  assignment?: { mode: 'self' | 'offer' | 'direct' | 'reassign' | 'reinforcement'; by: string | null; reason: string | null; unitState: string; canSayCantGo: boolean } | null;
 }
+
+const CANT_GO: [string, string][] = [
+  ['already_busy', 'Already on another job'],
+  ['vehicle', 'No vehicle, or it broke down'],
+  ['unsafe', 'Not safe to go alone'],
+  ['too_far', 'Too far away'],
+  ['unwell', 'Unwell or injured'],
+  ['other', 'Other'],
+];
+const SENT: Record<string, string> = { direct: 'Your station sent you', reassign: 'Your station moved this report to you', reinforcement: 'Your station sent you as the second unit' };
 
 const PING_MS = 10000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -41,10 +53,12 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-di
 export default function OfficerIncident({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { view: v, gone, fresh } = useIncident<OfficerView>(id);
-  const [sheet, setSheet] = useState<'note' | 'help' | 'close' | 'transfer' | 'drone' | null>(null);
+  const [sheet, setSheet] = useState<'note' | 'help' | 'close' | 'transfer' | 'drone' | 'cant_go' | null>(null);
   const [busy, setBusy] = useState(false);
   const [me, setMe] = useState<LatLng | null>(null);
   const [toast, setToast] = useToast();
+  // Set once you tell the station you can't go: the report then closes to you, and this says why.
+  const [left, setLeft] = useState<string | null>(null);
 
   const panicActive = (v?.timeline ?? []).reduce((on, e) => (e.kind === 'officer_panic' ? true : e.kind === 'panic_cleared' ? false : on), false);
 
@@ -79,12 +93,13 @@ export default function OfficerIncident({ params }: { params: Promise<{ id: stri
     }
   };
 
-  if (gone) {
+  if (gone || left) {
     return (
       <main className="app bare">
         <Header back="/officer" />
         <div className="card empty">
-          <strong>{gone}</strong>
+          <strong>{left ? 'You told your station you can’t go' : gone}</strong>
+          {left && <span className="muted" style={{ display: 'block' }}>It is not held against you. Your station is sending someone else.</span>}
           <Link href="/officer">Back to Home</Link>
         </div>
       </main>
@@ -100,6 +115,7 @@ export default function OfficerIncident({ params }: { params: Promise<{ id: stri
   }
 
   const info = typeInfo(v.type);
+  const a = v.assignment;
   const live = ['accepted', 'en_route', 'on_scene', 'closing'].includes(v.state);
   const primary =
     v.state === 'accepted' ? { label: "I'm on my way", run: () => act('start_route', 'Marked on the way.') } :
@@ -124,6 +140,18 @@ export default function OfficerIncident({ params }: { params: Promise<{ id: stri
               </span>
             );
           })}
+        </div>
+      )}
+
+      {live && a && SENT[a.mode] && (
+        <div className="banner warning" role="status" style={{ marginTop: 8 }}>
+          <strong>{SENT[a.mode]}</strong>
+          {[a.by && `By ${a.by}.`, a.reason].filter(Boolean).join(' ') || 'Go now.'}
+          {a.canSayCantGo && (
+            <button className="btn small block" type="button" style={{ marginTop: 8 }} onClick={() => setSheet('cant_go')}>
+              I can’t go
+            </button>
+          )}
         </div>
       )}
 
@@ -232,9 +260,71 @@ export default function OfficerIncident({ params }: { params: Promise<{ id: stri
         ? <HandOverSheet id={id} onClose={() => setSheet(null)} onDone={(m) => { setSheet(null); setToast(m); }} />
         : <TextSheet id={id} kind="transfer_requested" title="Ask to transfer" label="Why should another unit or station take it?" cta="Ask the station" onClose={() => setSheet(null)} onDone={() => { setSheet(null); setToast('Asked. Your station head moves the report.'); }} />)}
       {sheet === 'help' && <TextSheet id={id} kind="reinforce" title="Request help" label="Say why you need help" cta="Request reinforcement" onClose={() => setSheet(null)} onDone={() => { setSheet(null); setToast('Reinforcement requested.'); }} />}
+      {sheet === 'cant_go' && <CantGoSheet id={id} onClose={() => setSheet(null)} onDone={(m) => { setSheet(null); setLeft(m); }} />}
       {sheet === 'close' && <CloseReportSheet incidentId={id} state={v.state} onClose={() => setSheet(null)} onDone={(m) => { setSheet(null); setToast(m); }} />}
       <Toast msg={toast} />
     </main>
+  );
+}
+
+/** "I can't go": for an officer the station sent. The station is told at once; it is not held against you. */
+function CantGoSheet({ id, onClose, onDone }: { id: string; onClose: () => void; onDone: (m: string) => void }) {
+  const [reason, setReason] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <Sheet
+      open
+      title="Can’t go?"
+      description="Your station is told at once and sends someone else. This is not held against you."
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <button className="btn" type="button" onClick={onClose} disabled={busy}>
+            I can go
+          </button>
+          <button
+            className="btn primary"
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              if (!reason) return setErr('Choose why you can’t go.');
+              if (reason === 'other' && !note.trim()) return setErr('Say why you can’t go.');
+              setBusy(true);
+              try {
+                const r = await api<{ message: string }>(`/incidents/${id}/cant-go`, { method: 'POST', body: JSON.stringify({ reason, note: note.trim() || undefined }) });
+                haptic(30);
+                onDone(r.message);
+              } catch (e) {
+                setErr(e instanceof ApiError ? e.message : 'Could not send. Try again.');
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? 'Sending…' : 'Tell my station'}
+          </button>
+        </>
+      }
+    >
+      <div className="chips" role="radiogroup" aria-label="Why you can’t go">
+        {CANT_GO.map(([code, label]) => (
+          <button key={code} type="button" role="radio" aria-checked={reason === code} aria-pressed={reason === code} onClick={() => (setReason(code), setErr(null))}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <label className="field" style={{ marginBottom: 0 }}>
+        <span>{reason === 'other' ? 'Say why' : 'Add detail (optional)'}</span>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} />
+      </label>
+      {err && (
+        <span className="field-error" role="alert">
+          {err}
+        </span>
+      )}
+    </Sheet>
   );
 }
 

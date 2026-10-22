@@ -26,6 +26,9 @@ export type IncidentEvent =
   | 'window_elapsed'
   | 'route'
   | 'assign'
+  | 'direct_assign'
+  | 'reassign'
+  | 'cant_go'
   | 'accept'
   | 'offer_timeout'
   | 'reoffer'
@@ -49,12 +52,18 @@ export const incidentMachine = defineMachine<IncidentState, IncidentEvent, Incid
     { event: 'cancel_in_window', from: ['pending_cancel'], to: 'cancelled', actors: ['reporter'] },
     { event: 'window_elapsed', from: ['pending_cancel'], to: 'received', actors: ['system'] },
     { event: 'route', from: ['received', 'transferred', 'reassigning'], to: 'offered', actors: ['system'] },
-    { event: 'assign', from: ['received', 'escalated', 'reassigning', 'transferred'], to: 'offered', actors: ['station'] },
+    // The station offers it to an officer it chooses, also in place of an offer still running.
+    { event: 'assign', from: ['received', 'offered', 'escalated', 'reassigning', 'transferred'], to: 'offered', actors: ['station'] },
+    // When nobody has taken it, the station can send an officer outright; they can answer "can't go".
+    { event: 'direct_assign', from: ['received', 'offered', 'escalated', 'reassigning', 'transferred'], to: 'accepted', actors: ['station'] },
+    // The station moves it from the officer on it to another one it chooses.
+    { event: 'reassign', from: ['accepted', 'en_route'], to: 'accepted', actors: ['station'] },
     { event: 'accept', from: ['offered'], to: 'accepted', actors: ['officer'] },
     { event: 'offer_timeout', from: ['offered'], to: 'escalated', actors: ['system'] },
     { event: 'reoffer', from: ['escalated'], to: 'offered', actors: ['system'] },
     { event: 'start_route', from: ['accepted'], to: 'en_route', actors: ['officer', 'system'] },
     { event: 'officer_drop', from: ['accepted', 'en_route'], to: 'reassigning', actors: ['officer', 'station'] },
+    { event: 'cant_go', from: ['accepted', 'en_route'], to: 'reassigning', actors: ['officer'] },
     {
       event: 'transfer',
       from: ['offered', 'escalated', 'accepted', 'en_route', 'on_scene'],

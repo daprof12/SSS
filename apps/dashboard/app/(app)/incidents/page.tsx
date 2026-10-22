@@ -40,6 +40,7 @@ interface View {
   brief?: { summary: string; confidence: string };
   timeline: { at: string; label: string; by?: string }[];
   actions: string[];
+  canDirectAssign?: boolean;
 }
 const tone: Record<string, string> = { critical: 'var(--color-emergency)', warning: 'var(--color-warning)', success: 'var(--color-success)', info: 'var(--color-signal)' };
 
@@ -240,7 +241,7 @@ function Selected({ id, onToast, onChanged }: { id: string | null; onToast: (m: 
           Open
         </Link>
       </div>
-      <StationActions incidentId={v.id} state={v.state} actions={v.actions} onDone={(m) => (onToast(m), onChanged())} />
+      <StationActions incidentId={v.id} state={v.state} actions={v.actions} canDirectAssign={!!v.canDirectAssign} onDone={(m) => (onToast(m), onChanged())} />
       {reinforcing && (
         <ReinforceSheet
           incidentId={v.id}

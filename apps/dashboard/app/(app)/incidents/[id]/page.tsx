@@ -11,7 +11,7 @@ import { api, ApiError } from '@erp/web-ui/api';
 import { StationActions } from '@/components/StationActions';
 
 interface Extras {
-  units: { name: string; badgeNo: string | null; role: string; state: string; acceptedAt: string | null; offeredAt: string; secondsLeft: number | null; distanceM: number | null; declineReason: string | null }[];
+  units: { name: string; badgeNo: string | null; role: string; state: string; acceptedAt: string | null; offeredAt: string; secondsLeft: number | null; distanceM: number | null; declineReason: string | null; assignMode: 'offer' | 'direct' | 'reassign' | null; assignedBy: string | null; assignReason: string | null; cantGoReason: string | null }[];
   reports: { id: string; role: string; source: string; type: string; detail: string | null; at: string; who: string; trustBand: string }[];
   notes: { text: string; at: string; by: string | null }[];
 }
@@ -25,7 +25,10 @@ const UNIT: Record<string, [string, string]> = {
   dropped: ['Handed over', 'neutral'],
   released: ['Released', 'neutral'],
   taken: ['Taken', 'neutral'],
+  withdrawn: ['Offer withdrawn', 'neutral'],
+  cant_go: ["Can't go", 'warning'],
 };
+const HOW: Record<string, string> = { offer: 'Offered by', direct: 'Sent directly by', reassign: 'Moved to them by' };
 
 interface StationView {
   id: string;
@@ -40,6 +43,7 @@ interface StationView {
   timeline: Array<{ at: string; kind: string; label: string; public: boolean; by?: string }>;
   notes: Array<{ text: string; at: string }>;
   actions: string[];
+  canDirectAssign?: boolean;
   serverTime: string;
 }
 
@@ -138,7 +142,7 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
       {v.state === 'escalated' && (
         <div className="banner critical" role="alert">
           <strong>No one has accepted this report.</strong>
-          Assign a unit now or transfer it.
+          Send an officer directly, offer it to one you choose, or transfer it.
         </div>
       )}
 
@@ -207,6 +211,13 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
                       ? `Declined: ${u.declineReason.replace('_', ' ')}`
                       : `Offered ${new Date(u.offeredAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
               </span>
+              {u.cantGoReason && <span style={{ display: 'block' }}>Can&apos;t go: {u.cantGoReason}</span>}
+              {u.assignMode && u.assignedBy && (
+                <span style={{ display: 'block' }}>
+                  {HOW[u.assignMode]} {u.assignedBy}
+                  {u.assignReason ? `: ${u.assignReason}` : ''}
+                </span>
+              )}
             </div>
             <span className={`chip ${UNIT[u.state]?.[1] ?? 'neutral'}`}>{UNIT[u.state]?.[0] ?? u.state}</span>
           </div>
@@ -218,7 +229,7 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
             </button>
           )}
         </div>
-        <StationActions incidentId={v.id} state={v.state} actions={v.actions} onDone={setToast} />
+        <StationActions incidentId={v.id} state={v.state} actions={v.actions} canDirectAssign={!!v.canDirectAssign} onDone={setToast} />
       </section>
 
       <div className="grid two">
