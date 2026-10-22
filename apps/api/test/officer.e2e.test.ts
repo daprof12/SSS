@@ -171,6 +171,13 @@ describe('report map', () => {
     expect(theirs.find((u: any) => u.isYou)).toMatchObject({ role: 'reinforcement', route: expect.any(Object) });
     expect(theirs.filter((u: any) => !u.isYou)).toHaveLength(1);
 
+    // The report shows them as one team, lead first, to the citizen and to each officer.
+    const team = (await http.get(`/incidents/${id}`).set(as('citizen')).expect(200)).body.team;
+    expect(team.map((m: any) => m.role)).toEqual(['Lead', 'Second unit']);
+    expect(team[0]).toEqual({ name: expect.any(String), badgeNo: expect.any(String), stationName: 'Station 4 Ikeja', rating: null, role: 'Lead' });
+    expect((await http.get(`/incidents/${id}`).set(as(other)).expect(200)).body.team.map((m: any) => m.you)).toEqual([false, true]);
+    expect((await http.get(`/incidents/${id}`).set(as('head')).expect(200)).body.team).toHaveLength(2);
+
     // Station staff see it too; anyone else does not.
     expect((await http.get(`/incidents/${id}/map`).set(as('head')).expect(200)).body.units).toHaveLength(2);
     await http.get(`/incidents/${id}/map`).set(as('neighbour')).expect(404);

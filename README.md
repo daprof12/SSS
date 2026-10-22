@@ -620,3 +620,9 @@ Reports still go to the nearest free officer automatically. The station head or 
   - The platform's Donations list adds an Agency column, filters by agency and by who received the gift, and a "By agency" table.
 - **Demo routing rules:** the demo seed (not tests) adds Station 2 Yaba and six police rules: robbery, kidnapping and riot in Ikeja go to Station 4 first and then Station 2; robbery and violence in Yaba go the other way; plus one paused rule for Victoria Island. Rule areas are named through the postcode service (for example "Ikeja LGA").
 - **Station "Payouts and donations"** (station head only, read only; `GET /me/station/payouts` and `GET /me/station/donations`): two tabs. Payouts shows rewards the station's officers earned for rated responses, what each officer earned, why a response wasn't paid, and the agency's current reward. Donations shows gifts to the station and its officers. Both have a date range. The agency still sets the reward rule and how donations are shared; dispatchers and officers do not see this page.
+- **A report is handled by a team.** More than one officer (or staff) can be on a report at once: the lead, a second unit, another agency's unit. Every report view now carries `team` (lead first, with role, badge, station and rating; officers also get `you`). When more than one is on it:
+  - the citizen sees one team card with stacked avatars ("A team of 2 officers is helping you"), the team rating and each member;
+  - the status line names the team ("Insp. Musa Bello's team from Station 4 Ikeja is getting ready");
+  - each officer sees "Your team of N";
+  - the station's report detail shows the team above its units.
+  - A closed report keeps the officers who saw it through, not anyone who said they couldn't go, handed it over or was moved off. History already lists the team per response.

@@ -14,6 +14,7 @@ import { IncidentStatements } from '@/components/OfficerStatements';
 import { api, ApiError, haptic, locate, typeInfo } from '@/lib/client';
 import { FreshLabel, useIncident } from '@/lib/useIncident';
 import { Attachments, AttachPicker, uploadPicked, usePicked } from '@/components/reports/Attach';
+import { TeamCard } from '@erp/web-ui/TeamCard';
 
 interface LatLng {
   lat: number;
@@ -27,7 +28,8 @@ interface OfficerView {
   reporter: { label: string; trustBand: string };
   building: { postcode: string; address: string; areaLabel: string; location: LatLng };
   brief?: { summary: string; confidence: string };
-  team?: { name: string; badgeNo: string };
+  /** Everyone on the report, lead first; `you` marks you. */
+  team?: { name: string; badgeNo: string | null; stationName: string; rating: number | null; role: string; you: boolean }[];
   timeline: Array<{ at: string; kind: string; label: string; by?: string }>;
   notes: Array<{ text: string; at: string }>;
   rating?: { stars: number; comment?: string };
@@ -171,6 +173,12 @@ export default function OfficerIncident({ params }: { params: Promise<{ id: stri
       {live && (
         <div style={{ margin: '12px 0' }}>
           <IncidentMap incidentId={id} perspective="officer" getPosition={async () => me ?? (await locate(5000))} />
+        </div>
+      )}
+
+      {(v.team?.length ?? 0) > 1 && (
+        <div style={{ margin: '0 0 12px' }}>
+          <TeamCard members={v.team!} title={`Your team of ${v.team!.length}`} />
         </div>
       )}
 

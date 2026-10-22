@@ -20,7 +20,8 @@
     "./IncidentMap": "./src/IncidentMap.tsx",
     "./typeGlyphs": "./src/typeGlyphs.tsx",
     "./LinkButton": "./src/LinkButton.tsx",
-    "./AgencyLogo": "./src/AgencyLogo.tsx"
+    "./AgencyLogo": "./src/AgencyLogo.tsx",
+    "./TeamCard": "./src/TeamCard.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

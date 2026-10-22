@@ -14,6 +14,7 @@ import { Icon } from '@/components/Icon';
 import { api, ApiError, haptic, locate, typeInfo } from '@/lib/client';
 import { FreshLabel, useIncident } from '@/lib/useIncident';
 import { AttachPicker, uploadPicked, usePicked } from '@/components/reports/Attach';
+import { TeamCard } from '@erp/web-ui/TeamCard';
 
 interface LatLng {
   lat: number;
@@ -28,6 +29,8 @@ interface CitizenView {
   building?: { postcode: string; address: string; location?: LatLng };
   area?: string;
   officer?: { name: string; badgeNo: string; stationName: string; rating: number | null };
+  /** Everyone on the report; more than one when a second unit or another agency helps. */
+  team?: { name: string; badgeNo: string | null; stationName: string; rating: number | null; role: string }[];
   officerLocation?: LatLng;
   etaMinutes?: number;
   mergedInto?: string;
@@ -142,7 +145,10 @@ export default function LiveStatus({ params }: { params: Promise<{ id: string }>
         </div>
       )}
 
-      {s.showOfficerCard && v.officer && (
+      {s.showOfficerCard && (v.team?.length ?? 0) > 1 && (
+        <TeamCard members={v.team!} title={`A team of ${v.team!.length} officers is helping you`} status={['accepted', 'en_route', 'on_scene'].includes(v.state) ? 'on_duty' : null} />
+      )}
+      {s.showOfficerCard && (v.team?.length ?? 0) <= 1 && v.officer && (
         <div className="officer-card">
           <Avatar name={v.officer.name} status={['accepted', 'en_route', 'on_scene'].includes(v.state) ? 'on_duty' : null} />
           <span style={{ flex: 1, minWidth: 0 }}>

@@ -288,7 +288,8 @@ export class IncidentsController {
     const status =
       viewer.kind === 'reporter' || viewer.kind === 'joiner'
         ? citizenStatus(rec.state, {
-            officerName: rec.officer?.name,
+            // A team reads as one: "Insp. Musa Bello's team is with you".
+            officerName: rec.team.length > 1 ? `${rec.team[0]!.name}'s team` : rec.officer?.name,
             stationName: rec.officer?.stationName,
             etaMinutes: rec.etaMinutes,
             reportCount: rec.reportCount,

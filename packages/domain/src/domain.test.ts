@@ -181,8 +181,12 @@ describe('role-filtered incident views', () => {
     reportCount: 2,
     building: { postcode: 'AB12C', address: '12 Maple Road', areaLabel: 'Maple area, Ikeja', location: { lat: 6.6, lng: 3.35 } },
     reporterGps: { lat: 6.6001, lng: 3.3501 },
-    assignedOfficerIds: ['u-musa'],
+    assignedOfficerIds: ['u-musa', 'u-bola'],
     officer: { id: 'u-musa', name: 'Insp. Musa', badgeNo: 'B-77', stationName: 'Station 4', rating: 4.8, location: { lat: 6.61, lng: 3.36 } },
+    team: [
+      { id: 'u-musa', name: 'Insp. Musa', badgeNo: 'B-77', stationName: 'Station 4', rating: 4.8, role: 'Lead', state: 'en_route' },
+      { id: 'u-bola', name: 'Sgt. Bola', badgeNo: 'B-91', stationName: 'Station 4', rating: null, role: 'Second unit', state: 'accepted' },
+    ],
     etaMinutes: 6,
     brief: { summary: '2 people, light sedan', confidence: 'medium', fields: {} },
     clipIds: ['clip-1'],
@@ -230,6 +234,16 @@ describe('role-filtered incident views', () => {
     const v = projectIncident(record, { kind: 'officer', userId: 'u-musa' });
     expect(v).toMatchObject({ brief: { advisory: true }, reporter: { label: 'Verified citizen', trustBand: 'high' } });
     expect(str(v)).not.toContain('Ada');
+  });
+
+  it('shows the whole team on the report, lead first, without ids or positions for the public', () => {
+    const r = projectIncident(record, { kind: 'reporter', userId: 'u-ada' }) as { team: unknown[] };
+    expect(r.team).toEqual([
+      { name: 'Insp. Musa', badgeNo: 'B-77', stationName: 'Station 4', rating: 4.8, role: 'Lead' },
+      { name: 'Sgt. Bola', badgeNo: 'B-91', stationName: 'Station 4', rating: null, role: 'Second unit' },
+    ]);
+    const o = projectIncident(record, { kind: 'officer', userId: 'u-bola' }) as { team: { you: boolean }[] };
+    expect(o.team.map((m) => m.you)).toEqual([false, true]);
   });
 
   it('stops sharing locations once on scene', () => {

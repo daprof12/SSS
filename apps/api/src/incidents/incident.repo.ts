@@ -114,6 +114,32 @@ export class IncidentRepo {
             )
           ).rows[0]
         : undefined);
+    // Everyone on it together: those on it now, or, once it closes, those who saw it through (not
+    // anyone who said they couldn't go, handed it over, or was moved off it).
+    const closed = ['closing', 'resolved', 'unfounded'].includes(i.state);
+    const members = (
+      await this.db.query(
+        `select distinct on (x.officer_id) x.officer_id, x.role, x.state, x.accepted_at, x.ended_at, ou.display_name, o.badge_no, s.name as station_name,
+                (select round(avg(r.stars)::numeric, 1) from ratings r join incident_units y on y.incident_id = r.incident_id where y.officer_id = x.officer_id and y.accepted_at is not null) as rating
+           from incident_units x join stations s on s.id = x.station_id left join officers o on o.user_id = x.officer_id left join users ou on ou.id = x.officer_id
+          where x.incident_id = $1 and x.officer_id is not null and x.accepted_at is not null
+          order by x.officer_id, x.accepted_at desc`,
+        [id],
+      )
+    ).rows
+      .filter((m) => ['accepted', 'en_route', 'on_scene'].includes(m.state) || (closed && m.state === 'released' && !m.ended_at))
+      .sort((a, b) => (a.role === 'primary' ? 0 : 1) - (b.role === 'primary' ? 0 : 1) || +new Date(a.accepted_at) - +new Date(b.accepted_at));
+    const ROLE: Record<string, string> = { reinforcement: 'Second unit', parallel: 'Other agency', transfer: 'Took over' };
+    const team = members.map((m, n) => ({
+      id: m.officer_id as string,
+      name: m.display_name as string,
+      badgeNo: (m.badge_no as string | null) ?? null,
+      stationName: m.station_name as string,
+      rating: m.rating != null ? Number(m.rating) : null,
+      role: n === 0 ? 'Lead' : (ROLE[m.role] ?? 'Support'),
+      state: m.state as string,
+    }));
+
     const timeline: TimelineEntry[] = events.rows.map((e) => ({
       at: e.at.toISOString(),
       kind: e.kind,
@@ -138,6 +164,7 @@ export class IncidentRepo {
       reportCount: i.report_count,
       building,
       reporterGps: { lat: i.lat, lng: i.lng },
+      team,
       assignedOfficerIds: [...new Set([...units.rows.map((u) => u.officer_id), ...pastTeam.rows.map((u) => u.officer_id)])].filter(Boolean),
       officer: lead && {
         id: lead.officer_id,

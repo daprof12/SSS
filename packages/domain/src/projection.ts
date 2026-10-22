@@ -32,6 +32,11 @@ export interface IncidentRecord {
   reporterGps?: LatLng;
   assignedOfficerIds: string[];
   officer?: { id: string; name: string; photoUrl?: string; badgeNo: string; stationName: string; rating: number | null; location?: LatLng };
+  /**
+   * Everyone on the report together: the first officer and any sent with them (a second unit, another
+   * agency's unit, or one moved to it). A report is handled by a team, not always one person. Lead first.
+   */
+  team: TeamMember[];
   etaMinutes?: number;
   brief?: { summary: string; confidence: 'low' | 'medium' | 'high'; fields: Record<string, unknown> };
   clipIds: string[];
@@ -42,6 +47,17 @@ export interface IncidentRecord {
   mergedInto?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  badgeNo: string | null;
+  stationName: string;
+  rating: number | null;
+  /** Lead, Second unit, Other agency. */
+  role: string;
+  state: string;
 }
 
 export type Viewer =
@@ -79,6 +95,8 @@ export function projectIncident(r: IncidentRecord, v: Viewer) {
     rating: r.officer.rating,
   };
   const base = { id: r.id, type: r.type, state: r.state, reportCount: r.reportCount, updatedAt: r.updatedAt };
+  // What the public and the team see of each member: no ids or locations.
+  const teamCards = r.team.map((m) => ({ name: m.name, badgeNo: m.badgeNo, stationName: m.stationName, rating: m.rating, role: m.role }));
 
   switch (v.kind) {
     case 'reporter': {
@@ -89,6 +107,7 @@ export function projectIncident(r: IncidentRecord, v: Viewer) {
         // Their own building, with coordinates for the live map.
         building: { postcode: r.building.postcode, address: r.building.address, location: r.building.location },
         officer: officerCard,
+        team: teamCards,
         officerLocation: sharing ? r.officer?.location : undefined,
         etaMinutes: sharing ? r.etaMinutes : undefined,
         timeline: publicTimeline(r),
@@ -104,6 +123,7 @@ export function projectIncident(r: IncidentRecord, v: Viewer) {
         // Joiners never learn who reported or the exact building (TRD duplicates).
         area: r.building.areaLabel,
         officer: officerCard,
+        team: teamCards,
         officerLocation: sharing ? r.officer?.location : undefined,
         etaMinutes: sharing ? r.etaMinutes : undefined,
         timeline: publicTimeline(r),
@@ -131,7 +151,7 @@ export function projectIncident(r: IncidentRecord, v: Viewer) {
         reporterGps: sharing ? r.reporterGps : undefined,
         brief: r.brief && { ...r.brief, advisory: true as const },
         clipIds: r.clipIds,
-        team: officerCard,
+        team: r.team.map((m, i) => ({ ...teamCards[i]!, you: m.id === v.userId })),
         timeline: r.timeline,
         notes: r.notes,
         rating: r.rating && { stars: r.rating.stars, comment: r.rating.comment },
@@ -148,6 +168,7 @@ export function projectIncident(r: IncidentRecord, v: Viewer) {
         brief: r.brief && { ...r.brief, advisory: true as const, editable: true as const },
         clipIds: r.clipIds,
         officer: r.officer,
+        team: r.team,
         assignedOfficerIds: r.assignedOfficerIds,
         etaMinutes: r.etaMinutes,
         timeline: r.timeline,
@@ -163,6 +184,7 @@ export function projectIncident(r: IncidentRecord, v: Viewer) {
         building: r.building,
         stationId: r.stationId,
         officer: officerCard,
+        team: teamCards,
         officerLocation: r.officer?.location,
         timeline: r.timeline,
         rating: r.rating && { stars: r.rating.stars },
@@ -177,6 +199,7 @@ export function projectIncident(r: IncidentRecord, v: Viewer) {
         building: r.building,
         stationId: r.stationId,
         officer: r.officer,
+        team: r.team,
         brief: r.brief,
         clipCount: r.clipIds.length,
         timeline: r.timeline,

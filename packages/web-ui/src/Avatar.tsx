@@ -86,3 +86,43 @@ export function Avatar({
     </span>
   );
 }
+
+/**
+ * Several people as one: overlapping avatars, the first in front, then "+N" for the rest. Used where a
+ * team handles something together (a report with more than one officer).
+ */
+export function AvatarStack({ names, size = 44, max = 3, status }: { names: string[]; size?: number; max?: number; status?: PresenceStatus | null }) {
+  const shown = names.slice(0, max);
+  const more = names.length - shown.length;
+  const overlap = Math.round(size * 0.34);
+  const ring = { boxShadow: '0 0 0 2px var(--color-bg, #000)' };
+  return (
+    <span role="img" aria-label={`Team of ${names.length}: ${names.join(', ')}`} title={names.join(', ')} style={{ display: 'inline-flex', flex: 'none', alignItems: 'center' }}>
+      {shown.map((n, i) => (
+        <span key={`${n}-${i}`} style={{ marginLeft: i ? -overlap : 0, zIndex: shown.length - i, display: 'inline-flex', borderRadius: '50%', ...ring }}>
+          <Avatar name={n} size={size} status={i === 0 ? status : null} />
+        </span>
+      ))}
+      {more > 0 && (
+        <span
+          aria-hidden
+          style={{
+            marginLeft: -overlap,
+            width: size,
+            height: size,
+            borderRadius: '50%',
+            display: 'inline-grid',
+            placeItems: 'center',
+            fontWeight: 700,
+            fontSize: Math.round(size * 0.32),
+            background: 'var(--color-surface-raised, #1f2937)',
+            color: 'var(--color-text-primary, #fff)',
+            ...ring,
+          }}
+        >
+          +{more}
+        </span>
+      )}
+    </span>
+  );
+}

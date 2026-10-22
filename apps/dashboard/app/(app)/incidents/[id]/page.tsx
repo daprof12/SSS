@@ -1,6 +1,7 @@
 'use client';
 
 import { freshness, type Freshness } from '@erp/domain';
+import { AvatarStack } from '@erp/web-ui/Avatar';
 import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { streamUrl } from '@erp/web-ui/api';
@@ -39,6 +40,8 @@ interface StationView {
   reporter: { name: string; trustBand: string };
   building: { postcode: string; address: string; areaLabel: string };
   officer?: { name: string; badgeNo: string; stationName: string };
+  /** Everyone on the report now, lead first. */
+  team?: { name: string; badgeNo: string | null; stationName: string; rating: number | null; role: string }[];
   etaMinutes?: number;
   timeline: Array<{ at: string; kind: string; label: string; public: boolean; by?: string }>;
   notes: Array<{ text: string; at: string }>;
@@ -192,6 +195,17 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
 
       <section className="card" aria-labelledby="units">
         <h2 id="units">Units on this report</h2>
+        {(v.team?.length ?? 0) > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 12px' }}>
+            <AvatarStack names={v.team!.map((m) => m.name)} size={36} />
+            <span>
+              <strong>Team of {v.team!.length}</strong>
+              <span className="muted" style={{ display: 'block' }}>
+                {v.team!.map((m) => `${m.name} (${m.role.toLowerCase()})`).join(', ')}
+              </span>
+            </span>
+          </div>
+        )}
         {!x && <div className="skeleton" />}
         {x?.units.length === 0 && <p className="muted">No unit has been offered this report yet.</p>}
         {x?.units.map((u, i) => (
