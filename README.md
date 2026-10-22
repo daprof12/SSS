@@ -637,3 +637,19 @@ The dashboard sign-in is real now: **phone code, then a code from an authenticat
 - **API:** `GET /auth/mfa`, `POST /auth/mfa/setup`, `POST /auth/mfa/confirm`, `POST /auth/mfa/verify`. These, and sign-out, are the only routes a staff member can use before finishing the second step. Migration `031_staff_two_step.sql`.
 - **Development:** the sign-in page shows the code from the mock SMS outbox, and still lists the demo accounts (which skip both steps) under "Development accounts". Production builds show neither.
 - **Phone app:** officers (and other staff signing in on a phone) get the same second step after the text-message code. "Open my authenticator app" opens the set-up link on the same phone, with the key to copy and a QR code for an app on another phone. Recovery codes follow, then the app code at each sign-in. If too many wrong codes end the session, the sign-in page says why, using fixed wording only. The QR drawing is shared (`@erp/web-ui/Qr`).
+
+## Text messages (SMS)
+
+Sign-in codes, security codes, statement codes and SMS alerts go through one adapter.
+
+- **Production uses Termii**, a Nigerian SMS provider. Set:
+  - `SMS_PROVIDER=termii`
+  - `TERMII_API_KEY`: from the Termii dashboard.
+  - `TERMII_SENDER_ID`: a sender ID Termii has approved, for example `ERP`. Approval takes a few days.
+  - `TERMII_BASE_URL`: the base URL shown on your Termii dashboard. The default is `https://api.ng.termii.com`; newer accounts get their own.
+
+  The API refuses to start in production without these, because no one could sign in.
+- **Routes:** urgent messages (codes, emergencies) go on Termii's **DND** route, so they reach numbers on the Do-Not-Disturb list; ask Termii to activate DND on the account. Other messages use the generic route, which respects DND. Messages are cut to one 160-character segment. A network error or a 5xx answer is retried once; a refusal (for example low balance) is not.
+- **Log:** every message, sent or failed, is saved in `sms_log` (provider, message id, phone, body, error), with codes blanked out (`••••••`). Migration `032_sms_log.sql`.
+- **When sending fails:** the person is told "We could not send the code just now…" and the unsent code is removed, so they can ask again at once instead of waiting out the resend timer. Broadcasts already record failures per recipient.
+- **Development and tests** use the mock outbox (`GET /dev/sms`); set `SMS_PROVIDER=termii` locally to try real sends.

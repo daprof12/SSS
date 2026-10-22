@@ -5,7 +5,7 @@ import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query } from
 import { z } from 'zod';
 import { MockPostcodeAdapter, POSTCODE, type PostcodeAdapter } from '../adapters/postcode';
 import { MockPaystackAdapter, PAYMENTS, type PaymentsAdapter } from '../adapters/payments';
-import { MockSmsAdapter, SMS, type SmsAdapter } from '../adapters/sms';
+import { LoggedSmsAdapter, MockSmsAdapter, SMS, type SmsAdapter } from '../adapters/sms';
 import { MockWhatsAppAdapter, WHATSAPP, type WhatsAppAdapter } from '../adapters/whatsapp';
 import { Public, TokenService, type RoleGrant } from '../core/auth';
 import { CONFIG, type AppConfig } from '../core/config';
@@ -457,7 +457,8 @@ export class DevController {
 
   @Get('sms')
   outbox() {
-    return this.sms instanceof MockSmsAdapter ? this.sms.outbox : [];
+    const s = this.sms instanceof LoggedSmsAdapter ? this.sms.inner : this.sms;
+    return s instanceof MockSmsAdapter ? s.outbox : [];
   }
 
   @Post('postcode/down')

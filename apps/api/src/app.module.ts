@@ -10,7 +10,7 @@ import { PayoutsService } from './agencies/payouts.service';
 import { KYC, MockKycAdapter } from './adapters/kyc';
 import { MockPaystackAdapter, PAYMENTS } from './adapters/payments';
 import { MockPostcodeAdapter, POSTCODE } from './adapters/postcode';
-import { MockSmsAdapter, SMS } from './adapters/sms';
+import { LoggedSmsAdapter, SMS, smsFromEnv } from './adapters/sms';
 import { MockWhatsAppAdapter, WHATSAPP } from './adapters/whatsapp';
 import { MockStorageAdapter, STORAGE } from './adapters/storage';
 import { Audit } from './core/audit';
@@ -168,7 +168,8 @@ export class AppModule {
         { provide: POSTCODE, useValue: new MockPostcodeAdapter() },
         { provide: KYC, useValue: new MockKycAdapter() },
         { provide: PAYMENTS, useValue: new MockPaystackAdapter(config.paystackSecret, config.publicBaseUrl) },
-        { provide: SMS, useValue: new MockSmsAdapter() },
+        // Termii in production (SMS_PROVIDER), the mock in development and tests; every send is logged.
+        { provide: SMS, useFactory: (db: Db) => new LoggedSmsAdapter(smsFromEnv(config.env, process.env), db.pool), inject: [Db] },
         { provide: STORAGE, useValue: new MockStorageAdapter(config.publicBaseUrl) },
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: ErrorFilter },

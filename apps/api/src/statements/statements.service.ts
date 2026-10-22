@@ -555,7 +555,13 @@ export class StatementsService {
       createHash('sha256').update(`${id}:${code}`).digest('hex'),
       STATEMENT_CODE.minutes,
     ]);
-    await this.sms.send({ to: s.maker_phone, body: `Your code to confirm statement ${s.number} is ${code}. Only give it to the officer if what they read back is what you said. It expires in ${STATEMENT_CODE.minutes} minutes.`, urgent: true });
+    try {
+      await this.sms.send({ to: s.maker_phone, body: `Your code to confirm statement ${s.number} is ${code}. Only give it to the officer if what they read back is what you said. It expires in ${STATEMENT_CODE.minutes} minutes.`, urgent: true });
+    } catch {
+      // A code that never arrived must not be usable or block a new one.
+      await this.db.query(`update statements set sign_code_hash = null, sign_code_expires_at = null where id = $1`, [id]);
+      throw new AppError(503, 'sms_unavailable', 'We could not send the code just now. Try again in a minute.');
+    }
     await this.db.query(`insert into statement_access (statement_id, actor_id, action) values ($1, $2, 'code_sent')`, [id, p.userId]);
     return { message: `Code sent to the phone ending ${s.maker_phone.slice(-4)}. Ask them to read it to you.` };
   }

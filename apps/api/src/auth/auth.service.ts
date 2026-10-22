@@ -72,11 +72,13 @@ export class AuthService {
     }
 
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-    await this.db.query(
-      `insert into otp_challenges (phone, code_hash, max_attempts, expires_at, ip) values ($1, $2, $3, now() + make_interval(secs => $4), $5)`,
-      [phone, this.codeHash(phone, code), OTP.maxAttempts, OTP.ttlSeconds, ip ?? null],
-    );
-    await this.sms.send({ to: phone, urgent: true, body: `Your ERP code is ${code}. It expires in 5 minutes. Never share it, not even with us.` });
+    const ch = (
+      await this.db.query(
+        `insert into otp_challenges (phone, code_hash, max_attempts, expires_at, ip) values ($1, $2, $3, now() + make_interval(secs => $4), $5) returning id`,
+        [phone, this.codeHash(phone, code), OTP.maxAttempts, OTP.ttlSeconds, ip ?? null],
+      )
+    ).rows[0];
+    await this.sendCode(ch.id, { to: phone, urgent: true, body: `Your ERP code is ${code}. It expires in 5 minutes. Never share it, not even with us.` });
     return { sent: true, phone: mask(phone), expiresInSeconds: OTP.ttlSeconds, resendInSeconds: OTP.resendSeconds };
   }
 
@@ -115,6 +117,19 @@ export class AuthService {
       await this.audit.write({ actorId: user.id, action: isNew ? 'auth.sign_up' : 'auth.sign_in', entity: 'user', entityId: user.id, ip: device.ip, payload: { method: 'phone_otp', device: device.label ?? null } }, c);
       return { ...session, isNew, needsName: !user.display_name };
     });
+  }
+
+  /**
+   * Sends a code. If the text cannot go out, the code is removed again, so the person can ask for a
+   * new one straight away instead of waiting out the resend timer for a code that never arrived.
+   */
+  private async sendCode(challengeId: string, msg: { to: string; urgent: boolean; body: string }) {
+    try {
+      await this.sms.send(msg);
+    } catch {
+      await this.db.query(`delete from otp_challenges where id = $1`, [challengeId]);
+      throw new AppError(503, 'sms_unavailable', 'We could not send the code just now. Try again in a minute, or call 112 if you are in danger.');
+    }
   }
 
   private async roles(c: Queryable, userId: string): Promise<RoleGrant[]> {
@@ -181,11 +196,13 @@ export class AuthService {
     const n = (await this.db.query(`select count(*)::int as n from otp_challenges where phone = $1 and purpose = $2 and created_at > now() - interval '1 hour'`, [u.phone, purpose])).rows[0].n;
     if (n >= OTP.perPhonePerHour) throw new AppError(429, 'too_many_codes', 'Too many codes asked for. Try again in an hour.');
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
-    await this.db.query(
-      `insert into otp_challenges (phone, purpose, code_hash, max_attempts, expires_at, ip) values ($1, $2, $3, $4, now() + make_interval(secs => $5), $6)`,
-      [u.phone, purpose, this.codeHash(u.phone, code), OTP.maxAttempts, OTP.ttlSeconds, ip ?? null],
-    );
-    await this.sms.send({ to: u.phone, urgent: true, body: body(code) });
+    const ch = (
+      await this.db.query(
+        `insert into otp_challenges (phone, purpose, code_hash, max_attempts, expires_at, ip) values ($1, $2, $3, $4, now() + make_interval(secs => $5), $6) returning id`,
+        [u.phone, purpose, this.codeHash(u.phone, code), OTP.maxAttempts, OTP.ttlSeconds, ip ?? null],
+      )
+    ).rows[0];
+    await this.sendCode(ch.id, { to: u.phone, urgent: true, body: body(code) });
     return { sent: true, phone: mask(u.phone), expiresInSeconds: OTP.ttlSeconds, resendInSeconds: OTP.resendSeconds };
   }
 
