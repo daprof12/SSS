@@ -18,6 +18,7 @@ const Visit = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a
 const Qty = z.number({ invalid_type_error: 'Enter a number.' }).int('Whole units only.').min(1, 'At least 1.').max(10_000);
 const AddStock = z.object({ storeId: z.string().uuid('Choose a store.'), item: z.enum(STOCK_ITEMS), quantity: Qty, note: z.string().trim().max(200).optional() });
 const Transfer = z.object({ from: z.string().uuid('Choose a store.'), to: z.string().uuid('Choose a store.'), item: z.enum(STOCK_ITEMS), quantity: Qty, note: z.string().trim().max(200).optional() });
+const DonationsQ = LocationQuery.extend({ ...DateFields, agencyId: z.string().uuid().optional(), level: z.enum(['agency', 'station', 'officer']).optional() });
 const AuditQ = z.object({
   days: z.coerce.number().int().refine((d) => [1, 7, 30, 90].includes(d)).optional(),
   ...DateFields,
@@ -121,7 +122,7 @@ export class AdminController {
   }
 
   @Get('donations')
-  donations(@CurrentUser() p: Principal, @Query(new ZodPipe(LocationQuery.extend(DateFields))) q: z.infer<typeof LocationQuery> & DateRange) {
+  donations(@CurrentUser() p: Principal, @Query(new ZodPipe(DonationsQ)) q: z.infer<typeof DonationsQ>) {
     return this.ops.donations(p, q);
   }
 

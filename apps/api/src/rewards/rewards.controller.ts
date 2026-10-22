@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Put } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentUser, type Principal } from '../core/auth';
+import { DateFields } from '../core/date-range';
 import { ZodPipe } from '../core/http';
 import { RewardsService } from './rewards.service';
 
@@ -10,6 +11,7 @@ const RuleBody = z.object({
   split: z.enum(['equal', 'lead_first']),
   active: z.boolean(),
 });
+const DonationsQ = z.object({ ...DateFields, level: z.enum(['agency', 'station', 'officer']).optional() });
 const SharesBody = z.object({ officerPct: z.number().min(0).max(100), stationPct: z.number().min(0).max(100), agencyPct: z.number().min(0).max(100) });
 
 @Controller('agencies/:agencyId')
@@ -19,6 +21,12 @@ export class RewardsController {
   @Get('rewards')
   summary(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string) {
     return this.rewards.summary(p, a);
+  }
+
+  /** Gifts to the agency, its stations and its officers, newest first. */
+  @Get('donations')
+  donations(@CurrentUser() p: Principal, @Param('agencyId', ParseUUIDPipe) a: string, @Query(new ZodPipe(DonationsQ)) q: z.infer<typeof DonationsQ>) {
+    return this.rewards.donations(p, a, q);
   }
 
   @Put('reward-rule')

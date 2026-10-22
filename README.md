@@ -609,3 +609,13 @@ Reports still go to the nearest free officer automatically. The station head or 
 - **Buttons:** links that sat among buttons are now `LinkButton` (`@erp/web-ui/LinkButton`), a real button that navigates, so they line up with the others.
 - **One agency per demo admin:** "Agency Admin" is the police admin. NAPTIP and FERMA have their own demo admins ("NAPTIP Admin", "FERMA Admin"), and the agency switcher is gone.
 - **Date range** (`from`/`to`, Lagos days, both included; `core/date-range.ts` and `components/DateRange.tsx`) on: the admin and agency overviews, station reports, tips, public issues, statements, fines, the support inbox, donations and the audit log.
+
+## Agency logo, donations by agency, demo routing rules
+
+- **Logo:** Agency settings → Logo. An agency admin uploads a PNG, JPEG or WebP up to 512 KB (`PUT /agencies/:id/logo`, the image bytes as the body). The type is checked from the file's first bytes, not the header, and uploads and removals are audited. Anyone can load a logo (`GET /agencies/:id/logo`) because it appears on officers' phones.
+  - `/me` now returns `brand` (agency, station, logo) for agency staff, station heads, dispatchers and officers. The dashboard sidebar shows the logo for the agency and its stations, and the officer app shows it on the home and profile screens. An agency without a logo shows its initials.
+  - The station sidebar and officer home used to show "Station 4 Ikeja" for everyone; they now show the person's own station. Migration `030_agency_logo.sql`.
+- **Donations:**
+  - The agency's Payouts page has "Donations to your agency" (`GET /agencies/:id/donations`): gifts to the agency, its stations and its officers, totals for each, what is waiting for payout, a date range and a filter by who received it. Donors who chose to stay anonymous stay anonymous.
+  - The platform's Donations list adds an Agency column, filters by agency and by who received the gift, and a "By agency" table.
+- **Demo routing rules:** the demo seed (not tests) adds Station 2 Yaba and six police rules: robbery, kidnapping and riot in Ikeja go to Station 4 first and then Station 2; robbery and violence in Yaba go the other way; plus one paused rule for Victoria Island. Rule areas are named through the postcode service (for example "Ikeja LGA").

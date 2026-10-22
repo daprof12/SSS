@@ -5,6 +5,7 @@ import { formatNaira } from '@erp/domain';
 import { api, ApiError } from '@erp/web-ui/api';
 import { useEffect, useState } from 'react';
 import { dateTime, useToast, WithAgency, type MyAgency } from '@/components/Agency';
+import { AgencyDonations } from '@/components/AgencyDonations';
 
 interface Summary {
   rule: { fiveStarKobo: number; fourStarPct: number; split: 'equal' | 'lead_first'; active: boolean };
@@ -117,6 +118,7 @@ function Payouts({ agency }: { agency: MyAgency }) {
           </div>
         </div>
       )}
+      <AgencyDonations agencyId={agency.id} />
     </>
   );
 }

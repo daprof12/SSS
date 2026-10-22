@@ -11,6 +11,15 @@ import { applyMotion, applyTheme, onThemeChange, readTheme, type ThemeChoice } f
 import { holds, type Permission } from '@erp/domain';
 import { HelpChat } from '@erp/web-ui/HelpChat';
 import { NotificationSounds } from '@erp/web-ui/NotificationSounds';
+import { AgencyLogo, BRAND_CHANGED_EVENT } from '@erp/web-ui/AgencyLogo';
+
+/** The agency (and station) the signed-in person works for, from /me. */
+interface Brand {
+  agencyId: string;
+  agencyName: string;
+  stationName: string | null;
+  logoUrl: string | null;
+}
 
 interface NavItem {
   label: string;
@@ -121,6 +130,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [session, setS] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
   const [roles, setRoles] = useState<Grant[] | null>(null);
+  const [brand, setBrand] = useState<Brand | null>(null);
 
   useEffect(() => {
     const s = getSession();
@@ -129,13 +139,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
     setReady(true);
     if (!s) return;
     // The account's saved appearance wins over this browser's last choice (Public Issues doc §6).
-    api<{ preferences: { theme: ThemeChoice; reduceMotion: boolean }; roles: Grant[] }>('/me')
-      .then((m) => {
-        applyTheme(m.preferences.theme);
-        applyMotion(m.preferences.reduceMotion);
-        setRoles(m.roles);
-      })
-      .catch(() => {});
+    const load = () =>
+      api<{ preferences: { theme: ThemeChoice; reduceMotion: boolean }; roles: Grant[]; brand: Brand | null }>('/me')
+        .then((m) => {
+          applyTheme(m.preferences.theme);
+          applyMotion(m.preferences.reduceMotion);
+          setRoles(m.roles);
+          setBrand(m.brand);
+        })
+        .catch(() => {});
+    void load();
+    // A new logo from Agency settings shows here straight away.
+    window.addEventListener(BRAND_CHANGED_EVENT, load);
+    return () => window.removeEventListener(BRAND_CHANGED_EVENT, load);
   }, [router]);
 
   if (!ready || !session) return null;
@@ -166,12 +182,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </a>
       <nav className="rail" aria-label="Main">
         <div className="brand">
-          <div className="brand-mark" aria-hidden>
-            ERP
-          </div>
+          {surface !== 'admin' && brand ? (
+            <AgencyLogo url={brand.logoUrl} name={brand.agencyName} size={40} />
+          ) : (
+            <div className="brand-mark" aria-hidden>
+              ERP
+            </div>
+          )}
           <div>
-            <strong>{surface === 'station' ? 'Station 4 Ikeja' : surface === 'agency' ? <AgencyName /> : 'Platform admin'}</strong>
-            <small>{session.roleLabel}</small>
+            <strong>{surface === 'station' ? (brand?.stationName ?? 'Your station') : surface === 'agency' ? <AgencyName /> : 'Platform admin'}</strong>
+            <small>{surface === 'station' && brand ? brand.agencyName : session.roleLabel}</small>
           </div>
         </div>
         <div className="rail-links">

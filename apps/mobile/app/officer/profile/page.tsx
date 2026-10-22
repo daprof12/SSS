@@ -12,6 +12,7 @@ import { Header } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
 import { Dot, rating } from '@/components/officer/work';
 import { api, getSession, setSession } from '@/lib/client';
+import { AgencyLogo } from '@erp/web-ui/AgencyLogo';
 
 interface Profile {
   name: string;
@@ -42,9 +43,10 @@ export default function OfficerProfile() {
   const [p, setP] = useState<Profile | null>(null);
   const [theme, setTheme] = useState('System');
   const [wa, setWa] = useState<boolean | null>(null);
+  const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
-    api<{ preferences: { whatsappOptIn?: boolean } }>('/me')
-      .then((m) => setWa(!!m.preferences.whatsappOptIn))
+    api<{ preferences: { whatsappOptIn?: boolean }; brand: { logoUrl: string | null } | null }>('/me')
+      .then((m) => (setWa(!!m.preferences.whatsappOptIn), setLogo(m.brand?.logoUrl ?? null)))
       .catch(() => {});
   }, []);
   useEffect(() => {
@@ -85,7 +87,10 @@ export default function OfficerProfile() {
         <Avatar name={name} size={72} status={p ? (p.onDuty ? 'on_duty' : 'off_duty') : null} />
         <div>
           <h1 style={{ margin: 0, fontSize: 'var(--text-xl)' }}>{name}</h1>
-          <span className="muted">{p ? `${p.agency}, ${p.station}, service no. ${p.serviceNo}` : ' '}</span>
+          <span className="muted" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {p && <AgencyLogo url={logo} name={p.agency} size={24} radius={6} />}
+            {p ? `${p.agency}, ${p.station}, service no. ${p.serviceNo}` : ' '}
+          </span>
           <div style={{ color: badge[1], fontWeight: 700 }}>{badge[0]}</div>
         </div>
       </div>

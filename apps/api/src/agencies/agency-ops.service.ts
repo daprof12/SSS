@@ -179,6 +179,31 @@ export class AgencyOpsService {
 
   // ---------------------------------------------------------------- routing rules
 
+  /**
+   * Rule areas can be a state, LGA, district or area. Those not named by a station's areas or a known
+   * building are named by the postcode service (each level is listed under the one above it).
+   */
+  private async nameAreas<T extends { area_id: string | null; area_label: string | null }>(rules: T[]): Promise<T[]> {
+    const LEVELS = ['state', 'lga', 'district', 'area'] as const;
+    const cache = new Map<string, string | null>();
+    const name = async (id: string) => {
+      if (cache.has(id)) return cache.get(id)!;
+      const parts = id.split('-');
+      const level = LEVELS[parts.length - 1];
+      let found: string | null = null;
+      if (level) {
+        const parent = parts.length > 1 ? parts.slice(0, -1).join('-') : null;
+        const list = await this.postcode.children(level, parent).catch(() => []);
+        const hit = list.find((x) => x.id === id);
+        if (hit) found = level === 'lga' ? `${hit.name} LGA` : hit.name;
+      }
+      cache.set(id, found);
+      return found;
+    };
+    for (const r of rules) if (r.area_id && r.area_label === r.area_id) r.area_label = (await name(r.area_id)) ?? r.area_id;
+    return rules;
+  }
+
   async routing(p: Principal, agencyId: string) {
     requirePerm(p, 'agency.operations', agencyId);
     const a = (await this.db.query(`select kind, settings from agencies where id = $1`, [agencyId])).rows[0];
@@ -197,7 +222,7 @@ export class AgencyOpsService {
       defaults: { acceptSeconds: a.settings.acceptSeconds ?? 25, ifNobodyAccepts: a.settings.ifNobodyAccepts ?? 'next_nearest', nightHandover: a.settings.nightHandover ?? '19:00' },
       types,
       stations,
-      rules: rules.map((r) => ({
+      rules: (await this.nameAreas(rules)).map((r) => ({
         id: r.id,
         type: r.incident_type,
         typeLabel: r.type_label ?? cap(r.incident_type),

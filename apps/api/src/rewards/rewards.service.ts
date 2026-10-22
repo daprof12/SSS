@@ -1,12 +1,13 @@
 // Rewards for rated responses (PRD "Ratings and rewards"; SRS TRUST-5 and TRUST-6).
 // On an incident's first rating, the platform rewards pool pays the officers who responded,
 // by the agency's rule, held REWARD_RULES.holdDays before it can be withdrawn.
-import { checkRewardRule, DEFAULT_REWARD_RULE, formatNaira, REWARD_RULES, rewardFor, splitReward, type RewardRule } from '@erp/domain';
+import { checkRewardRule, DEFAULT_REWARD_RULE, DONATION_RULES, donationFee, formatNaira, REWARD_RULES, rewardFor, splitReward, type RewardRule } from '@erp/domain';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { AgencyLifecycle } from '../agencies/agency.lifecycle';
 import { Audit } from '../core/audit';
-import type { Principal } from '../core/auth';
+import { requirePerm, type Principal } from '../core/auth';
+import { dateWhere, type DateRange } from '../core/date-range';
 import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
 import { notify } from '../reports/shared';
@@ -194,6 +195,72 @@ export class RewardsService {
       await this.audit.write({ actorId: p.userId, actorRole: 'agency_admin', action: 'reward.rule_set', entity: 'agency', entityId: agencyId, payload: { before, after: b } }, c);
     });
     return { message: b.active ? `Rewards on: ${formatNaira(b.fiveStarKobo)} for a 5-star response.` : 'Rewards paused for your officers.' };
+  }
+
+  /**
+   * Donations to this agency: given to it, to one of its stations, or to one of its officers. Totals by
+   * level for the dates chosen, and the gifts themselves. Donors who chose to stay anonymous stay so.
+   */
+  async donations(p: Principal, agencyId: string, q: DateRange & { level?: 'agency' | 'station' | 'officer' }) {
+    requirePerm(p, 'agency.money', agencyId);
+    const args: unknown[] = [agencyId];
+    const where = [
+      `d.state = 'paid'`,
+      `(d.target_type = 'agency' and d.target_id = $1 or d.target_type = 'station' and st.agency_id = $1 or d.target_type = 'officer' and os.agency_id = $1)`,
+      dateWhere(q, args, 'd.paid_at'),
+    ].join(' and ');
+    const from = `from donations d
+      left join stations st on d.target_type = 'station' and st.id = d.target_id
+      left join officers o on d.target_type = 'officer' and o.user_id = d.target_id
+      left join stations os on os.id = o.station_id
+      left join users ou on ou.id = o.user_id
+      left join users du on du.id = d.donor_id`;
+    const t = (
+      await this.db.query(
+        `select count(*)::int as n, coalesce(sum(d.amount_kobo), 0)::bigint as total,
+                coalesce(sum(d.amount_kobo) filter (where d.target_type = 'agency'), 0)::bigint as agency,
+                coalesce(sum(d.amount_kobo) filter (where d.target_type = 'station'), 0)::bigint as station,
+                coalesce(sum(d.amount_kobo) filter (where d.target_type = 'officer'), 0)::bigint as officer,
+                coalesce(sum(d.amount_kobo) filter (where d.payout_state = 'queued'), 0)::bigint as waiting
+           ${from} where ${where}`,
+        args,
+      )
+    ).rows[0];
+    const la = [...args];
+    const rows = (
+      await this.db.query(
+        `select d.id, d.amount_kobo, d.target_type, d.show_name, d.payout_state, d.paid_at, du.display_name as donor,
+                case d.target_type when 'agency' then (select name from agencies where id = d.target_id) when 'station' then st.name else ou.display_name end as recipient,
+                case d.target_type when 'officer' then os.name end as officer_station
+           ${from} where ${where} ${q.level ? `and d.target_type = $${la.push(q.level)}` : ''}
+          order by d.paid_at desc nulls last limit 100`,
+        la,
+      )
+    ).rows;
+    const net = (k: number) => k - donationFee(k);
+    return {
+      feePct: DONATION_RULES.platformFeePct,
+      totals: {
+        gifts: t.n,
+        kobo: Number(t.total),
+        netKobo: net(Number(t.total)),
+        agencyKobo: Number(t.agency),
+        stationsKobo: Number(t.station),
+        officersKobo: Number(t.officer),
+        waitingKobo: net(Number(t.waiting)),
+      },
+      items: rows.map((d) => ({
+        id: d.id,
+        at: d.paid_at,
+        donor: d.show_name ? d.donor : 'Anonymous',
+        level: d.target_type as 'agency' | 'station' | 'officer',
+        recipient: d.recipient ?? '—',
+        station: d.officer_station ?? null,
+        amountKobo: Number(d.amount_kobo),
+        netKobo: net(Number(d.amount_kobo)),
+        payout: d.payout_state,
+      })),
+    };
   }
 
   /** "How money is shared" for donations (used when donations launch). Must add up to 100%. */

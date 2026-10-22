@@ -369,7 +369,9 @@ function PayoutSheet({ p, onClose, onDone }: { p: Payout; onClose: () => void; o
 
 interface DonationsView {
   stats: { donatedMonthKobo: number; waitingKobo: number; paidOutMonthKobo: number; feePct: number; nextRun: string };
-  donations: { id: string; donor: string; recipient: string; level: string; amountKobo: number; netKobo: number; paidVia: string; payout: 'queued' | 'paid' | 'failed'; failure: string | null; at: string }[];
+  agencies: { id: string; name: string }[];
+  byAgency: { id: string; name: string; gifts: number; kobo: number; agencyKobo: number; stationsKobo: number; officersKobo: number }[];
+  donations: { id: string; donor: string; recipient: string; level: string; agency: string | null; agencyId: string | null; amountKobo: number; netKobo: number; paidVia: string; payout: 'queued' | 'paid' | 'failed'; failure: string | null; at: string }[];
 }
 const PAYOUT: Record<string, [string, string]> = {
   queued: ['Queued', 'var(--color-warning-text)'],
@@ -385,7 +387,9 @@ function Donations() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useToast();
   const dates = useDateRange('all');
-  const lq = [locQuery(loc), dates.q].filter(Boolean).join('&');
+  const [agencyId, setAgencyId] = useState('');
+  const [level, setLevel] = useState('');
+  const lq = [locQuery(loc), dates.q, agencyId && `agencyId=${agencyId}`, level && `level=${level}`].filter(Boolean).join('&');
   const load = useCallback(() => {
     api<DonationsView>(`/admin/donations${lq ? `?${lq}` : ''}`)
       .then((x) => {
@@ -439,7 +443,66 @@ function Donations() {
       <LocationFilter value={loc} onChange={setLoc} title="Filter by location of the receiving station" />
       <div className="card">
         <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} />
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
+          <label className="field" style={{ margin: 0, minWidth: 220 }}>
+            <span>Agency</span>
+            <select value={agencyId} onChange={(e) => setAgencyId(e.target.value)}>
+              <option value="">All agencies</option>
+              {d?.agencies.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field" style={{ margin: 0, minWidth: 180 }}>
+            <span>Given to</span>
+            <select value={level} onChange={(e) => setLevel(e.target.value)}>
+              <option value="">Agency, stations and officers</option>
+              <option value="agency">The agency itself</option>
+              <option value="station">A station</option>
+              <option value="officer">An officer</option>
+            </select>
+          </label>
+        </div>
       </div>
+      {!!d?.byAgency.length && (
+        <section className="card" style={{ padding: 0, overflowX: 'auto' }} aria-labelledby="ba">
+          <h2 id="ba" style={{ margin: 0, padding: '16px 16px 0' }}>
+            By agency
+          </h2>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Agency</th>
+                <th>Gifts</th>
+                <th>To the agency</th>
+                <th>To stations</th>
+                <th>To officers</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.byAgency.map((a) => (
+                <tr key={a.id ?? 'none'}>
+                  <td>
+                    <button className="link" type="button" onClick={() => setAgencyId(a.id)} style={{ background: 'none', border: 0, padding: 0, color: 'var(--color-signal-text)', font: 'inherit', fontWeight: 700, cursor: 'pointer' }}>
+                      {a.name ?? 'No agency'}
+                    </button>
+                  </td>
+                  <td>{a.gifts}</td>
+                  <td>{naira(a.agencyKobo)}</td>
+                  <td>{naira(a.stationsKobo)}</td>
+                  <td>{naira(a.officersKobo)}</td>
+                  <td>
+                    <strong>{naira(a.kobo)}</strong>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
       {error && (
         <div className="banner critical" role="alert">
           {error}
@@ -461,6 +524,7 @@ function Donations() {
               <tr>
                 <th>Donor</th>
                 <th>Recipient</th>
+                <th>Agency</th>
                 <th>Level</th>
                 <th>Amount</th>
                 <th>Paid via</th>
@@ -475,6 +539,7 @@ function Donations() {
                     <div className="muted">{dateTime(x.at)}</div>
                   </td>
                   <td>{x.recipient}</td>
+                  <td>{x.agency ?? '—'}</td>
                   <td>{x.level}</td>
                   <td>
                     <strong>{naira(x.amountKobo)}</strong>

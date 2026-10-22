@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { accountDeletionBlockers, kobo, mfaRequired, DEFAULT_SOUNDS, SOUNDS, type SoundCode } from '@erp/domain';
 import { KYC, type KycAdapter } from '../adapters/kyc';
 import { POSTCODE, PostcodeUnavailable, type PostcodeAdapter } from '../adapters/postcode';
+import { brandFor } from '../agencies/logo.controller';
 import { Audit } from '../core/audit';
 import { CurrentUser, type Principal } from '../core/auth';
 import { Db } from '../core/db';
@@ -92,6 +93,8 @@ export class MeController {
       kyc: kyc ? { status: kyc.status, idMasked: kyc.id_masked, verifiedAt: kyc.verified_at } : { status: 'not_started' },
       trust: trust ?? { score: 70, band: 'normal' },
       onboarding: { steps: u.onboarding, done: !!u.onboarded_at, needsName: !u.display_name },
+      // Staff and officers: the agency (and station) they work for, with its logo.
+      brand: await brandFor(this.db.pool, p.userId),
     };
   }
 

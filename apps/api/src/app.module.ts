@@ -59,6 +59,7 @@ import { JobsService } from './jobs/jobs.service';
 import { LearnController } from './learn/learn.controller';
 import { LearnService } from './learn/learn.service';
 import { MediaController } from './media/media.controller';
+import { AgencyLogoController } from './agencies/logo.controller';
 import { MediaService } from './media/media.service';
 import { AdminBountyFeeController, BountiesController } from './reports/bounties.controller';
 import { BountiesService } from './reports/bounties.service';
@@ -88,6 +89,7 @@ export class AppModule {
       module: AppModule,
       controllers: [
         HealthController,
+        AgencyLogoController,
         CitizenController,
         DashboardsController,
         AdminController,

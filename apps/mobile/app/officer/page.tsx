@@ -8,6 +8,7 @@ import { Icon } from '@/components/Icon';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { Rating } from '@erp/web-ui/Rating';
 import { api, ApiError, getSession, haptic, locate, typeInfo } from '@/lib/client';
+import { AgencyLogo } from '@erp/web-ui/AgencyLogo';
 
 interface Item {
   id: string;
@@ -40,12 +41,20 @@ const STATE: Record<string, [string, string]> = {
 const km = (m?: number) => (m == null ? '' : m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`);
 
 /** Officer Home (Rewards doc "Officer mobile screens"; board "Officer home"). */
+/** The agency and station this officer works for, from /me. */
+interface Brand {
+  agencyName: string;
+  stationName: string | null;
+  logoUrl: string | null;
+}
+
 export default function OfficerHome() {
   const router = useRouter();
   const [h, setH] = useState<Home | null>(null);
   const [tab, setTab] = useState<Tab>('offers');
   const [busy, setBusy] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [brand, setBrand] = useState<Brand | null>(null);
   const [toast, setToast] = useToast();
   const seenOffers = useRef<Set<string> | null>(null);
 
@@ -63,6 +72,7 @@ export default function OfficerHome() {
       }
     }
     seenOffers.current = ids;
+    api<{ brand: Brand | null }>('/me').then((m) => setBrand(m.brand)).catch(() => {});
     api<{ unread: number }>('/me/notifications').then((n) => setUnread(n.unread)).catch(() => {});
   }, [router]);
 
@@ -114,11 +124,12 @@ export default function OfficerHome() {
         <div className="greeting">
           <strong style={{ fontSize: 'var(--text-lg)' }}>Hello, {first}</strong>
           <small>
-            Station 4 Ikeja ·{' '}
+            {brand?.stationName ?? 'Your station'} ·{' '}
             <span style={{ color: h?.onDuty ? 'var(--color-success-text)' : 'var(--color-text-secondary)', fontWeight: 600 }}>{busy ? 'Updating…' : h ? (h.onDuty ? 'On duty' : 'Off duty, tap your photo') : ''}</span>
           </small>
         </div>
         <span className="spacer" />
+        {brand && <AgencyLogo url={brand.logoUrl} name={brand.agencyName} size={40} />}
         <Link href="/officer/notifications" className="round-btn" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}>
           <Icon name="bell" />
           {unread > 0 && <span className="dot" />}

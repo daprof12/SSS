@@ -6,6 +6,7 @@ import { api, ApiError, downloadFile } from '@erp/web-ui/api';
 import { Sheet } from '@erp/web-ui/Sheet';
 import { useCallback, useEffect, useState } from 'react';
 import { useToast, WithAgency, type MyAgency } from '@/components/Agency';
+import { AgencyLogoCard } from '@/components/AgencyLogoCard';
 
 interface Settings {
   canEdit: boolean;
@@ -103,6 +104,7 @@ function AgencySettings({ agency }: { agency: MyAgency }) {
       {ro && s && <div className="banner info">Your role can see these settings. Only an agency admin can change them.</div>}
       {s && f && (
         <>
+          <AgencyLogoCard agencyId={agency.id} name={agency.name} initial={agency.logoUrl} canEdit={!ro} onDone={setToast} />
           <div className="grid two">
             <section className="card" aria-labelledby="prof">
               <h2 id="prof" style={{ marginTop: 0 }}>

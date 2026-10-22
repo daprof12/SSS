@@ -19,7 +19,8 @@
     "./StreetMap": "./src/StreetMap.tsx",
     "./IncidentMap": "./src/IncidentMap.tsx",
     "./typeGlyphs": "./src/typeGlyphs.tsx",
-    "./LinkButton": "./src/LinkButton.tsx"
+    "./LinkButton": "./src/LinkButton.tsx",
+    "./AgencyLogo": "./src/AgencyLogo.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

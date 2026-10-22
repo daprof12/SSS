@@ -508,7 +508,7 @@ export class AdminOpsService {
   // ---------------------------------------------------------------- donations and payouts
 
   /** Location of the receiving station: the station itself, an officer's station, or the agency's address. */
-  async donations(p: Principal, f: LocationFilter & DateRange) {
+  async donations(p: Principal, f: LocationFilter & DateRange & { agencyId?: string; level?: 'agency' | 'station' | 'officer' }) {
     requirePerm(p, 'platform.money');
     const args: unknown[] = [];
     const where = locationWhere(f, args);
@@ -529,13 +529,30 @@ export class AdminOpsService {
     const net = (k: number) => k - donationFee(k);
     // The dates narrow the list; the totals above stay "this month" and "waiting now".
     const listArgs = [...args];
+    const narrow = [
+      f.agencyId ? `ag.id = $${listArgs.push(f.agencyId)}` : 'true',
+      f.level ? `d.target_type = $${listArgs.push(f.level)}` : 'true',
+      dateWhere(f, listArgs, 'd.paid_at'),
+    ].join(' and ');
+    // Which agency each gift belongs to: given to it, to one of its stations, or to one of its officers.
+    const byAgency = (
+      await this.db.query(
+        `select ag.id, ag.name, count(*)::int as n, coalesce(sum(d.amount_kobo), 0)::bigint as kobo,
+                coalesce(sum(d.amount_kobo) filter (where d.target_type = 'agency'), 0)::bigint as agency,
+                coalesce(sum(d.amount_kobo) filter (where d.target_type = 'station'), 0)::bigint as station,
+                coalesce(sum(d.amount_kobo) filter (where d.target_type = 'officer'), 0)::bigint as officer
+           ${base} and ${narrow} group by ag.id, ag.name order by kobo desc`,
+        listArgs,
+      )
+    ).rows;
+    const agencies = (await this.db.query(`select id, name from agencies where status in ('live', 'overdue', 'offboarding') order by name`)).rows;
     const list = (
       await this.db.query(
-        `select d.id, d.amount_kobo, d.target_type, d.show_name, d.payout_state, d.payout_failure, d.paid_at, d.method,
+        `select d.id, d.amount_kobo, d.target_type, d.show_name, d.payout_state, d.payout_failure, d.paid_at, d.method, ag.id as agency_id, ag.name as agency,
                 du.display_name as donor, coalesce(case d.target_type when 'officer' then ou.display_name when 'station' then st.name else ag.name end, '—') as recipient
            ${base.replace('where d.state', 'left join users du on du.id = d.donor_id left join users ou on d.target_type = \'officer\' and ou.id = d.target_id where d.state')}
-            and ${dateWhere(f, listArgs, 'd.paid_at')}
-          order by d.paid_at desc nulls last limit 50`,
+            and ${narrow}
+          order by d.paid_at desc nulls last limit 100`,
         listArgs,
       )
     ).rows;
@@ -543,11 +560,15 @@ export class AdminOpsService {
     tue.setDate(tue.getDate() + ((9 - tue.getDay()) % 7 || 7));
     return {
       stats: { donatedMonthKobo: Number(s.month), waitingKobo: net(Number(s.waiting)), paidOutMonthKobo: net(Number(s.paid)), feePct: DONATION_RULES.platformFeePct, nextRun: tue.toISOString().slice(0, 10) },
+      agencies,
+      byAgency: byAgency.map((a) => ({ id: a.id, name: a.name, gifts: a.n, kobo: Number(a.kobo), agencyKobo: Number(a.agency), stationsKobo: Number(a.station), officersKobo: Number(a.officer) })),
       donations: list.map((d) => ({
         id: d.id,
         donor: d.show_name ? d.donor : 'Anonymous',
         recipient: d.recipient,
         level: d.target_type[0].toUpperCase() + d.target_type.slice(1),
+        agency: d.agency ?? null,
+        agencyId: d.agency_id ?? null,
         amountKobo: Number(d.amount_kobo),
         netKobo: net(Number(d.amount_kobo)),
         paidVia: d.method === 'wallet' ? 'Wallet' : 'Paystack',

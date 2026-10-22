@@ -357,9 +357,46 @@ export class DevController {
           );
         }
       }
+      if (this.config.env !== 'test') await this.demoRouting(c, ids, agency, station);
       const demoIncidentId = this.config.env === 'test' ? null : await this.demoOffer(c, ids, station, agency);
       return { users: ids, agencyId: agency, stationId: station, naptipId: naptip, fermaId: ferma, demoIncidentId };
     });
+  }
+
+  /**
+   * Demo routing rules for the police: a second station in Yaba, and rules that send each kind of
+   * report in each area to a station first, then to the other station if nobody there accepts.
+   * Not in tests, which expect one station.
+   */
+  private async demoRouting(c: Queryable, ids: Record<string, string>, agency: string, ikeja: string) {
+    const loc = (
+      await c.query(
+        `insert into locations (postcode, address_text, state_id, lga_id, district_id, area_id, area_label, geom)
+         values ('EF56G', '56 Herbert Macaulay Way', 'LA', 'LA-YAB', 'LA-YAB-02', 'LA-YAB-02-HMW', 'Yaba central', st_setsrid(st_makepoint(3.3711, 6.5095), 4326)::geography)
+         on conflict (postcode) do update set fetched_at = now() returning id`,
+      )
+    ).rows[0].id;
+    const yaba =
+      (await c.query(`select id from stations where agency_id = $1 and name = 'Station 2 Yaba'`, [agency])).rows[0]?.id ??
+      (await c.query(`insert into stations (agency_id, name, location_id, status, accept_window_seconds) values ($1, 'Station 2 Yaba', $2, 'active', 25) returning id`, [agency, loc])).rows[0].id;
+    await c.query(`insert into station_areas (station_id, level, area_id, label) values ($1, 'district', 'LA-YAB-02', 'Yaba') on conflict do nothing`, [yaba]);
+    await c.query(`update station_areas set label = 'Ikeja GRA' where station_id = $1 and area_id = 'LA-IKJ-01' and label is null`, [ikeja]);
+    const rules: [string, string | null, string, number, string | null, boolean][] = [
+      ['robbery', 'LA-IKJ-01', ikeja, 25, yaba, true],
+      ['kidnapping', 'LA-IKJ', ikeja, 20, yaba, true],
+      ['riot', null, ikeja, 30, yaba, true],
+      ['robbery', 'LA-YAB-02', yaba, 25, ikeja, true],
+      ['violence', 'LA-YAB-02', yaba, 20, ikeja, true],
+      ['other', 'LA-ETI-03', ikeja, 40, null, false],
+    ];
+    for (const [type, area, st, wait, next, active] of rules) {
+      await c.query(
+        `insert into routing_rules (incident_type, area_id, station_id, priority, wait_seconds, next_station_id, active, updated_by)
+         select $1, $2, $3, 1, $4, $5, $6, $7
+          where not exists (select 1 from routing_rules where incident_type = $1 and area_id is not distinct from $2 and priority = 1)`,
+        [type, area, st, wait, next, active, ids.agencyAdmin],
+      );
+    }
   }
 
   /** Simulates the customer finishing Paystack checkout; posts a signed webhook to ourselves. */

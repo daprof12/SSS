@@ -26,6 +26,7 @@ import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
 import { AgencyLifecycle, stateLabels, type AgencyRow } from './agency.lifecycle';
 import { AGENCY_BILLING, AgencyBillingService } from './billing.service';
+import { logoUrl } from './logo.controller';
 
 export interface RegisterInput {
   kind: AgencyKind;
@@ -92,13 +93,14 @@ export class AgenciesService {
 
   async mine(p: Principal) {
     const r = await this.db.query(
-      `select a.id, a.name, a.status, a.kind from agencies a join user_roles r on r.scope_type = 'agency' and r.scope_id = a.id
+      `select a.id, a.name, a.status, a.kind, l.sha from agencies a join user_roles r on r.scope_type = 'agency' and r.scope_id = a.id left join agency_logos l on l.agency_id = a.id
         where r.user_id = $1 and r.role in ('agency_admin', 'agency_finance') order by a.created_at`,
       [p.userId],
     );
     return r.rows.map((a) => {
       const h = agencyHandles(a.kind);
-      return { ...a, statusLabel: stateLabels[a.status as AgencyRow['status']], handles: { tips: h.tips, bounties: h.bounties, issues: h.issues } };
+      const { sha, ...rest } = a;
+      return { ...rest, logoUrl: logoUrl(a.id, sha), statusLabel: stateLabels[a.status as AgencyRow['status']], handles: { tips: h.tips, bounties: h.bounties, issues: h.issues } };
     });
   }
 

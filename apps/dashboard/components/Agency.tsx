@@ -8,6 +8,8 @@ export interface MyAgency {
   name: string;
   status: string;
   statusLabel: string;
+  /** API path of the agency's logo, or null. */
+  logoUrl: string | null;
   /** Which queues this agency has, from its kind (a fire service gets neither tips nor public issues). */
   handles: { tips: boolean; bounties: boolean; issues: boolean };
 }
