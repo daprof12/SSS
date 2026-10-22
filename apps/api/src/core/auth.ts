@@ -32,6 +32,9 @@ export interface Principal {
 
 export const PUBLIC = 'erp:public';
 export const Public = () => SetMetadata(PUBLIC, true);
+/** Routes a signed-in staff member can use before finishing two-step login (setting it up, or entering the code). */
+const PENDING_MFA = 'pendingMfaAllowed';
+export const AllowPendingMfa = () => SetMetadata(PENDING_MFA, true);
 
 @Injectable()
 export class TokenService {
@@ -83,7 +86,7 @@ export class AuthGuard implements CanActivate {
     const live = await this.db.query(`select 1 from sessions where id = $1 and user_id = $2 and revoked_at is null and expires_at > now()`, [principal.sessionId, principal.userId]);
     if (!live.rowCount) throw new UnauthorizedException('Your session has ended. Sign in again.');
     // Staff must pass two-step login (Public Issues doc §5).
-    if (!principal.mfa && principal.roles.some((r) => mfaRequired.has(r.role))) {
+    if (!principal.mfa && principal.roles.some((r) => mfaRequired.has(r.role)) && !this.reflector.getAllAndOverride<boolean>(PENDING_MFA, [ctx.getHandler(), ctx.getClass()])) {
       throw new ForbiddenException({ code: 'mfa_required', message: 'Turn on two-step login to continue.' });
     }
     req.principal = principal;

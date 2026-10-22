@@ -8,6 +8,7 @@ import { TokenService, type RoleGrant } from '../core/auth';
 import { CONFIG, type AppConfig } from '../core/config';
 import { Db, type Queryable } from '../core/db';
 import { AppError } from '../core/http';
+import { base32Encode, matchStep, newRecoveryCodes, newSecret, openSecret, sealSecret } from './totp';
 
 export const OTP = {
   ttlSeconds: 5 * 60, // C3
@@ -204,6 +205,117 @@ export class AuthService {
     }
     const used = await c.query(`update otp_challenges set consumed_at = now() where id = $1 and consumed_at is null and attempts < max_attempts returning id`, [ch.id]);
     if (!used.rowCount) throw new AppError(400, 'code_expired', 'Code expired. Send a new one.');
+  }
+
+  // ---------------------------------------------------------------- staff two-step login
+
+  /** After the phone code: whether this person needs the second step, and whether their app is set up. */
+  async mfaStatus(userId: string, sessionId: string) {
+    const roles = await this.roles(this.db.pool, userId);
+    const t = (await this.db.query(`select confirmed_at from staff_totp where user_id = $1`, [userId])).rows[0];
+    const s = (await this.db.query(`select mfa_passed from sessions where id = $1`, [sessionId])).rows[0];
+    const left = (await this.db.query(`select count(*)::int as n from recovery_codes where user_id = $1 and used_at is null`, [userId])).rows[0].n;
+    return { required: roles.some((r) => mfaRequired.has(r.role)), enrolled: !!t?.confirmed_at, passed: !!s?.mfa_passed, recoveryCodesLeft: left };
+  }
+
+  /** Step 1 of setting up: a new secret for the authenticator app. Replaces an unfinished one. */
+  async mfaSetup(userId: string) {
+    const t = (await this.db.query(`select confirmed_at from staff_totp where user_id = $1`, [userId])).rows[0];
+    if (t?.confirmed_at) throw new AppError(409, 'already_set_up', 'Two-step login is already set up. Enter the code from your app.');
+    const secret = newSecret();
+    await this.db.query(
+      `insert into staff_totp (user_id, secret_enc) values ($1, $2) on conflict (user_id) do update set secret_enc = excluded.secret_enc, last_step = null, created_at = now()`,
+      [userId, sealSecret(secret, this.config.otpSecret)],
+    );
+    const u = (await this.db.query(`select phone, display_name from users where id = $1`, [userId])).rows[0];
+    const key = base32Encode(secret);
+    const account = encodeURIComponent(`ERP Nigeria:${u.display_name || u.phone}`);
+    return {
+      key: key.replace(/(.{4})/g, '$1 ').trim(),
+      otpauthUrl: `otpauth://totp/${account}?secret=${key}&issuer=${encodeURIComponent('ERP Nigeria')}&algorithm=SHA1&digits=6&period=30`,
+    };
+  }
+
+  /** Step 2 of setting up: the first code from the app proves it works. Returns recovery codes once. */
+  async mfaConfirm(userId: string, sessionId: string, code: string, ip?: string) {
+    return this.db.tx(async (c) => {
+      const t = (await c.query(`select secret_enc, confirmed_at, last_step from staff_totp where user_id = $1 for update`, [userId])).rows[0];
+      if (!t) throw new AppError(409, 'not_started', 'Start setting up two-step login first.');
+      if (t.confirmed_at) throw new AppError(409, 'already_set_up', 'Two-step login is already set up. Enter the code from your app.');
+      const step = matchStep(openSecret(t.secret_enc, this.config.otpSecret), code.trim(), t.last_step);
+      if (step == null) return { wrong: await this.countWrong(c, userId, sessionId, ip) };
+      await c.query(`update staff_totp set confirmed_at = now(), last_step = $2 where user_id = $1`, [userId, step]);
+      await c.query(`update users set mfa_enabled = true where id = $1`, [userId]);
+      await c.query(`delete from recovery_codes where user_id = $1`, [userId]);
+      const codes = newRecoveryCodes();
+      for (const rc of codes) await c.query(`insert into recovery_codes (user_id, code_hash) values ($1, $2)`, [userId, this.recoveryHash(userId, rc)]);
+      await this.audit.write({ actorId: userId, action: 'auth.mfa_enrolled', entity: 'user', entityId: userId, ip, payload: { method: 'totp' } }, c);
+      return { ...(await this.passSecondStep(c, userId, sessionId)), recoveryCodes: codes };
+    }).then((r) => {
+      if ('wrong' in r) this.wrongCode(r.wrong as number, 'Check the time on your phone and try the newest code.');
+      return r as Exclude<typeof r, { wrong: number }>;
+    });
+  }
+
+  /** Counts a wrong second-step code on the session; the fifth ends it. Returns tries left (0 = ended). */
+  private async countWrong(c: Queryable, userId: string, sessionId: string, ip?: string): Promise<number> {
+    const n = (await c.query(`update sessions set mfa_failures = mfa_failures + 1 where id = $1 returning mfa_failures`, [sessionId])).rows[0]?.mfa_failures ?? 5;
+    if (n >= 5) {
+      await c.query(`update sessions set revoked_at = now() where id = $1`, [sessionId]);
+      await this.audit.write({ actorId: userId, action: 'auth.mfa_locked', entity: 'session', entityId: sessionId, ip }, c);
+    }
+    return Math.max(0, 5 - n);
+  }
+
+  private wrongCode(left: number, hint = ''): never {
+    if (left <= 0) throw new AppError(401, 'mfa_locked', 'Too many wrong codes. Sign in again with your phone.');
+    throw new AppError(400, 'code_wrong', `That code is not right. ${left} ${left === 1 ? 'try' : 'tries'} left.${hint ? ` ${hint}` : ''}`, { triesLeft: left, fields: [{ field: 'code', message: 'That code is not right.' }] });
+  }
+
+  /**
+   * The second step at sign-in: a code from the app, or one recovery code. Five wrong tries end the
+   * session, so it starts again from the phone code.
+   */
+  async mfaVerify(userId: string, sessionId: string, b: { code?: string; recoveryCode?: string }, ip?: string) {
+    return this.db.tx(async (c) => {
+      const s = (await c.query(`select mfa_failures from sessions where id = $1 and revoked_at is null for update`, [sessionId])).rows[0];
+      if (!s) throw new AppError(401, 'session_ended', 'Your session has ended. Sign in again.');
+      const t = (await c.query(`select secret_enc, confirmed_at, last_step from staff_totp where user_id = $1 for update`, [userId])).rows[0];
+      if (!t?.confirmed_at) throw new AppError(409, 'not_set_up', 'Set up two-step login first.');
+      let ok = false;
+      let via: 'totp' | 'recovery' = 'totp';
+      if (b.recoveryCode) {
+        via = 'recovery';
+        const r = await c.query(`update recovery_codes set used_at = now() where user_id = $1 and code_hash = $2 and used_at is null returning code_hash`, [userId, this.recoveryHash(userId, b.recoveryCode.trim().toLowerCase())]);
+        ok = !!r.rowCount;
+      } else if (b.code) {
+        const step = matchStep(openSecret(t.secret_enc, this.config.otpSecret), b.code.trim(), t.last_step);
+        if (step != null) {
+          ok = true;
+          await c.query(`update staff_totp set last_step = $2 where user_id = $1`, [userId, step]);
+        }
+      }
+      if (!ok) return { wrong: await this.countWrong(c, userId, sessionId, ip) };
+      await this.audit.write({ actorId: userId, action: 'auth.mfa_passed', entity: 'session', entityId: sessionId, ip, payload: { via } }, c);
+      const left = (await c.query(`select count(*)::int as n from recovery_codes where user_id = $1 and used_at is null`, [userId])).rows[0].n;
+      return { ...(await this.passSecondStep(c, userId, sessionId)), recoveryCodesLeft: left };
+    }).then((r) => {
+      // Wrong tries and a lock are saved first, then told (an error inside would undo the count).
+      if ('wrong' in r) this.wrongCode(r.wrong as number);
+      return r as Exclude<typeof r, { wrong: number }>;
+    });
+  }
+
+  private recoveryHash(userId: string, code: string) {
+    return createHmac('sha256', this.config.otpSecret).update(`recovery|${userId}|${code}`).digest('hex');
+  }
+
+  /** Marks this session as past the second step and issues a token that says so. */
+  private async passSecondStep(c: Queryable, userId: string, sessionId: string) {
+    await c.query(`update sessions set mfa_passed = true, mfa_failures = 0 where id = $1`, [sessionId]);
+    const roles = await this.roles(c, userId);
+    const accessToken = await this.tokens.sign({ userId, sessionId, roles, mfa: true }, ACCESS_TTL_S);
+    return { accessToken, expiresInSeconds: ACCESS_TTL_S };
   }
 
   async signOut(userId: string, sessionId: string) {

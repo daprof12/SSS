@@ -626,3 +626,14 @@ Reports still go to the nearest free officer automatically. The station head or 
   - each officer sees "Your team of N";
   - the station's report detail shows the team above its units.
   - A closed report keeps the officers who saw it through, not anyone who said they couldn't go, handed it over or was moved off. History already lists the team per response.
+
+## Staff sign-in for the dashboard
+
+The dashboard sign-in is real now: **phone code, then a code from an authenticator app**. Staff roles (heads, dispatchers, agency and platform staff, officers, technicians) need both steps. Citizens are not asked for the second step, and anyone without a staff role is turned away from the dashboard.
+
+- **First time:** after the phone code, the person scans a QR code (or types the key) into Google Authenticator, Microsoft Authenticator or similar, then enters the code it shows. They then see ten one-time recovery codes, once, to copy or download.
+- **Every sign-in after that:** phone code, then the app code. "Lost your phone?" accepts a recovery code instead.
+- **Rules:** codes are TOTP (RFC 6238: 6 digits, 30 seconds, one step of clock drift either side). A code works only once. Five wrong codes end the session, so the person starts again from the phone code. The app secret is stored encrypted (AES-256-GCM, key derived from `OTP_SECRET`). Recovery codes are stored hashed. Set-up, each pass and each lock are written to the audit log.
+- **API:** `GET /auth/mfa`, `POST /auth/mfa/setup`, `POST /auth/mfa/confirm`, `POST /auth/mfa/verify`. These, and sign-out, are the only routes a staff member can use before finishing the second step. Migration `031_staff_two_step.sql`.
+- **Development:** the sign-in page shows the code from the mock SMS outbox, and still lists the demo accounts (which skip both steps) under "Development accounts". Production builds show neither.
+- **Not yet:** the phone app still stops officers at the second step; it needs the same screens.
