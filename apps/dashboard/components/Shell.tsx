@@ -78,6 +78,7 @@ const NAV: Record<string, NavItem[]> = {
     { label: 'Statements', href: '/station/statements', built: true },
     { label: 'Roster', href: '/station/roster', built: true },
     { label: 'Messages', href: '/station/messages', built: true },
+    { label: 'Payouts and donations', href: '/station/payouts', built: true },
     { label: 'Settings', href: '/station/settings', built: true },
   ],
   agency: [
@@ -117,6 +118,7 @@ const PERM: Record<string, Permission> = {
   '/agency/settings': 'agency.view',
   '/agency': 'agency.operations',
   // Station
+  '/station/payouts': 'station.manage',
   '/station': 'station.operations',
   '/incidents': 'station.operations',
 };

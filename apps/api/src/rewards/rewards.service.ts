@@ -203,12 +203,20 @@ export class RewardsService {
    */
   async donations(p: Principal, agencyId: string, q: DateRange & { level?: 'agency' | 'station' | 'officer' }) {
     requirePerm(p, 'agency.money', agencyId);
-    const args: unknown[] = [agencyId];
-    const where = [
-      `d.state = 'paid'`,
-      `(d.target_type = 'agency' and d.target_id = $1 or d.target_type = 'station' and st.agency_id = $1 or d.target_type = 'officer' and os.agency_id = $1)`,
-      dateWhere(q, args, 'd.paid_at'),
-    ].join(' and ');
+    return this.donationsFor({ agencyId }, q);
+  }
+
+  /**
+   * The gifts in one scope: an agency (to it, its stations and its officers) or a station (to it and
+   * its officers). Totals by level for the dates chosen, and the gifts themselves.
+   */
+  private async donationsFor(scope: { agencyId: string } | { stationId: string }, q: DateRange & { level?: 'agency' | 'station' | 'officer' }) {
+    const args: unknown[] = ['agencyId' in scope ? scope.agencyId : scope.stationId];
+    const who =
+      'agencyId' in scope
+        ? `(d.target_type = 'agency' and d.target_id = $1 or d.target_type = 'station' and st.agency_id = $1 or d.target_type = 'officer' and os.agency_id = $1)`
+        : `(d.target_type = 'station' and d.target_id = $1 or d.target_type = 'officer' and o.station_id = $1)`;
+    const where = [`d.state = 'paid'`, who, dateWhere(q, args, 'd.paid_at')].join(' and ');
     const from = `from donations d
       left join stations st on d.target_type = 'station' and st.id = d.target_id
       left join officers o on d.target_type = 'officer' and o.user_id = d.target_id
@@ -261,6 +269,71 @@ export class RewardsService {
         payout: d.payout_state,
       })),
     };
+  }
+
+  // ---------------------------------------------------------------- station (read only, station head)
+
+  private stationOf(p: Principal): string {
+    const sid = p.roles.find((r) => r.role === 'head' && r.scopeType === 'station')?.scopeId;
+    if (!sid) throw new AppError(403, 'forbidden', 'This is for the station head.');
+    requirePerm(p, 'station.manage', sid);
+    return sid;
+  }
+
+  /**
+   * Station "Payouts": rewards paid to this station's officers for rated responses, for the dates
+   * chosen; what each officer earned; and the agency's rule, so the head can explain it. Read only:
+   * the agency sets the rule.
+   */
+  async stationPayouts(p: Principal, q: DateRange) {
+    const sid = this.stationOf(p);
+    const st = (await this.db.query(`select s.name, s.agency_id, a.name as agency from stations s join agencies a on a.id = s.agency_id where s.id = $1`, [sid])).rows[0];
+    const args: unknown[] = [sid];
+    const rows = (
+      await this.db.query(
+        `select r.*, t.label as type_label, l.postcode from reward_payments r join incidents i on i.id = r.incident_id
+           join incident_types t on t.code = i.type left join locations l on l.id = i.location_id
+          where i.station_id = $1 and ${dateWhere(q, args, 'r.created_at')} order by r.created_at desc limit 200`,
+        args,
+      )
+    ).rows;
+    const officers = (await this.db.query(`select o.user_id, u.display_name from officers o join users u on u.id = o.user_id where o.station_id = $1 order by u.display_name`, [sid])).rows;
+    const ids = [...new Set([...officers.map((o) => o.user_id as string), ...rows.flatMap((r) => (r.shares as { id: string }[]).map((x) => x.id))])];
+    const names = new Map((await this.db.query(`select id, display_name from users where id = any($1::uuid[])`, [ids])).rows.map((u) => [u.id, u.display_name]));
+    const earned = new Map<string, { kobo: number; responses: number }>();
+    for (const r of rows)
+      if (r.state === 'paid')
+        for (const x of r.shares as { id: string; kobo: number }[]) {
+          const e = earned.get(x.id) ?? { kobo: 0, responses: 0 };
+          earned.set(x.id, { kobo: e.kobo + x.kobo, responses: e.responses + 1 });
+        }
+    const rule = await this.rule(this.db.pool, st.agency_id);
+    const paid = rows.filter((r) => r.state === 'paid');
+    return {
+      station: st.name as string,
+      agency: st.agency as string,
+      rule: rule ? { active: rule.active, fiveStarKobo: rule.fiveStarKobo, fourStarPct: rule.fourStarPct, split: rule.split } : null,
+      holdDays: REWARD_RULES.holdDays,
+      totals: { kobo: paid.reduce((a, r) => a + Number(r.total_kobo), 0), paid: paid.length, skipped: rows.length - paid.length },
+      officers: officers
+        .map((o) => ({ id: o.user_id as string, name: o.display_name as string, kobo: earned.get(o.user_id)?.kobo ?? 0, responses: earned.get(o.user_id)?.responses ?? 0 }))
+        .sort((x, y) => y.kobo - x.kobo),
+      recent: rows.slice(0, 50).map((r) => ({
+        incidentId: r.incident_id,
+        title: `${r.type_label}${r.postcode ? `, ${r.postcode}` : ''}`,
+        stars: r.stars,
+        state: r.state,
+        reason: r.reason ? (SKIP[r.reason] ?? r.reason) : null,
+        totalKobo: Number(r.total_kobo),
+        officers: (r.shares as { id: string; kobo: number }[]).map((x) => ({ name: names.get(x.id) ?? 'Officer', kobo: x.kobo })),
+        at: r.created_at,
+      })),
+    };
+  }
+
+  /** Station "Donations": gifts to this station and its officers. Read only. */
+  async stationDonations(p: Principal, q: DateRange & { level?: 'station' | 'officer' }) {
+    return this.donationsFor({ stationId: this.stationOf(p) }, q);
   }
 
   /** "How money is shared" for donations (used when donations launch). Must add up to 100%. */

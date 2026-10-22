@@ -93,4 +93,27 @@ describe('donations by agency', () => {
     expect(naptip.donations).toHaveLength(1);
     expect((await http.get(`/admin/donations?level=station`).set(as('platformAdmin')).expect(200)).body.donations.every((d: any) => d.level === 'Station')).toBe(true);
   });
+
+  it('shows the station head the gifts to the station and its officers, and the rewards its officers earned; read only', async () => {
+    const own = (await http.get('/me/station/donations').set(as('head')).expect(200)).body;
+    expect(own.totals).toMatchObject({ gifts: 2, kobo: 700_000, stationsKobo: 500_000, officersKobo: 200_000, agencyKobo: 0 });
+    expect(own.items.map((x: any) => x.recipient).sort()).toEqual(['Insp. Musa Bello', 'Station 4 Ikeja']);
+    expect((await http.get('/me/station/donations?level=officer').set(as('head')).expect(200)).body.items).toHaveLength(1);
+
+    // A paid reward on one of the station's reports.
+    const inc = (await db.query(`select id from incidents where station_id = $1 limit 1`, [seed.stationId])).rows[0]?.id
+      ?? (await db.query(`insert into incidents (type, state, station_id, agency_id, reporter_id, geom) values ('robbery', 'received', $1, $2, $3, st_setsrid(st_makepoint(3.35, 6.6), 4326)::geography) returning id`, [seed.stationId, seed.agencyId, seed.users.citizen])).rows[0].id;
+    await db.query(`insert into reward_payments (incident_id, agency_id, stars, total_kobo, state, shares) values ($1, $2, 5, 500000, 'paid', $3)`, [inc, seed.agencyId, JSON.stringify([{ id: seed.users.officer, kobo: 500000 }])]);
+    const pay = (await http.get('/me/station/payouts').set(as('head')).expect(200)).body;
+    expect(pay).toMatchObject({ station: 'Station 4 Ikeja', totals: { kobo: 500_000, paid: 1, skipped: 0 } });
+    expect(pay.officers.find((o: any) => o.id === seed.users.officer)).toMatchObject({ kobo: 500_000, responses: 1 });
+    expect(pay.recent[0]).toMatchObject({ stars: 5, state: 'paid', officers: [{ name: 'Insp. Musa Bello', kobo: 500_000 }] });
+    expect((await http.get('/me/station/payouts?from=2020-01-01&to=2020-01-31').set(as('head')).expect(200)).body.totals.paid).toBe(0);
+
+    // Only the station head: not dispatchers, officers or the agency admin through this route.
+    for (const who of ['dispatcher', 'officer', 'agencyAdmin']) {
+      await http.get('/me/station/payouts').set(as(who)).expect(403);
+      await http.get('/me/station/donations').set(as(who)).expect(403);
+    }
+  });
 });

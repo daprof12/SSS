@@ -65,7 +65,7 @@ import { AdminBountyFeeController, BountiesController } from './reports/bounties
 import { BountiesService } from './reports/bounties.service';
 import { BriefController } from './reports/brief.controller';
 import { BriefService } from './reports/brief.service';
-import { RewardsController } from './rewards/rewards.controller';
+import { RewardsController, StationMoneyController } from './rewards/rewards.controller';
 import { RewardsService } from './rewards/rewards.service';
 import { WalletController } from './wallet/wallet.controller';
 import { WalletService } from './wallet/wallet.service';
@@ -116,6 +116,7 @@ export class AppModule {
         MediaController,
         LearnController,
         RewardsController,
+        StationMoneyController,
         BriefController,
         BountiesController,
         AdminBountyFeeController,

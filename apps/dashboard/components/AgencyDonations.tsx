@@ -1,6 +1,7 @@
 'use client';
-// Agency "Donations": gifts from citizens to the agency, its stations and its officers. Totals by who
-// received them, for the dates chosen, and each gift. Donors who chose to stay anonymous stay so.
+// "Donations": gifts from citizens to an agency (it, its stations and its officers) or to a station
+// (it and its officers). Totals by who received them, for the dates chosen, and each gift. Donors who
+// chose to stay anonymous stay so. Read only.
 import { formatNaira } from '@erp/domain';
 import { api, ApiError } from '@erp/web-ui/api';
 import { useEffect, useState } from 'react';
@@ -22,6 +23,10 @@ const PAYOUT: Record<string, [string, string]> = {
 };
 
 export function AgencyDonations({ agencyId }: { agencyId: string }) {
+  return <Donations path={`/agencies/${agencyId}/donations`} scope="agency" />;
+}
+
+export function Donations({ path, scope }: { path: string; scope: 'agency' | 'station' }) {
   const dates = useDateRange('30d');
   const [level, setLevel] = useState<'' | Level>('');
   const [v, setV] = useState<View | null>(null);
@@ -29,18 +34,18 @@ export function AgencyDonations({ agencyId }: { agencyId: string }) {
   useEffect(() => {
     if (dates.q === null) return;
     const q = [dates.q, level && `level=${level}`].filter(Boolean).join('&');
-    api<View>(`/agencies/${agencyId}/donations${q ? `?${q}` : ''}`)
+    api<View>(`${path}${q ? `?${q}` : ''}`)
       .then((x) => (setV(x), setError(null)))
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load donations.'));
-  }, [agencyId, dates.q, level]);
+  }, [path, dates.q, level]);
   const t = v?.totals;
   return (
     <section className="card" aria-labelledby="don">
       <h2 id="don" style={{ marginTop: 0 }}>
-        Donations to your agency
+        Donations to your {scope}
       </h2>
       <p className="muted" style={{ marginTop: 0 }}>
-        Gifts from citizens to the agency, its stations and its officers. The platform keeps {v?.feePct ?? 10}%; the rest is paid to each one&apos;s wallet in the weekly run.
+        {scope === 'agency' ? 'Gifts from citizens to the agency, its stations and its officers.' : 'Gifts from citizens to the station and its officers.'} The platform keeps {v?.feePct ?? 10}%; the rest is paid to each one&apos;s wallet in the weekly run.
       </p>
       <div style={{ marginBottom: 12 }}>
         <DateRange value={dates.range} onChange={dates.setRange} initial={dates.initial} />
@@ -56,15 +61,17 @@ export function AgencyDonations({ agencyId }: { agencyId: string }) {
           <strong className="success">{t ? naira(t.kobo) : '—'}</strong>
           <small>{t ? `${t.gifts} ${t.gifts === 1 ? 'gift' : 'gifts'}, ${naira(t.netKobo)} after fee` : ' '}</small>
         </div>
+        {scope === 'agency' && (
+          <div className="stat">
+            <span>To the agency</span>
+            <strong>{t ? naira(t.agencyKobo) : '—'}</strong>
+            <small>Whole agency</small>
+          </div>
+        )}
         <div className="stat">
-          <span>To the agency</span>
-          <strong>{t ? naira(t.agencyKobo) : '—'}</strong>
-          <small>Whole agency</small>
-        </div>
-        <div className="stat">
-          <span>To stations</span>
+          <span>{scope === 'agency' ? 'To stations' : 'To the station'}</span>
           <strong>{t ? naira(t.stationsKobo) : '—'}</strong>
-          <small>Your stations</small>
+          <small>{scope === 'agency' ? 'Your stations' : 'For the station'}</small>
         </div>
         <div className="stat">
           <span>To officers</span>
@@ -78,7 +85,7 @@ export function AgencyDonations({ agencyId }: { agencyId: string }) {
         </div>
       </div>
       <div className="segmented" role="radiogroup" aria-label="Given to" style={{ margin: '4px 0 12px' }}>
-        {(['', 'agency', 'station', 'officer'] as const).map((l) => (
+        {(scope === 'agency' ? (['', 'agency', 'station', 'officer'] as const) : (['', 'station', 'officer'] as const)).map((l) => (
           <button key={l || 'all'} type="button" role="radio" aria-checked={level === l} aria-pressed={level === l} onClick={() => setLevel(l)}>
             {l ? LEVEL[l] : 'All'}
           </button>
