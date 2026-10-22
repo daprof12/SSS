@@ -36,7 +36,7 @@ const AGENCY_BUILT: Record<string, NavItem> = {
   'Learn feed': { label: 'Learn feed', href: '/agency/learn', built: true },
   Bounties: { label: 'Bounties', href: '/agency/bounties', built: true, also: ['/agency/tips'] },
   'Public issues': { label: 'Public issues', href: '/agency/issues', built: true },
-  Payouts: { label: 'Payouts', href: '/agency/payouts', built: true },
+  Payouts: { label: 'Payouts and donations', href: '/agency/payouts', built: true },
   Statements: { label: 'Statements', href: '/agency/statements', built: true },
   Officers: { label: 'Officers', href: '/agency/officers', built: true },
   Inventory: { label: 'Inventory', href: '/agency/inventory', built: true },

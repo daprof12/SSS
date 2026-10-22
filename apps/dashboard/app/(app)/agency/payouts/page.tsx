@@ -25,6 +25,15 @@ function Payouts({ agency }: { agency: MyAgency }) {
   const [s, setS] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useToast();
+  // Two tabs: rewards paid for rated responses, and donations from citizens. #donations opens the second.
+  const [tab, setTab] = useState<'payouts' | 'donations'>('payouts');
+  useEffect(() => {
+    if (window.location.hash === '#donations') setTab('donations');
+  }, []);
+  const pick = (t: 'payouts' | 'donations') => {
+    setTab(t);
+    history.replaceState(null, '', t === 'donations' ? '#donations' : window.location.pathname);
+  };
   const load = () =>
     api<Summary>(`/agencies/${agency.id}/rewards`)
       .then(setS)
@@ -39,86 +48,108 @@ function Payouts({ agency }: { agency: MyAgency }) {
       {toast}
       <div className="page-head">
         <div>
-          <h1>Payouts</h1>
-          <p className="lede">Rewards for rated responses, paid to your officers’ wallets from the platform rewards pool.</p>
+          <h1>Payouts and donations</h1>
+          <p className="lede">
+            {tab === 'payouts' ? 'Rewards for rated responses, paid to your officers’ wallets from the platform rewards pool.' : 'Gifts from citizens to your agency, its stations and its officers.'}
+          </p>
         </div>
       </div>
-      {error && (
-        <div className="banner critical" role="alert">
-          {error}
-        </div>
-      )}
-      <div className="stats">
-        <div className="stat">
-          <span>Rewards this month</span>
-          <strong className="success">{s ? naira(s.month.kobo) : '—'}</strong>
-          <small>{s ? `${s.month.paid} ${s.month.paid === 1 ? 'response' : 'responses'}` : ''}</small>
-        </div>
-        <div className="stat">
-          <span>Not paid</span>
-          <strong>{s?.month.skipped ?? '—'}</strong>
-          <small>Low rating, caps or checks</small>
-        </div>
-        <div className="stat">
-          <span>Reward for 5 stars</span>
-          <strong className="warning">{s ? (s.rule.active && s.ruleSet ? naira(s.rule.fiveStarKobo) : 'Off') : '—'}</strong>
-          <small>{s ? `Held ${s.limits.holdDays} days before withdrawal` : ''}</small>
-        </div>
+      <div className="segmented tabs" role="tablist" aria-label="Payouts and donations">
+        {(
+          [
+            ['payouts', 'Payouts'],
+            ['donations', 'Donations'],
+          ] as const
+        ).map(([k, l]) => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k} aria-pressed={tab === k} onClick={() => pick(k)}>
+            {l}
+          </button>
+        ))}
       </div>
-      {s && (
-        <div className="bounty-grid">
-          <section className="card" aria-labelledby="recent" style={{ overflowX: 'auto' }}>
-            <h2 id="recent" style={{ marginTop: 0 }}>
-              Recent rewards
-            </h2>
-            {!s.recent.length ? (
-              <div className="empty">
-                <strong>No rated responses yet.</strong>Rewards appear here when citizens rate your officers.
-              </div>
-            ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Response</th>
-                    <th>Rating</th>
-                    <th>Reward</th>
-                    <th>Officers</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {s.recent.map((r) => (
-                    <tr key={r.incidentId}>
-                      <td>
-                        <strong>{r.title}</strong>
-                        <div className="muted">
-                          {r.station ? `${r.station} · ` : ''}
-                          {dateTime(r.at)}
-                        </div>
-                      </td>
-                      <td>{'★'.repeat(r.stars)}</td>
-                      <td>{r.state === 'paid' ? <span className="chip success">{naira(r.totalKobo)}</span> : <span className="chip neutral" style={{ whiteSpace: 'normal' }}>{r.reason}</span>}</td>
-                      <td>
-                        {r.officers.length
-                          ? r.officers.map((o) => (
-                              <div key={o.name}>
-                                {o.name} <span className="muted">{naira(o.kobo)}</span>
-                              </div>
-                            ))
-                          : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
-          <div className="grid" style={{ alignContent: 'start' }}>
-            <RuleForm agencyId={agency.id} s={s} onSaved={(m) => (setToast(m), void load())} />
-            <SharesForm agencyId={agency.id} s={s} onSaved={(m) => (setToast(m), void load())} />
+      {tab === 'payouts' && (
+        <>
+          {error && (
+            <div className="banner critical" role="alert">
+              {error}
+            </div>
+          )}
+          <div className="stats">
+            <div className="stat">
+              <span>Rewards this month</span>
+              <strong className="success">{s ? naira(s.month.kobo) : '—'}</strong>
+              <small>{s ? `${s.month.paid} ${s.month.paid === 1 ? 'response' : 'responses'}` : ''}</small>
+            </div>
+            <div className="stat">
+              <span>Not paid</span>
+              <strong>{s?.month.skipped ?? '—'}</strong>
+              <small>Low rating, caps or checks</small>
+            </div>
+            <div className="stat">
+              <span>Reward for 5 stars</span>
+              <strong className="warning">{s ? (s.rule.active && s.ruleSet ? naira(s.rule.fiveStarKobo) : 'Off') : '—'}</strong>
+              <small>{s ? `Held ${s.limits.holdDays} days before withdrawal` : ''}</small>
+            </div>
           </div>
-        </div>
+          {s && (
+            <div className="bounty-grid">
+              <section className="card" aria-labelledby="recent" style={{ overflowX: 'auto' }}>
+                <h2 id="recent" style={{ marginTop: 0 }}>
+                  Recent rewards
+                </h2>
+                {!s.recent.length ? (
+                  <div className="empty">
+                    <strong>No rated responses yet.</strong>Rewards appear here when citizens rate your officers.
+                  </div>
+                ) : (
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Response</th>
+                        <th>Rating</th>
+                        <th>Reward</th>
+                        <th>Officers</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {s.recent.map((r) => (
+                        <tr key={r.incidentId}>
+                          <td>
+                            <strong>{r.title}</strong>
+                            <div className="muted">
+                              {r.station ? `${r.station} · ` : ''}
+                              {dateTime(r.at)}
+                            </div>
+                          </td>
+                          <td>{'★'.repeat(r.stars)}</td>
+                          <td>{r.state === 'paid' ? <span className="chip success">{naira(r.totalKobo)}</span> : <span className="chip neutral" style={{ whiteSpace: 'normal' }}>{r.reason}</span>}</td>
+                          <td>
+                            {r.officers.length
+                              ? r.officers.map((o) => (
+                                  <div key={o.name}>
+                                    {o.name} <span className="muted">{naira(o.kobo)}</span>
+                                  </div>
+                                ))
+                              : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+              <div className="grid" style={{ alignContent: 'start' }}>
+                <RuleForm agencyId={agency.id} s={s} onSaved={(m) => (setToast(m), void load())} />
+              </div>
+            </div>
+          )}
+        </>
       )}
-      <AgencyDonations agencyId={agency.id} />
+      {tab === 'donations' && (
+        <>
+          <AgencyDonations agencyId={agency.id} />
+          {s && <SharesForm agencyId={agency.id} s={s} onSaved={(m) => (setToast(m), void load())} />}
+        </>
+      )}
     </>
   );
 }
