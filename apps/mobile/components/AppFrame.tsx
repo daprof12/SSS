@@ -1,6 +1,6 @@
 'use client';
 
-import { HelpChat } from '@erp/web-ui/HelpChat';
+import { HelpChat, openHelpChat } from '@erp/web-ui/HelpChat';
 import { NotificationSounds } from '@erp/web-ui/NotificationSounds';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -50,7 +50,7 @@ export function AppFrame({ surface, children }: { surface: Surface; children: Re
       <NotificationSounds everyMs={surface === 'officer' ? 4000 : 8000} />
       {bar && (surface === 'citizen' ? <CitizenBar /> : <OfficerBar />)}
       {/* Help chat floats above the tab bar; hidden on full-screen flows (reporting, paying, statements). */}
-      {bar && <HelpChat bottom={88} suggestions={surface === 'officer' ? OFFICER_QUESTIONS : undefined} />}
+      {bar && <HelpChat fab={false} bottom={88} suggestions={surface === 'officer' ? OFFICER_QUESTIONS : undefined} />}
     </>
   );
 }
@@ -112,6 +112,11 @@ export function Header({ title, back = true, children }: { title?: string; back?
       {title && <h1>{title}</h1>}
       <span className="spacer" />
       {children}
+      {back !== false && (
+        <button className="back" type="button" aria-label="Help chat" onClick={openHelpChat}>
+          <Icon name="message" />
+        </button>
+      )}
     </header>
   );
 }

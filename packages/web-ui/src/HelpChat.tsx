@@ -24,7 +24,7 @@ export const OPEN_HELP_CHAT = 'erp:open-help-chat';
 export const openHelpChat = () => window.dispatchEvent(new Event(OPEN_HELP_CHAT));
 const SUGGESTIONS = ['How do I report an emergency?', 'Which agency handles fake drugs?', 'How do statements work?', 'Where is my withdrawal?'];
 
-export function HelpChat({ bottom = 24, suggestions = SUGGESTIONS }: { bottom?: number; suggestions?: string[] }) {
+export function HelpChat({ bottom = 24, suggestions = SUGGESTIONS, fab = true }: { bottom?: number; suggestions?: string[]; /** Show the floating button. Off when the header has a message button that calls openHelpChat. */ fab?: boolean }) {
   const [open, setOpen] = useState(false);
   const [chat, setChat] = useState<Chat | null>(null);
   const [text, setText] = useState('');
@@ -116,7 +116,7 @@ export function HelpChat({ bottom = 24, suggestions = SUGGESTIONS }: { bottom?: 
   return (
     <>
       <style>{CSS}</style>
-      {!open && (
+      {!open && fab && (
         <button type="button" className="hc-fab" style={{ bottom }} onClick={() => setOpen(true)} aria-label={unread ? 'Help chat, new reply' : 'Help chat'}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />

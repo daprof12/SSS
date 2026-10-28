@@ -9,7 +9,7 @@ import { ThemeSwitch } from '@erp/web-ui/ThemeSwitch';
 import { api, getSession, setSession, type Session } from '@erp/web-ui/api';
 import { applyMotion, applyTheme, onThemeChange, readTheme, type ThemeChoice } from '@erp/web-ui/theme';
 import { holds, type Permission } from '@erp/domain';
-import { HelpChat } from '@erp/web-ui/HelpChat';
+import { HelpChat, openHelpChat } from '@erp/web-ui/HelpChat';
 import { NotificationSounds } from '@erp/web-ui/NotificationSounds';
 import { AgencyLogo, BRAND_CHANGED_EVENT } from '@erp/web-ui/AgencyLogo';
 
@@ -224,7 +224,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           )}
         </main>
       </div>
-      <HelpChat suggestions={STAFF_QUESTIONS} />
+      <HelpChat suggestions={STAFF_QUESTIONS} fab={false} />
       <NotificationSounds everyMs={5000} />
     </div>
   );
@@ -302,6 +302,11 @@ function TopBar({ session }: { session: Session }) {
       <input className="search" type="search" placeholder="Search postcode, report or officer" aria-label="Search" />
       <div className="spacer" />
       <ThemeSwitch compact value={theme} onChange={choose} />
+      <button className="icon-btn" type="button" aria-label="Help chat" title="Help chat" onClick={openHelpChat}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+      </button>
       <NotificationBell />
       <UserMenu session={session} />
     </header>
