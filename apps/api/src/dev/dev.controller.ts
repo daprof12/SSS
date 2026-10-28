@@ -1,5 +1,6 @@
 // Dev-only endpoints. The module is registered only when config.devTools is
 // true, which loadConfig() refuses in production.
+import { seedDemoData } from './demo-data';
 import { seedLearn } from './learn-seed';
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
@@ -361,6 +362,10 @@ export class DevController {
       }
       await this.demoFleet(c, ids, agency, station);
       if (this.config.env !== 'test') await this.demoRouting(c, ids, agency, station);
+      if (this.config.env !== 'test') {
+        const yaba = (await c.query(`select id from stations where agency_id = $1 and name = 'Station 2 Yaba'`, [agency])).rows[0].id;
+        await seedDemoData(c, ids as never, { police: agency, ferma, ikeja: station, yaba });
+      }
       const demoIncidentId = this.config.env === 'test' ? null : await this.demoOffer(c, ids, station, agency);
       return { users: ids, agencyId: agency, stationId: station, naptipId: naptip, fermaId: ferma, demoIncidentId };
     });

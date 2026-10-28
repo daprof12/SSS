@@ -148,14 +148,14 @@ export class AgencyOpsService {
         order by s.name nulls first, i.created_at`,
       args,
     );
-    const ready = (code: string) => r.rows.filter((x) => x.fee_code === code && x.status === 'ready').reduce((a, x) => a + x.quantity, 0);
+    const ready = (...codes: string[]) => r.rows.filter((x) => codes.includes(x.fee_code) && x.status === 'ready').reduce((a, x) => a + x.quantity, 0);
     const overdue = (x: { last_check_at: Date | null }) => !x.last_check_at || +new Date(x.last_check_at) < Date.now() - 30 * 86_400_000;
     return {
       kinds: Object.entries(EQUIPMENT).map(([code, e]) => ({ code, label: e.label })),
       stats: {
         vehiclesReady: ready('inventory_vehicle'),
-        dronesReady: ready('inventory_drone_kit'),
-        dronePilots: r.rows.filter((x) => x.fee_code === 'inventory_drone_kit' && x.pilot_name).length,
+        dronesReady: ready('inventory_drone_kit', 'inventory_defence_drone', 'inventory_fire_drone'),
+        dronePilots: r.rows.filter((x) => ['inventory_drone_kit', 'inventory_defence_drone', 'inventory_fire_drone'].includes(x.fee_code) && x.pilot_name).length,
         fireKits: ready('inventory_fire_kit'),
         needsService: r.rows.filter((x) => x.status === 'needs_service' || overdue(x)).length,
       },
