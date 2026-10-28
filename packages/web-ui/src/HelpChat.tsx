@@ -24,8 +24,20 @@ export const OPEN_HELP_CHAT = 'erp:open-help-chat';
 export const openHelpChat = () => window.dispatchEvent(new Event(OPEN_HELP_CHAT));
 const SUGGESTIONS = ['How do I report an emergency?', 'Which agency handles fake drugs?', 'How do statements work?', 'Where is my withdrawal?'];
 
-export function HelpChat({ bottom = 24, suggestions = SUGGESTIONS, fab = true }: { bottom?: number; suggestions?: string[]; /** Show the floating button. Off when the header has a message button that calls openHelpChat. */ fab?: boolean }) {
-  const [open, setOpen] = useState(false);
+export function HelpChat({
+  bottom = 24,
+  suggestions = SUGGESTIONS,
+  fab = true,
+  page = false,
+}: {
+  bottom?: number;
+  suggestions?: string[];
+  /** Show the floating button. Off when the header has a message button that calls openHelpChat. */
+  fab?: boolean;
+  /** Fill the page it is on (a chat screen of its own) instead of floating over it. */
+  page?: boolean;
+}) {
+  const [open, setOpen] = useState(page);
   const [chat, setChat] = useState<Chat | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -116,7 +128,7 @@ export function HelpChat({ bottom = 24, suggestions = SUGGESTIONS, fab = true }:
   return (
     <>
       <style>{CSS}</style>
-      {!open && fab && (
+      {!open && fab && !page && (
         <button type="button" className="hc-fab" style={{ bottom }} onClick={() => setOpen(true)} aria-label={unread ? 'Help chat, new reply' : 'Help chat'}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -126,10 +138,10 @@ export function HelpChat({ bottom = 24, suggestions = SUGGESTIONS, fab = true }:
         </button>
       )}
       {open && (
-        <section className="hc-panel" style={{ bottom }} role="dialog" aria-label="Help chat">
+        <section className={page ? 'hc-panel hc-page' : 'hc-panel'} style={page ? undefined : { bottom }} role={page ? 'region' : 'dialog'} aria-label="Help chat">
           <header className="hc-head">
             <div>
-              <strong>Help</strong>
+              {!page && <strong>Help</strong>}
               <small>{chat ? chat.stateLabel : 'Assistant, with people on the help team'}</small>
             </div>
             <div className="hc-actions">
@@ -143,9 +155,11 @@ export function HelpChat({ bottom = 24, suggestions = SUGGESTIONS, fab = true }:
                   End chat
                 </button>
               )}
-              <button type="button" onClick={() => setOpen(false)} aria-label="Minimise help chat">
-                ✕
-              </button>
+              {!page && (
+                <button type="button" onClick={() => setOpen(false)} aria-label="Minimise help chat">
+                  ✕
+                </button>
+              )}
             </div>
           </header>
           <div className="hc-sos">In danger now? Press SOS or call 112.</div>
@@ -255,5 +269,6 @@ const CSS = `
 .hc-input textarea{flex:1;resize:none;min-height:40px;max-height:120px;border-radius:12px;border:1px solid var(--color-divider,#333);background:var(--color-surface-sunken,#0a0a0a);color:inherit;font:inherit;font-size:14px;padding:9px 12px}
 .hc-input button{border:0;border-radius:12px;padding:0 16px;background:var(--color-signal,#22d3ee);color:var(--color-on-signal,#04111a);font:inherit;font-weight:700;cursor:pointer}
 .hc-input button:disabled,.hc-actions button:disabled{opacity:.5;cursor:not-allowed}
-@media (max-width:600px){.hc-panel{right:0;left:0;width:100%;border-radius:20px 20px 0 0;height:min(78vh,620px)}}
+.hc-panel.hc-page{position:static;width:auto;height:auto;flex:1;min-height:0;border-radius:16px;box-shadow:none}
+@media (max-width:600px){.hc-panel:not(.hc-page){right:0;left:0;width:100%;border-radius:20px 20px 0 0;height:min(78vh,620px)}}
 `;

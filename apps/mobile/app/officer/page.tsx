@@ -3,8 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Toast, useToast } from '@/components/AppFrame';
-import { openHelpChat } from '@erp/web-ui/HelpChat';
+import { ChatLink, Toast, useToast } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { Rating } from '@erp/web-ui/Rating';
@@ -132,9 +131,7 @@ export default function OfficerHome() {
         </div>
         <span className="spacer" />
         {brand && <AgencyLogo url={brand.logoUrl} name={brand.agencyName} size={40} />}
-        <button type="button" className="round-btn" aria-label="Help chat" onClick={openHelpChat}>
-          <Icon name="message" />
-        </button>
+        <ChatLink />
         <Link href="/officer/notifications" className="round-btn" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}>
           <Icon name="bell" />
           {unread > 0 && <span className="dot" />}

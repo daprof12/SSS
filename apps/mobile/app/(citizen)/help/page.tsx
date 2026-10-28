@@ -1,7 +1,7 @@
 'use client';
 
-import { openHelpChat } from '@erp/web-ui/HelpChat';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Header, Toast, useToast } from '@/components/AppFrame';
 import { Icon } from '@/components/Icon';
 import { MessageSheet, TOPICS } from '@/components/MessageSheet';
@@ -26,9 +26,9 @@ export default function Help() {
   return (
     <main className="app">
       <Header title="Help and support" back="/profile" />
-      <button className="btn primary" type="button" style={{ width: '100%', margin: '0 0 12px' }} onClick={openHelpChat}>
+      <Link className="btn primary" href="/chat" style={{ width: '100%', margin: '0 0 12px' }}>
         Chat with us now
-      </button>
+      </Link>
       <a className="banner critical" href={`tel:${s?.emergency.number ?? '112'}`} style={{ display: 'flex', alignItems: 'center', gap: 12, textDecoration: 'none' }}>
         <Icon name="phone" />
         <span style={{ flex: 1 }}>

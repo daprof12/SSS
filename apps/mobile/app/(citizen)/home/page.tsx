@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { ChatLink } from '@/components/AppFrame';
 import { useEffect, useState } from 'react';
-import { openHelpChat } from '@erp/web-ui/HelpChat';
 import { Icon } from '@/components/Icon';
 import { api, getSession, TYPES } from '@/lib/client';
 
@@ -62,9 +62,7 @@ export default function Home() {
             <Icon name="check" size={14} /> Verified
           </span>
         )}
-        <button type="button" className="round-btn" aria-label="Help chat" onClick={openHelpChat}>
-          <Icon name="message" />
-        </button>
+        <ChatLink />
         <Link href="/notifications" className="round-btn" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}>
           <Icon name="bell" />
           {unread > 0 && <span className="dot" />}

@@ -33,8 +33,8 @@ button {
   max-width: 480px;
   margin: 0 auto;
   min-height: 100dvh;
-  /* Room for the tab bar and the floating Help button above it, so neither covers the last row. */
-  padding: calc(var(--space-4) + env(safe-area-inset-top)) var(--space-4) calc(156px + env(safe-area-inset-bottom));
+  /* Room for the tab bar, so it does not cover the last row. */
+  padding: calc(var(--space-4) + env(safe-area-inset-top)) var(--space-4) calc(112px + env(safe-area-inset-bottom));
   animation: page-in var(--motion-sheet-enter-duration) var(--motion-sheet-enter-easing);
 }
 .app.bare {
@@ -2977,4 +2977,11 @@ button {
   color: var(--color-signal-text);
   font-weight: var(--weight-bold);
   font-size: var(--text-sm);
+}
+/* Help chat page: header on top, the conversation fills the rest, the input stays at the bottom. */
+.app.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 12px);
 }

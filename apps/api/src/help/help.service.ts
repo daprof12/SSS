@@ -245,7 +245,7 @@ export class HelpService {
       if (kind === 'reply') {
         await c.query(`update help_conversations set state = 'human', assigned_to = coalesce(assigned_to, $2) where id = $1`, [id, p.userId]);
         if (conv.ticket_id) await c.query(`update support_tickets set state = 'answered', reply = $2, replied_by = $3, replied_at = now() where id = $1`, [conv.ticket_id, text.slice(0, 2000), p.userId]);
-        await notify(c, [conv.user_id], { type: 'help_chat_reply', grp: 'account', title: 'The help team replied', body: text.slice(0, 140), link: conv.surface === 'officer' ? '/officer/help?chat=open' : conv.surface === 'staff' ? '/?chat=open' : '/help?chat=open' });
+        await notify(c, [conv.user_id], { type: 'help_chat_reply', grp: 'account', title: 'The help team replied', body: text.slice(0, 140), link: conv.surface === 'officer' ? '/officer/chat' : conv.surface === 'staff' ? '/?chat=open' : '/chat' });
       }
       await this.audit.write({ actorId: p.userId, actorRole: 'platform_support', action: kind === 'reply' ? 'support.chat_reply' : 'support.chat_note', entity: 'help_conversation', entityId: id }, c);
       return { message: kind === 'reply' ? 'Sent. They see it in the chat.' : 'Note added. Only the team sees it.' };

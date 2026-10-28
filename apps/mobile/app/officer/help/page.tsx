@@ -1,6 +1,6 @@
 'use client';
 // Help for officers: the short answers needed on shift, and who to call.
-import { openHelpChat } from '@erp/web-ui/HelpChat';
+import Link from 'next/link';
 import { Header } from '@/components/AppFrame';
 
 const QA: [string, string][] = [
@@ -16,9 +16,9 @@ export default function Help() {
   return (
     <main className="app">
       <Header title="Help" back="/officer/profile" />
-      <button className="btn primary" type="button" style={{ width: '100%', margin: '0 0 12px' }} onClick={openHelpChat}>
+      <Link className="btn primary" href="/officer/chat" style={{ width: '100%', margin: '0 0 12px' }}>
         Chat with us now
-      </button>
+      </Link>
       <div className="list">
         {QA.map(([q, a]) => (
           <details key={q} className="help-item">
