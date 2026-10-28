@@ -236,7 +236,7 @@ function AddItem({ agencyId, kinds, stations, onClose, onDone }: { agencyId: str
           ))}
         </select>
       </label>
-      {kind === 'drone' && (
+      {kind.endsWith('drone') && (
         <label className="field">
           <span>Trained pilot</span>
           <input type="text" value={pilot} onChange={(e) => setPilot(e.target.value)} maxLength={120} />

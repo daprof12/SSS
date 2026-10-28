@@ -23,7 +23,8 @@ interface Asset {
   citizenReports: number;
 }
 interface Board {
-  stats: { total: number; traffic: number; street: number; camera: number; onlinePct: number; openFaults: number; citizenReported: number; overdue: number };
+  stats: { total: number; traffic: number; street: number; camera: number; smart: number; other: number; onlinePct: number; openFaults: number; citizenReported: number; overdue: number };
+  kinds: { code: string; label: string }[];
   items: Asset[];
 }
 const TONE: Record<string, string> = { online: 'var(--color-success-text)', low_power: 'var(--color-warning-text)', offline: 'var(--color-text-secondary)', fault: 'var(--color-emergency-text)' };
@@ -32,6 +33,7 @@ const TABS: [string, string][] = [
   ['traffic_light', 'Traffic lights'],
   ['street_light', 'Street lights'],
   ['camera', 'Cameras'],
+  ['smart_pole', 'Smart street lights'],
   ['faults', 'Faults'],
   ['overdue', 'Overdue service'],
 ];
@@ -64,7 +66,7 @@ function Assets({ agency }: { agency: MyAgency }) {
       <div className="page-head">
         <div>
           <h1>Infrastructure assets</h1>
-          <p className="lede">Traffic lights, street lights and cameras you are in charge of.</p>
+          <p className="lede">Traffic lights, street lights, cameras, smart poles and sensors you are in charge of.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn" type="button" onClick={() => setSheet('add')}>
@@ -87,7 +89,7 @@ function Assets({ agency }: { agency: MyAgency }) {
         <div className="stat">
           <span>Assets</span>
           <strong>{s?.total ?? '—'}</strong>
-          <small>{s ? `${s.traffic} traffic, ${s.street} street, ${s.camera} camera` : ''}</small>
+          <small>{s ? `${s.traffic} traffic, ${s.street} street, ${s.camera} camera, ${s.smart} smart, ${s.other} other` : ''}</small>
         </div>
         <div className="stat">
           <span>Online</span>
@@ -161,8 +163,8 @@ function Assets({ agency }: { agency: MyAgency }) {
       <div className="banner info">
         <strong style={{ display: 'block' }}>Public reports are linked</strong>A citizen report near an asset adds to its report count, so you can open a work order.
       </div>
-      {sheet === 'add' && <AddAsset agencyId={agency.id} onClose={() => setSheet(null)} onDone={(m) => (setSheet(null), setToast(m), load())} />}
-      {sheet === 'import' && <ImportAssets agencyId={agency.id} onClose={() => setSheet(null)} onDone={(m) => (setSheet(null), setToast(m), load())} />}
+      {sheet === 'add' && d && <AddAsset agencyId={agency.id} kinds={d.kinds} onClose={() => setSheet(null)} onDone={(m) => (setSheet(null), setToast(m), load())} />}
+      {sheet === 'import' && d && <ImportAssets agencyId={agency.id} kinds={d.kinds} onClose={() => setSheet(null)} onDone={(m) => (setSheet(null), setToast(m), load())} />}
       {sheet === 'order' && d && <WorkOrder agencyId={agency.id} assets={d.items} onClose={() => setSheet(null)} onDone={(m) => (setSheet(null), setToast(m))} />}
     </>
   );
@@ -181,7 +183,7 @@ function Foot({ busy, onClose, onSubmit, label, disabled }: { busy: boolean; onC
   );
 }
 
-function AddAsset({ agencyId, onClose, onDone }: { agencyId: string; onClose: () => void; onDone: (m: string) => void }) {
+function AddAsset({ agencyId, kinds, onClose, onDone }: { agencyId: string; kinds: { code: string; label: string }[]; onClose: () => void; onDone: (m: string) => void }) {
   const [f, setF] = useState({ kind: 'traffic_light', name: '', postcode: '', controller: '', nextServiceOn: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -205,9 +207,11 @@ function AddAsset({ agencyId, onClose, onDone }: { agencyId: string; onClose: ()
       <label className="field">
         <span>Type</span>
         <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
-          <option value="traffic_light">Traffic light</option>
-          <option value="street_light">Street light</option>
-          <option value="camera">Camera</option>
+          {kinds.map((k) => (
+            <option key={k.code} value={k.code}>
+              {k.label}
+            </option>
+          ))}
         </select>
       </label>
       <label className="field">
@@ -230,7 +234,7 @@ function AddAsset({ agencyId, onClose, onDone }: { agencyId: string; onClose: ()
   );
 }
 
-function ImportAssets({ agencyId, onClose, onDone }: { agencyId: string; onClose: () => void; onDone: (m: string) => void }) {
+function ImportAssets({ agencyId, kinds, onClose, onDone }: { agencyId: string; kinds: { code: string; label: string }[]; onClose: () => void; onDone: (m: string) => void }) {
   const [csv, setCsv] = useState('kind, name, postcode\n');
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<{ added: number; failed: { line: number; reason: string }[]; message: string } | null>(null);
@@ -249,7 +253,7 @@ function ImportAssets({ agencyId, onClose, onDone }: { agencyId: string; onClose
     }
   };
   return (
-    <Sheet open title="Import list" description="One asset per line: kind, name, postcode. Kind is traffic light, street light or camera." onClose={() => (res ? onDone(res.message) : onClose())} busy={busy} footer={<Foot busy={busy} onClose={() => (res ? onDone(res.message) : onClose())} onSubmit={submit} label="Import" />}>
+    <Sheet open title="Import list" description={`One asset per line: kind, name, postcode. Kind is one of: ${kinds.map((k) => k.label.toLowerCase()).join(', ')}.`} onClose={() => (res ? onDone(res.message) : onClose())} busy={busy} footer={<Foot busy={busy} onClose={() => (res ? onDone(res.message) : onClose())} onSubmit={submit} label="Import" />}>
       {err && (
         <div className="banner critical" role="alert" style={{ margin: 0 }}>
           {err}

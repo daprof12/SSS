@@ -24,10 +24,28 @@ export const EQUIPMENT = {
   drone: { fee: 'inventory_drone_kit', label: 'Drone' },
   radio: { fee: 'inventory_radio', label: 'Handheld radio' },
   fire_drop_kit: { fee: 'inventory_fire_kit', label: 'Fire drop kit' },
+  defence_drone: { fee: 'inventory_defence_drone', label: 'Defence drone' },
+  fire_drone: { fee: 'inventory_fire_drone', label: 'Fire-fighter drone' },
+  body_cam: { fee: 'inventory_body_cam', label: 'Officer body cam' },
+  camera: { fee: 'inventory_camera', label: 'Camera' },
+  sensor: { fee: 'inventory_sensor', label: 'Security sensor and alert device' },
+  smart_pole: { fee: 'inventory_smart_pole', label: 'Smart street light' },
+  other: { fee: 'inventory_other', label: 'Other' },
 } as const;
+const DRONES: readonly string[] = ['drone', 'defence_drone', 'fire_drone'];
 export type EquipmentKind = keyof typeof EQUIPMENT;
 const EQUIP_STATUS: Record<string, string> = { ready: 'Ready', in_use: 'In use', needs_service: 'Needs service', out_of_service: 'Out of service' };
-const ASSET_KIND: Record<string, string> = { traffic_light: 'Traffic light', street_light: 'Street light', camera: 'Camera' };
+export const ASSET_KIND = {
+  traffic_light: 'Traffic light',
+  street_light: 'Street light',
+  camera: 'Camera',
+  smart_pole: 'Smart street light',
+  sensor: 'Security sensor and alarm',
+  drone_house: 'Drone charging house',
+  solar_panel: 'Solar panel',
+  other: 'Other',
+} as const;
+export type AssetKind = keyof typeof ASSET_KIND;
 const ASSET_STATUS: Record<string, string> = { online: 'Online', low_power: 'Low power', offline: 'Offline', fault: 'Fault' };
 const ACTION_LABEL: Record<string, string> = { restart: 'Restart controller', flashing_amber: 'Set flashing amber', manual_control: 'Manual control' };
 export const AGENCY_TEAM_ROLES = ['agency_admin', 'agency_finance', 'head', 'dispatcher'] as const;
@@ -160,7 +178,7 @@ export class AgencyOpsService {
     requirePerm(p, 'agency.operations', agencyId);
     const e = EQUIPMENT[b.kind];
     const r = await this.agencies.addInventory(p, agencyId, { feeCode: e.fee, quantity: b.quantity, stationId: b.stationId });
-    await this.db.query(`update agency_inventory set name = $2, pilot_name = $3, last_check_at = now() where id = $1`, [r.id, b.name?.trim() || e.label, b.kind === 'drone' ? b.pilotName?.trim() || null : null]);
+    await this.db.query(`update agency_inventory set name = $2, pilot_name = $3, last_check_at = now() where id = $1`, [r.id, b.name?.trim() || e.label, DRONES.includes(b.kind) ? b.pilotName?.trim() || null : null]);
     return { id: r.id, message: `Added. ${r.monthly} a month from the next invoice.` };
   }
 
@@ -397,16 +415,19 @@ export class AgencyOpsService {
         traffic: all.filter((x) => x.kind === 'traffic_light').length,
         street: all.filter((x) => x.kind === 'street_light').length,
         camera: all.filter((x) => x.kind === 'camera').length,
+        smart: all.filter((x) => x.kind === 'smart_pole').length,
+        other: all.filter((x) => !['traffic_light', 'street_light', 'camera', 'smart_pole'].includes(x.kind)).length,
         onlinePct: all.length ? Math.round((online / all.length) * 100) : 0,
         openFaults: all.filter((x) => x.status === 'fault' || x.open_faults > 0).length,
         citizenReported: all.filter((x) => x.citizen_reports > 0).length,
         overdue: all.filter(overdue).length,
       },
+      kinds: Object.entries(ASSET_KIND).map(([code, label]) => ({ code, label })),
       items: all.filter(pick).map((x) => ({
         id: x.id,
         name: x.name,
         kind: x.kind,
-        kindLabel: ASSET_KIND[x.kind],
+        kindLabel: ASSET_KIND[x.kind as AssetKind],
         area: [x.lga_id, x.postcode].filter(Boolean).join(', '),
         status: x.status,
         statusLabel: ASSET_STATUS[x.status],
@@ -443,7 +464,7 @@ export class AgencyOpsService {
       id: a.id,
       name: a.name,
       kind: a.kind,
-      kindLabel: ASSET_KIND[a.kind],
+      kindLabel: ASSET_KIND[a.kind as AssetKind],
       postcode: a.postcode,
       address: a.address_text,
       status: a.status,
@@ -465,7 +486,7 @@ export class AgencyOpsService {
     };
   }
 
-  async addAsset(p: Principal, agencyId: string, b: { kind: 'traffic_light' | 'street_light' | 'camera'; name: string; postcode?: string; controller?: string; nextServiceOn?: string }) {
+  async addAsset(p: Principal, agencyId: string, b: { kind: AssetKind; name: string; postcode?: string; controller?: string; nextServiceOn?: string }) {
     requirePerm(p, 'agency.operations', agencyId);
     return this.db.tx(async (c) => {
       let loc: string | null = null;
@@ -502,7 +523,8 @@ export class AgencyOpsService {
   /** "Import list": one asset per line, `kind, name, postcode`. Lines that fail are listed back. */
   async importAssets(p: Principal, agencyId: string, csv: string) {
     requirePerm(p, 'agency.operations', agencyId);
-    const KINDS: Record<string, 'traffic_light' | 'street_light' | 'camera'> = { 'traffic light': 'traffic_light', traffic_light: 'traffic_light', 'street light': 'street_light', street_light: 'street_light', camera: 'camera' };
+    // Either the label ("Smart street light") or the code ("smart_pole").
+    const KINDS = Object.fromEntries((Object.entries(ASSET_KIND) as [AssetKind, string][]).flatMap(([code, label]) => [[code, code], [label.toLowerCase(), code], [code.replace(/_/g, ' '), code]])) as Record<string, AssetKind>;
     let added = 0;
     const failed: { line: number; reason: string }[] = [];
     const lines = csv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -511,7 +533,7 @@ export class AgencyOpsService {
       const [k, name, pc] = line.split(',').map((x) => x.trim());
       const kind = KINDS[(k ?? '').toLowerCase()];
       if (!kind || !name) {
-        failed.push({ line: i + 1, reason: 'Needs a kind (traffic light, street light or camera) and a name.' });
+        failed.push({ line: i + 1, reason: `Needs a kind (${Object.values(ASSET_KIND).join(', ').toLowerCase()}) and a name.` });
         continue;
       }
       try {

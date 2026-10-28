@@ -5,7 +5,7 @@ import { CurrentUser, type Principal } from '../core/auth';
 import { ZodPipe } from '../core/http';
 import { LocationQuery } from '../core/location-filter';
 import { AdminOversightService } from '../dashboards/admin-oversight.service';
-import { AGENCY_TEAM_ROLES, AgencyOpsService, EQUIPMENT } from './agency-ops.service';
+import { AGENCY_TEAM_ROLES, ASSET_KIND, AgencyOpsService, EQUIPMENT, type AssetKind } from './agency-ops.service';
 
 const Phone = z.string().trim().min(8, 'Enter a phone number.').max(20);
 const Invite = z.object({
@@ -45,7 +45,7 @@ const Defaults = z.object({
 const Test = z.object({ postcode: z.string().trim().min(3, 'Enter a postcode.').max(12), type: z.string().min(2).max(40) });
 const AssetQ = LocationQuery.extend({ tab: z.enum(['all', 'traffic_light', 'street_light', 'camera', 'faults', 'overdue']).optional() });
 const Asset = z.object({
-  kind: z.enum(['traffic_light', 'street_light', 'camera']),
+  kind: z.enum(Object.keys(ASSET_KIND) as [AssetKind, ...AssetKind[]]),
   name: z.string().trim().min(2, 'Give it a name, like "Junction 12, Ring Rd".').max(120),
   postcode: z.string().trim().max(12).optional(),
   controller: z.string().trim().max(80).optional(),

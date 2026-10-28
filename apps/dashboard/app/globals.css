@@ -840,6 +840,13 @@ input[type='text'] {
   display: grid;
   gap: 6px;
   font-size: var(--text-sm);
+  margin-bottom: var(--space-4);
+}
+/* Stacked in a plain block (a card, a form), a field keeps its distance from the next field or button;
+   in a grid or flex row the container's gap does that. */
+.field:last-child,
+:is(.grid, .tiles, .filters, .loc-grid, .loc-filter, [style*='display: grid'], [style*='display: flex'], [style*='display: inline-flex']) > .field {
+  margin-bottom: 0;
 }
 .field > span {
   font-weight: var(--weight-semibold);
