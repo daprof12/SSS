@@ -59,7 +59,9 @@ export class DevController {
     const open = (
       await c.query(
         `select i.id from incidents i join incident_reports r on r.incident_id = i.id and r.client_ref like 'demo-offer-%'
-          where i.state not in ('resolved', 'unfounded', 'cancelled', 'merged') order by i.created_at desc limit 1`,
+          where i.state not in ('resolved', 'unfounded', 'cancelled', 'merged')
+            and exists (select 1 from incident_units u where u.incident_id = i.id and u.state in ('offered', 'accepted', 'en_route', 'on_scene'))
+          order by i.created_at desc limit 1`,
       )
     ).rows[0];
     if (open && !fresh) {
