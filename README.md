@@ -689,3 +689,16 @@ Every step is guarded in the database (a state check under a row lock, or a guar
 ## Tests use their own database
 
 `npm test` in `apps/api` now runs against `erp_test` (created on first run; override with `TEST_DATABASE_URL`), so a test run never wipes development data or races the development server's background work.
+
+## Control centre and smart devices
+
+A platform admin switches **smart device access** on for an agency when onboarding it (Admin, Fleet and access) and registers its devices:
+smart street light with drone dock, defence drone, fire-fighter drone, officer body cam, camera, and security sensor and alarm.
+Heads, dispatchers and agency admins of that agency then use **Control centre** (`/agency/control`, `/station/control`): a map of the devices,
+open reports, the devices within 600 m of a report, drone launch / send to report / recall, siren and light, and feeds, including the body
+cams of officers on the report. Devices are simulated in development: commands answer at once and change the device state; real hardware
+needs a device adapter and stream URLs (`devices.stream_url`). API: `GET /control`, `GET /control/incidents/:id`, `POST /control/devices/:id/commands`.
+
+## Report messages
+
+Citizens and the officers and staff on a report can message each other (`GET/POST /incidents/:id/messages`). The other side is notified.

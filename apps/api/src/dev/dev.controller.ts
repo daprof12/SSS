@@ -359,10 +359,33 @@ export class DevController {
           );
         }
       }
+      await this.demoFleet(c, ids, agency, station);
       if (this.config.env !== 'test') await this.demoRouting(c, ids, agency, station);
       const demoIncidentId = this.config.env === 'test' ? null : await this.demoOffer(c, ids, station, agency);
       return { users: ids, agencyId: agency, stationId: station, naptipId: naptip, fermaId: ferma, demoIncidentId };
     });
+  }
+
+  /** Demo smart devices for the police: device access on, a smart pole with a docked drone, a fire drone, a camera, a sensor and a body cam per officer. */
+  private async demoFleet(c: Queryable, ids: Record<string, string>, agency: string, station: string) {
+    await c.query(`update agencies set device_access = true where id = $1`, [agency]);
+    if ((await c.query(`select 1 from devices where agency_id = $1 limit 1`, [agency])).rowCount) return;
+    const add = async (type: string, serial: string, name: string, lat: number, lng: number, extra: { officer?: string; linked?: string; battery?: number; status?: string } = {}) =>
+      (
+        await c.query(
+          `insert into devices (type, serial, name, status, agency_id, station_id, officer_id, lat, lng, linked_to, battery_pct, last_seen)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now()) returning id`,
+          [type, serial, name, extra.status ?? 'online', agency, station, extra.officer ?? null, lat, lng, extra.linked ?? null, extra.battery ?? 96],
+        )
+      ).rows[0].id as string;
+    const pole = await add('smart_pole', 'SP-IKJ-0001', 'Allen Avenue smart pole', 6.6014, 3.3541);
+    await add('defence_drone', 'DD-IKJ-0001', 'Defence drone 1', 6.6014, 3.3541, { linked: pole, battery: 100 });
+    await add('smart_pole', 'SP-IKJ-0002', 'Opebi Road smart pole', 6.6052, 3.3602);
+    await add('fire_drone', 'FD-IKJ-0001', 'Fire-fighter drone 1', 6.6012, 3.3539, { battery: 88 });
+    await add('camera', 'CM-IKJ-0001', 'Allen roundabout camera', 6.6008, 3.3528);
+    await add('sensor', 'SN-IKJ-0001', 'Transformer sensor', 6.6021, 3.3555, { status: 'low_power', battery: 22 });
+    await add('body_cam', 'BC-0477', 'Body cam B-0477', 6.6015, 3.352, { officer: ids.officer });
+    await add('body_cam', 'BC-0912', 'Body cam B-0912', 6.61, 3.36, { officer: ids.officer2 });
   }
 
   /**

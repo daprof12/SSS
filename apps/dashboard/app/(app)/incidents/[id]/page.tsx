@@ -5,6 +5,7 @@ import { AvatarStack } from '@erp/web-ui/Avatar';
 import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { streamUrl } from '@erp/web-ui/api';
+import { ReportMessages } from '@erp/web-ui/ReportMessages';
 import { StateChip } from '@erp/web-ui/StateChip';
 import { Duplicates, FalseAlarmReview, ReinforceSheet } from '@/components/IncidentExtras';
 import { StatementsCard } from '@/components/Statements';
@@ -288,6 +289,12 @@ export default function IncidentDetail({ params }: { params: Promise<{ id: strin
         </section>
         <div style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
           {live && <Duplicates incidentId={v.id} version={version} onDone={setToast} />}
+          <ReportMessages incidentId={v.id} perspective="responder" />
+          {live && (
+            <Link className="btn block" href="/station/control">
+              Open the control centre
+            </Link>
+          )}
           <StatementsCard incidentId={v.id} state={v.state} onDone={setToast} />
         </div>
       </div>

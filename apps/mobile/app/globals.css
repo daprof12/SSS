@@ -1348,7 +1348,7 @@ button {
   /* Same column as the rest of the app: on a wide screen it stays phone-width and centred. */
   max-width: 480px;
   margin: 0 auto;
-  z-index: 50;
+  z-index: 65;
   display: flex;
   flex-direction: column;
   background: var(--color-bg);
@@ -1526,8 +1526,8 @@ button {
 }
 @media (min-width: 720px) {
   .picker {
-    inset: 24px;
-    max-width: 960px;
+    inset: 24px 0;
+    max-width: 480px;
     margin: 0 auto;
     border-radius: var(--radius-sheet);
     box-shadow: 0 20px 60px rgb(0 0 0 / 0.45);

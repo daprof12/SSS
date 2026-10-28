@@ -219,7 +219,7 @@ export class OverviewService {
       `select count(*)::int as total, count(*) filter (where d.status = 'online')::int as online, count(*) filter (where d.status = 'low_power')::int as low,
               count(*) filter (where d.status = 'offline')::int as offline, count(*) filter (where d.status = 'needs_repair')::int as repair, count(*) filter (where d.status = 'tamper')::int as tamper
          from devices d left join properties pr on pr.id = d.property_id left join locations l on l.id = coalesce(d.location_id, pr.location_id)
-        where d.type in ('camera', 'street_light') and ${locationWhere(f, da)}`,
+        where d.type in ('camera', 'street_light') and d.agency_id is null and ${locationWhere(f, da)}`,
       da,
     );
     const fq = inc(`i.closed_at > now() - interval '30 days'`);

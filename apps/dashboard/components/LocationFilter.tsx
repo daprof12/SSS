@@ -66,7 +66,7 @@ export function LocationFilter({ value, onChange, title = 'Filter by location' }
         <h2 id="loc" style={{ margin: 0, fontSize: 'var(--text-md, 1rem)' }}>
           {title}
         </h2>
-        <input className="search" type="search" placeholder="Search a postcode" value={pc} onChange={(e) => setPc(e.target.value.toUpperCase())} aria-label="Search a postcode" style={{ minWidth: 220 }} />
+        <input className="search" type="search" placeholder="Search a postcode" value={pc} onChange={(e) => setPc(e.target.value.toUpperCase())} aria-label="Search a postcode" style={{ minWidth: 0, flex: '1 1 180px' }} />
       </div>
       <div className="loc-grid">
         {LEVELS.map(([level, label, all], i) => {

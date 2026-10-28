@@ -16,6 +16,9 @@ import { PushController } from './push/push.controller';
 import { PushService } from './push/push.service';
 import { MockWhatsAppAdapter, WHATSAPP } from './adapters/whatsapp';
 import { MockStorageAdapter, STORAGE } from './adapters/storage';
+import { FleetController } from './fleet/fleet.controller';
+import { FleetService } from './fleet/fleet.service';
+import { IncidentMessagesController } from './incidents/messages.controller';
 import { Audit } from './core/audit';
 import { AuthGuard, Public, TokenService } from './core/auth';
 import { Bus } from './core/bus';
@@ -100,6 +103,8 @@ export class AppModule {
         AgencyOpsController,
         HelpChatController,
         IncidentMapController,
+        IncidentMessagesController,
+        FleetController,
         AdminHelpChatController,
         StatementsController,
         AdminFinesController,
@@ -131,6 +136,7 @@ export class AppModule {
         { provide: CONFIG, useValue: config },
         DonationsService,
         StationService,
+        FleetService,
         OverviewService,
         AdminOpsService,
         AgencyOpsService,

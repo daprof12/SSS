@@ -16,7 +16,7 @@ import { notify } from '../reports/shared';
 
 const MONTH = `date_trunc('month', now() at time zone 'Africa/Lagos') at time zone 'Africa/Lagos'`;
 const OPEN = `('received', 'offered', 'escalated', 'accepted', 'en_route', 'reassigning', 'transferred', 'on_scene', 'closing')`;
-export const STOCK_ITEMS = ['camera', 'street_light', 'gateway', 'drone', 'battery', 'solar_panel', 'pole'] as const;
+export const STOCK_ITEMS = ['camera', 'street_light', 'gateway', 'drone', 'battery', 'solar_panel', 'pole', 'smart_pole', 'defence_drone', 'fire_drone', 'body_cam', 'sensor'] as const;
 export type StockItem = (typeof STOCK_ITEMS)[number];
 const ITEM_LABEL: Record<StockItem, string> = {
   camera: 'Cameras',
@@ -26,6 +26,11 @@ const ITEM_LABEL: Record<StockItem, string> = {
   battery: 'Batteries',
   solar_panel: 'Solar panels',
   pole: 'Poles',
+  smart_pole: 'Smart street lights',
+  defence_drone: 'Defence drones',
+  fire_drone: 'Fire-fighter drones',
+  body_cam: 'Officer body cams',
+  sensor: 'Security sensors and alarms',
 };
 const STATUS_LINE: Record<string, string> = {
   offline: 'Offline',

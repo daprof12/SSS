@@ -40,6 +40,7 @@ const AGENCY_BUILT: Record<string, NavItem> = {
   Statements: { label: 'Statements', href: '/agency/statements', built: true },
   Officers: { label: 'Officers', href: '/agency/officers', built: true },
   Inventory: { label: 'Inventory', href: '/agency/inventory', built: true },
+  'Control centre': { label: 'Control centre', href: '/agency/control', built: true },
   'Routing rules': { label: 'Routing rules', href: '/agency/routing', built: true },
   Billing: { label: 'Billing', href: '/agency/billing', built: true },
   Assets: { label: 'Assets', href: '/agency/assets', built: true },
@@ -61,6 +62,7 @@ const ADMIN_BUILT: Record<string, NavItem> = {
   'Help inbox': { label: 'Help inbox', href: '/admin/support', built: true },
   'Coverage map': { label: 'Coverage map', href: '/admin/coverage', built: true },
   'Device wall': { label: 'Device wall', href: '/admin/devices', built: true },
+  'Fleet and access': { label: 'Fleet and access', href: '/admin/fleet', built: true },
   Inventory: { label: 'Inventory', href: '/admin/inventory', built: true },
   Agencies: { label: 'Agencies', href: '/admin/agencies', built: true },
   'Audit log': { label: 'Audit log', href: '/admin/audit', built: true },
@@ -73,6 +75,7 @@ const NAV: Record<string, NavItem[]> = {
   station: [
     { label: 'Live incidents', href: '/incidents', built: true, also: ['/statements'] },
     { label: 'Map', href: '/station/map', built: true },
+    { label: 'Control centre', href: '/station/control', built: true },
     { label: 'Officers', href: '/station/officers', built: true },
     { label: 'Reports', href: '/station/reports', built: true },
     { label: 'Statements', href: '/station/statements', built: true },
@@ -82,10 +85,10 @@ const NAV: Record<string, NavItem[]> = {
     { label: 'Settings', href: '/station/settings', built: true },
   ],
   agency: [
-    'Overview', 'Live map', 'Stations', 'Officers', 'Statements', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Learn feed', 'Assets', 'Messaging', 'Settings',
+    'Overview', 'Live map', 'Control centre', 'Stations', 'Officers', 'Statements', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Learn feed', 'Assets', 'Messaging', 'Settings',
   ].map((l) => AGENCY_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
   admin: [
-    'Overview', 'Live incident map', 'Coverage map', 'Device wall', 'Users', 'Inventory', 'Installation team', 'Subscriptions', 'KYC queue', 'Fines and appeals', 'Help inbox', 'Donations', 'Learn feed', 'Agencies', 'Audit log', 'AI and LLM', 'CRM messaging', 'Settings',
+    'Overview', 'Live incident map', 'Coverage map', 'Device wall', 'Fleet and access', 'Users', 'Inventory', 'Installation team', 'Subscriptions', 'KYC queue', 'Fines and appeals', 'Help inbox', 'Donations', 'Learn feed', 'Agencies', 'Audit log', 'AI and LLM', 'CRM messaging', 'Settings',
   ].map((l) => ADMIN_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
 };
 
@@ -96,6 +99,7 @@ const PERM: Record<string, Permission> = {
   '/admin/live': 'platform.live',
   '/admin/coverage': 'platform.devices',
   '/admin/devices': 'platform.devices',
+  '/admin/fleet': 'platform.devices',
   '/admin/users': 'platform.users',
   '/admin/inventory': 'platform.devices',
   '/admin/repairs': 'platform.devices',

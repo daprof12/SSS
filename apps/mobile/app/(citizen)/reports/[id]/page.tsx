@@ -4,6 +4,7 @@ import { LinkButton } from '@erp/web-ui/LinkButton';
 import { Avatar } from '@erp/web-ui/Avatar';
 import { IncidentMap } from '@erp/web-ui/IncidentMap';
 import { Rating } from '@erp/web-ui/Rating';
+import { ReportMessages } from '@erp/web-ui/ReportMessages';
 import { timelineSteps } from '@erp/domain';
 import { Sheet } from '@erp/web-ui/Sheet';
 import Link from 'next/link';
@@ -105,6 +106,12 @@ export default function LiveStatus({ params }: { params: Promise<{ id: string }>
       {s.showLiveMap && (
         <div style={{ margin: '4px 0 20px' }}>
           <IncidentMap incidentId={id} perspective="citizen" getPosition={() => locate(5000)} />
+        </div>
+      )}
+
+      {!['cancelled', 'merged'].includes(v.state) && (
+        <div style={{ margin: '0 0 20px' }}>
+          <ReportMessages incidentId={id} perspective="citizen" />
         </div>
       )}
 

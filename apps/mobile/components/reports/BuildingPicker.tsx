@@ -30,6 +30,8 @@ const TILES: Record<Layer, { url: string; credit: string }> = {
     credit: '© Esri, HERE, Garmin, OpenStreetMap contributors',
   },
 };
+// Where the map opens when the device will not say where it is; tap the map to move the search.
+const FALLBACK: Spot = { lat: 6.5244, lng: 3.3792 };
 const MIN_R = 25;
 const MAX_R = 250; // NIPOST searches cap at 250 m
 
@@ -196,7 +198,11 @@ export function BuildingPicker({
     setState('locating');
     setMsg(null);
     const p = await locate(10000, 0);
-    if (!p) return setState('denied');
+    if (!p) {
+      // No location: still show the map (centred on Lagos until they tap where they are) so postcodes can be picked by hand.
+      setCenter((c) => c ?? FALLBACK);
+      return setState('denied');
+    }
     setYou(p);
     setCenter(p);
     setSelected(null);
@@ -262,15 +268,17 @@ export function BuildingPicker({
         </div>
       </header>
 
-      {state === 'denied' ? (
-        <div className="card empty" style={{ margin: 16 }}>
-          <strong>We could not get your location.</strong>
-          Turn on location for this app, then try again.
-          <button className="btn block signal" type="button" style={{ marginTop: 12 }} onClick={find}>
+      {state === 'denied' && (
+        <div className="banner warning" role="alert" style={{ margin: '0 var(--space-4) 8px', display: 'grid', gap: 8 }}>
+          <span>
+            <strong>We could not get your location.</strong> Turn on location for this app and try again, or tap the map where you are.
+          </span>
+          <button className="btn block signal" type="button" onClick={find}>
             Try again
           </button>
         </div>
-      ) : !center ? (
+      )}
+      {!center ? (
         <div className="tilemap locating" aria-live="polite">
           <span className="you-dot pulse" style={{ left: '50%', top: '50%' }} aria-hidden />
           <span className="tile-credit">Finding where you are…</span>
