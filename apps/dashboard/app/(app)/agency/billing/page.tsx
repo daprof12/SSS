@@ -39,16 +39,27 @@ function BillingBoard({ agency }: { agency: MyAgency }) {
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Could not load billing.'));
   }, [agency.id]);
   useEffect(load, [load]);
+  // Back from Paystack's checkout: the invoice updates when Paystack confirms (its signed webhook).
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('paid') !== '1') return;
+    setToast('Payment sent. The invoice shows as paid once Paystack confirms, usually within a minute.');
+    history.replaceState(null, '', window.location.pathname);
+    const t = setInterval(load, 5000);
+    const stop = setTimeout(() => clearInterval(t), 60_000);
+    return () => (clearInterval(t), clearTimeout(stop));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const pay = async () => {
     if (!b?.openInvoiceId) return;
     setBusy(true);
     try {
-      const r = await api<{ authorizationUrl?: string; message: string; reference: string }>(`/agencies/${agency.id}/invoices/${b.openInvoiceId}/pay`, {
+      const r = await api<{ checkoutUrl?: string; message: string; reference: string }>(`/agencies/${agency.id}/invoices/${b.openInvoiceId}/pay`, {
         method: 'POST',
         headers: { 'Idempotency-Key': `pay-${b.openInvoiceId}-${Date.now()}` },
         body: JSON.stringify({ method: 'card' }),
       });
-      if (r.authorizationUrl) window.open(r.authorizationUrl, '_blank', 'noopener');
+      // Paystack's checkout; it brings the admin back here (?paid=1) and the signed webhook settles the invoice.
+      if (r.checkoutUrl) return window.location.assign(r.checkoutUrl);
       setToast(`${r.message} Reference ${r.reference}.`);
       load();
     } catch (e) {

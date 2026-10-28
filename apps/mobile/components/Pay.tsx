@@ -66,7 +66,15 @@ export function usePay(start: (method: PayMethod, key: string, pin?: string) => 
   const finish = (r: PayResult) => {
     key.current = uid();
     if (r.transferAccount) return setTransfer(r);
-    if (r.checkoutUrl) return router.push(`/pay/${encodeURIComponent(r.reference)}`);
+    if (r.checkoutUrl) {
+      // The development mock has its own test checkout screen; real payments go to Paystack, which
+      // brings the person back to /pay/return.
+      if (r.checkoutUrl.includes('/dev/paystack/checkout/')) return router.push(`/pay/${encodeURIComponent(r.reference)}`);
+      try {
+        sessionStorage.setItem('erp-paying', r.reference);
+      } catch {}
+      return window.location.assign(r.checkoutUrl);
+    }
     onPaid(r);
   };
 

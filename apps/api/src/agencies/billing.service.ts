@@ -297,7 +297,8 @@ export class AgencyBillingService {
           [p.userId, agencyId, inv.id, balance, reference, `dva:${inv.id}`],
         );
         const init = await this.payments.initialize({ reference, amountKobo: balance, method: 'bank_transfer', email: agency.official_email ?? 'billing@agency.erp.local', metadata: { purpose: 'agency_invoice', invoiceId: inv.id, agencyId } });
-        account = { ...init.transferAccount, reference };
+        // The mock gives an account number; Paystack gives a payment link the finance team can use.
+        account = init.transferAccount ? { ...init.transferAccount, reference } : { payUrl: init.checkoutUrl, reference };
       }
       const updated = (await c.query(`update invoices set po_number = $2, pay_by_invoice = true, transfer_account = $3 where id = $1 returning *`, [inv.id, poNumber, JSON.stringify(account)])).rows[0];
       await this.audit.write({ actorId: p.userId, actorRole: 'agency_admin', action: 'invoice.pay_by_invoice', entity: 'invoice', entityId: inv.id, payload: { poNumber } }, c);

@@ -678,3 +678,14 @@ Every step is guarded in the database (a state check under a row lock, or a guar
   - Tapping an alert opens `/open`, which sends the person to the right page; only known app pages are allowed.
 - **API:** `GET /push/key`, `GET|POST|DELETE /me/push`, `POST /me/push/test`. Devices the browser has dropped are forgotten automatically. CRM campaigns now treat "has a push device" (not just "signed in") as reachable by push, and send SMS to everyone else. Migration `033_push.sql`.
 - **Production:** set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a `mailto:` contact). Make the keys once with `npx web-push generate-vapid-keys` and keep them: changing them drops every device. The API refuses to start in production without them. Development without keys uses a mock.
+
+## Payments (Paystack)
+
+- **Production uses Paystack.** Set `PAYSTACK_SECRET` to your secret key (`sk_live_…`), `APP_URL` (the phone app's address) and `DASHBOARD_URL`. The API refuses to start in production without a key, and refuses a test key unless `PAYSTACK_ALLOW_TEST=1` (a staging server). Development and tests use the mock unless a real key is set in development.
+- **Checkout:** Paystack's hosted page for card, USSD and bank transfer. Paystack sends people back to the phone app's `/pay/return` (which waits for the payment to settle, then opens its receipt) or, for agency invoices and the bounty pool, to the dashboard. Money is credited **only** from Paystack's signed webhook (`POST /webhooks/paystack`; set that URL in the Paystack dashboard).
+- **Money out:** bank account check ("Resolve account"), transfer recipient, and transfers from your Paystack balance. Turn off the OTP requirement for API transfers in the Paystack dashboard, and keep the balance topped up. A refusal such as low balance is not retried.
+- References are lowercase letters, digits and `_` (Paystack's rule for transfers).
+
+## Tests use their own database
+
+`npm test` in `apps/api` now runs against `erp_test` (created on first run; override with `TEST_DATABASE_URL`), so a test run never wipes development data or races the development server's background work.

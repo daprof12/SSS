@@ -8,7 +8,7 @@ import { AgencyLifecycle } from './agencies/agency.lifecycle';
 import { AgencyBillingService } from './agencies/billing.service';
 import { PayoutsService } from './agencies/payouts.service';
 import { KYC, MockKycAdapter } from './adapters/kyc';
-import { MockPaystackAdapter, PAYMENTS } from './adapters/payments';
+import { PAYMENTS, paymentsFromEnv } from './adapters/payments';
 import { MockPostcodeAdapter, POSTCODE } from './adapters/postcode';
 import { LoggedSmsAdapter, SMS, smsFromEnv } from './adapters/sms';
 import { PUSH, pushFromEnv } from './adapters/push';
@@ -172,7 +172,8 @@ export class AppModule {
         // Mock adapters — swap each for the real provider once its contract is signed.
         { provide: POSTCODE, useValue: new MockPostcodeAdapter() },
         { provide: KYC, useValue: new MockKycAdapter() },
-        { provide: PAYMENTS, useValue: new MockPaystackAdapter(config.paystackSecret, config.publicBaseUrl) },
+        // Paystack with a real secret key; the mock (with its test checkout) in development and tests.
+        { provide: PAYMENTS, useValue: paymentsFromEnv(config.env, config.paystackSecret, process.env, config.publicBaseUrl) },
         // Termii in production (SMS_PROVIDER), the mock in development and tests; every send is logged.
         // Web push with VAPID keys in production; a mock outbox in development without keys and in tests.
         { provide: PUSH, useValue: pushFromEnv(config.env, process.env) },
