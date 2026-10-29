@@ -80,7 +80,8 @@ export function IssueForm({ category, base, sosHref }: { category: string; base:
     if (!where || where.kind === 'none') return setNearby(null);
     const q = new URLSearchParams({ category, ...Object.fromEntries(Object.entries(whereBody(where)).map(([k, v]) => [k, String(v)])) });
     api<{ reports: number; people: number } | null>(`/issues/nearby?${q}`)
-      .then(setNearby)
+      // No case nearby comes back as an empty body, not a count.
+      .then((r) => setNearby(r && typeof r.people === 'number' ? r : null))
       .catch(() => setNearby(null));
   }, [where, category]);
 
