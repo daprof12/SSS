@@ -634,6 +634,8 @@ button {
   color: var(--color-text-secondary);
 }
 .input,
+/* Any text, number, date or phone input inside a field, with or without the .input class. */
+.field :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='hidden'])),
 .field textarea,
 .field select {
   width: 100%;
@@ -650,6 +652,7 @@ button {
   resize: vertical;
 }
 .field[data-invalid='true'] .input,
+.field[data-invalid='true'] :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='hidden'])),
 .field[data-invalid='true'] textarea {
   border-color: var(--color-emergency);
 }
