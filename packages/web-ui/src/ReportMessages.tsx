@@ -80,16 +80,32 @@ export function ReportMessages({ incidentId, perspective, refreshMs = 6000 }: { 
           {err}
         </span>
       )}
+      {/* One rounded bar, the send icon inside it (as in chat apps), so the text gets the full width. */}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           void send();
         }}
-        style={{ display: 'flex', gap: 8 }}
+        style={{ display: 'flex', alignItems: 'center', gap: 4, minHeight: 48, padding: '4px 4px 4px 16px', borderRadius: 999, border: '1px solid var(--color-divider, #2a2a2e)', background: 'var(--color-surface-raised, #1e1e1e)' }}
       >
-        <input type="text" value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} placeholder={`Message ${other}`} aria-label="Message" style={{ flex: 1, minWidth: 0 }} />
-        <button className="btn primary" type="submit" disabled={busy || !text.trim()}>
-          Send
+        <input
+          type="text"
+          value={text}
+          maxLength={2000}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={`Message ${other}`}
+          aria-label="Message"
+          style={{ flex: 1, minWidth: 0, minHeight: 0, border: 0, outline: 'none', background: 'transparent', color: 'inherit', font: 'inherit', padding: '8px 0', boxShadow: 'none' }}
+        />
+        <button
+          type="submit"
+          aria-label="Send"
+          disabled={busy || !text.trim()}
+          style={{ flex: 'none', width: 40, height: 40, minHeight: 0, padding: 0, borderRadius: '50%', border: 0, display: 'grid', placeItems: 'center', cursor: 'pointer', background: 'var(--color-action-primary, #e11d48)', color: '#fff', opacity: busy || !text.trim() ? 0.45 : 1, transition: 'opacity 120ms' }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M3.4 20.4 21.85 12.5a.55.55 0 0 0 0-1L3.4 3.6a.55.55 0 0 0-.76.63L4.6 11 13 12l-8.4 1-1.96 6.77a.55.55 0 0 0 .76.63Z" />
+          </svg>
         </button>
       </form>
     </section>
