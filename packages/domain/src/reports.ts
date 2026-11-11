@@ -1,5 +1,6 @@
 // Non-emergency reporting: tips (Rewards doc) and public issues (Public Issues doc §1).
 import { defineMachine } from './machine';
+import { STOLEN_AGENCY_KINDS } from './stolen';
 
 export interface TipCategory {
   code: string;
@@ -148,6 +149,8 @@ export function agencyHandles(kind: string) {
     tips: tips.length > 0,
     bounties: tips.some((c) => c.bounty),
     issues: issues.length > 0,
+    /** Stolen-item reports and buyer-check matches (the police). */
+    stolen: STOLEN_AGENCY_KINDS.includes(kind),
     tipCategories: tips.map((c) => c.code),
     bountyCategories: tips.filter((c) => c.bounty).map((c) => c.code),
     issueCategories: issues.map((c) => c.code),

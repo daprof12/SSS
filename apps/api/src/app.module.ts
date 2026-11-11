@@ -58,6 +58,8 @@ import { OfficerWorkController } from './officers/work.controller';
 import { OfficerWorkService } from './officers/work.service';
 import { PlacesController } from './places/places.controller';
 import { IssuesService } from './reports/issues.service';
+import { ItemsController } from './items/items.controller';
+import { ItemsService } from './items/items.service';
 import { ReportsController } from './reports/reports.controller';
 import { TipsService } from './reports/tips.service';
 import { JobsController } from './jobs/jobs.controller';
@@ -120,6 +122,7 @@ export class AppModule {
         OfficersController,
         OfficerWorkController,
         ReportsController,
+        ItemsController,
         AgenciesController,
         AdminAgenciesController,
         MediaController,
@@ -164,6 +167,7 @@ export class AppModule {
         OfficerWorkService,
         TipsService,
         IssuesService,
+        ItemsService,
         AgencyLifecycle,
         AgencyBillingService,
         PayoutsService,

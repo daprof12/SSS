@@ -5,13 +5,15 @@ import { CurrentUser, type Principal } from '../core/auth';
 import { AppError, ZodPipe } from '../core/http';
 import { MAX_BYTES, MediaService } from './media.service';
 
-const Owner = z.enum(['tip', 'issue_case', 'incident', 'learn_post', 'field_report', 'fine', 'repair', 'statement']);
+const Owner = z.enum(['tip', 'issue_case', 'incident', 'learn_post', 'field_report', 'fine', 'repair', 'statement', 'owned_item', 'stolen_case']);
 const RegisterBody = z.object({
   ownerType: Owner,
   ownerId: z.string().uuid(),
   contentType: z.string().max(60),
   sizeBytes: z.number().int().positive(),
   durationS: z.number().int().min(0).max(600).optional(),
+  /** Which of the item type's documents this file is (receipt, ownership). */
+  docCode: z.string().regex(/^[a-z][a-z0-9_]{1,30}$/).optional(),
 });
 const ListQuery = z.object({ ownerType: Owner, ownerId: z.string().uuid() });
 

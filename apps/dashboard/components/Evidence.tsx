@@ -6,14 +6,15 @@ import { useEffect, useRef, useState } from 'react';
 
 interface Item {
   id: string;
-  kind: 'photo' | 'video' | 'voice';
+  kind: 'photo' | 'video' | 'voice' | 'document';
+  docCode?: string | null;
   url: string;
   durationS: number | null;
   at: string;
   blob?: string;
 }
 
-export function Evidence({ ownerType, ownerId }: { ownerType: 'tip' | 'issue_case' | 'incident' | 'statement' | 'fine' | 'repair'; ownerId: string; title?: string }) {
+export function Evidence({ ownerType, ownerId, label, docLabels = {} }: { ownerType: 'tip' | 'issue_case' | 'incident' | 'statement' | 'fine' | 'repair' | 'owned_item' | 'stolen_case'; ownerId: string; title?: string; label?: string; docLabels?: Record<string, string> }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const closeBtn = useRef<HTMLButtonElement>(null);
@@ -46,7 +47,7 @@ export function Evidence({ ownerType, ownerId }: { ownerType: 'tip' | 'issue_cas
     closeBtn.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(null);
-      const n = items.filter((x) => x.kind !== 'voice').length;
+      const n = items.filter((x) => x.kind === 'photo' || x.kind === 'video').length;
       if (e.key === 'ArrowRight') setOpen((i) => (i == null ? i : (i + 1) % n));
       if (e.key === 'ArrowLeft') setOpen((i) => (i == null ? i : (i - 1 + n) % n));
     };
@@ -55,14 +56,27 @@ export function Evidence({ ownerType, ownerId }: { ownerType: 'tip' | 'issue_cas
   }, [open, items]);
 
   if (!items?.length) return null;
-  const visual = items.filter((x) => x.kind !== 'voice');
+  const visual = items.filter((x) => x.kind === 'photo' || x.kind === 'video');
   const voice = items.filter((x) => x.kind === 'voice');
+  const docs = items.filter((x) => x.kind === 'document');
   const big = open == null ? null : visual[open];
   return (
     <div className="evidence">
       <span className="evidence-label">
-        {items.length === 1 ? '1 file' : `${items.length} files`} from the reporter · each view is logged
+        {items.length === 1 ? '1 file' : `${items.length} files`} {label ?? 'from the reporter'} · each view is logged
       </span>
+      {docs.map((it) => (
+        <div key={it.id} className="evidence-voice">
+          <span>{(it.docCode && docLabels[it.docCode]) || 'Document'} · PDF</span>
+          {it.blob ? (
+            <a className="btn" href={it.blob} target="_blank" rel="noreferrer">
+              Open
+            </a>
+          ) : (
+            <span className="skeleton" style={{ height: 32, margin: 0, flex: 1 }} />
+          )}
+        </div>
+      ))}
       {voice.map((it, i) => (
         <div key={it.id} className="evidence-voice">
           <span>

@@ -11,7 +11,7 @@ export interface MyAgency {
   /** API path of the agency's logo, or null. */
   logoUrl: string | null;
   /** Which queues this agency has, from its kind (a fire service gets neither tips nor public issues). */
-  handles: { tips: boolean; bounties: boolean; issues: boolean };
+  handles: { tips: boolean; bounties: boolean; issues: boolean; stolen: boolean };
 }
 
 interface Ctx {
@@ -64,6 +64,7 @@ const NOT_HANDLED = {
   tips: ['Your agency does not receive tips.', 'Tips go to the agency for each category, such as NAPTIP for trafficking.'],
   bounties: ['Your agency does not pay bounties.', 'Bounties are for agencies that receive tips in categories that pay one.'],
   issues: ['Your agency does not handle public issues.', 'Public issues go to agencies that fix roads, lights, buildings and similar problems.'],
+  stolen: ['Your agency does not handle stolen items.', 'Stolen-item reports and buyer-check matches go to the police.'],
 };
 
 export function WithAgency({ children, needs }: { children: (agency: MyAgency) => React.ReactNode; needs?: keyof MyAgency['handles'] }) {

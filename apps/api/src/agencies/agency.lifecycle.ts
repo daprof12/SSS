@@ -125,10 +125,10 @@ export class AgencyLifecycle {
   }
 
   /** Not every agency handles every queue: a fire service takes no tips, NAPTIP no public issues. */
-  async requireHandles(agencyId: string, what: 'tips' | 'bounties' | 'issues'): Promise<void> {
+  async requireHandles(agencyId: string, what: 'tips' | 'bounties' | 'issues' | 'stolen'): Promise<void> {
     const a = (await this.db.query(`select kind from agencies where id = $1`, [agencyId])).rows[0];
     if (a && agencyHandles(a.kind)[what]) return;
-    const message = { tips: 'Your agency does not receive tips.', bounties: 'Your agency does not pay bounties.', issues: 'Your agency does not handle public issues.' }[what];
+    const message = { tips: 'Your agency does not receive tips.', bounties: 'Your agency does not pay bounties.', issues: 'Your agency does not handle public issues.', stolen: 'Your agency does not handle stolen items.' }[what];
     throw new AppError(409, 'not_handled', message);
   }
 

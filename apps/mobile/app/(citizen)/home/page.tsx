@@ -152,6 +152,40 @@ export default function Home() {
           </span>
           <Icon name="chevron" size={18} />
         </Link>
+        <Link href="/stolen/new" className="row">
+          <span className="icon">
+            <Icon name="flag" />
+          </span>
+          <span className="grow">
+            <strong>Report a stolen item</strong>
+            <span className="sub">Phone, car or laptop. Buyers who check it are warned.</span>
+          </span>
+          <Icon name="chevron" size={18} />
+        </Link>
+      </div>
+
+      <p className="section-label">Your things</p>
+      <div className="list">
+        <Link href="/items" className="row">
+          <span className="icon">
+            <Icon name="lock" />
+          </span>
+          <span className="grow">
+            <strong>My items</strong>
+            <span className="sub">Register what you own, with proof, before anything happens.</span>
+          </span>
+          <Icon name="chevron" size={18} />
+        </Link>
+        <Link href="/check" className="row">
+          <span className="icon">
+            <Icon name="search" />
+          </span>
+          <span className="grow">
+            <strong>Check before you buy</strong>
+            <span className="sub">Is that used phone, car or laptop stolen? Find out first.</span>
+          </span>
+          <Icon name="chevron" size={18} />
+        </Link>
       </div>
 
       {me?.trust.band === 'low' && (

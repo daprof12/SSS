@@ -41,9 +41,9 @@ describe('menus follow what the agency handles', () => {
     expect(await mine('agencyAdmin')).toEqual([expect.objectContaining({ id: seed.agencyId })]);
     const all = [...(await mine('agencyAdmin')), ...(await mine('naptipAdmin')), ...(await mine('fermaAdmin'))];
     const by = (id: string) => all.find((a: any) => a.id === id).handles;
-    expect(by(seed.naptipId)).toEqual({ tips: true, bounties: true, issues: false });
-    expect(by(seed.fermaId)).toEqual({ tips: false, bounties: false, issues: true });
-    expect(by(seed.agencyId)).toEqual({ tips: true, bounties: true, issues: true }); // police: cult tips and one chance vehicles
+    expect(by(seed.naptipId)).toEqual({ tips: true, bounties: true, issues: false, stolen: false });
+    expect(by(seed.fermaId)).toEqual({ tips: false, bounties: false, issues: true, stolen: false });
+    expect(by(seed.agencyId)).toEqual({ tips: true, bounties: true, issues: true, stolen: true }); // police: cult tips and one chance vehicles
   });
 
   it('refuses queues an agency does not handle', async () => {

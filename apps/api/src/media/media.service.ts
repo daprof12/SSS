@@ -9,9 +9,11 @@ import { Bus } from '../core/bus';
 import { Db } from '../core/db';
 import { AppError } from '../core/http';
 
-export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'learn_post' | 'field_report' | 'fine' | 'repair' | 'statement';
+export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'learn_post' | 'field_report' | 'fine' | 'repair' | 'statement' | 'owned_item' | 'stolen_case';
+/** Owners that take proof documents (receipts, vehicle papers) as well as photos. */
+const DOCUMENT_OWNERS: OwnerType[] = ['owned_item', 'stolen_case'];
 export const MAX_BYTES = 10 * 1024 * 1024; // States doc: up to [10] MB
-const TYPES: Record<string, 'photo' | 'video' | 'voice'> = {
+const TYPES: Record<string, 'photo' | 'video' | 'voice' | 'document'> = {
   'image/jpeg': 'photo',
   'image/png': 'photo',
   'image/webp': 'photo',
@@ -22,6 +24,8 @@ const TYPES: Record<string, 'photo' | 'video' | 'voice'> = {
   'audio/mp4': 'voice',
   'audio/ogg': 'voice',
   'audio/mpeg': 'voice',
+  // Receipts and ownership papers on registered and stolen items.
+  'application/pdf': 'document',
 };
 /** Which containers each declared type may actually be. */
 const CONTAINERS: Record<string, Container[]> = {
@@ -34,12 +38,13 @@ const CONTAINERS: Record<string, Container[]> = {
   'audio/mp4': ['mp4'],
   'audio/ogg': ['ogg'],
   'audio/mpeg': ['mp3'],
+  'application/pdf': ['pdf'],
 };
 export const MAX_VOICE_SECONDS = 120;
 const PER_OWNER = 6;
 const TOO_BIG = 'This file is too large or not supported.';
 
-type Container = 'jpeg' | 'png' | 'webp' | 'mp4' | 'mov' | 'webm' | 'ogg' | 'mp3';
+type Container = 'jpeg' | 'png' | 'webp' | 'mp4' | 'mov' | 'webm' | 'ogg' | 'mp3' | 'pdf';
 
 /** The file's own header must match the type it claims (never trust the name or header). */
 export function sniff(b: Buffer): Container | null {
@@ -49,6 +54,7 @@ export function sniff(b: Buffer): Container | null {
   if (b.length > 12 && b.toString('ascii', 4, 8) === 'ftyp') return b.toString('ascii', 8, 10) === 'qt' ? 'mov' : 'mp4';
   if (b.length > 4 && b.readUInt32BE(0) === 0x1a45dfa3) return 'webm';
   if (b.length > 4 && b.toString('ascii', 0, 4) === 'OggS') return 'ogg';
+  if (b.length > 5 && b.toString('ascii', 0, 5) === '%PDF-') return 'pdf';
   if (b.length > 3 && (b.toString('ascii', 0, 3) === 'ID3' || (b[0] === 0xff && (b[1]! & 0xe0) === 0xe0))) return 'mp3';
   return null;
 }
@@ -134,6 +140,26 @@ export class MediaService {
       if (forUpload) return null;
       return hasRole(p, 'platform_admin') || j.technician_id === p.userId ? 'staff' : null;
     }
+    if (ownerType === 'owned_item') {
+      // The owner's photos and proof; the police see them once the item is reported stolen to them.
+      const it = (await this.db.query(`select owner_id, removed_at from owned_items where id = $1`, [ownerId])).rows[0];
+      if (!it) return null;
+      if (it.owner_id === p.userId) return forUpload && it.removed_at ? null : 'self';
+      if (forUpload) return null;
+      const police = await this.db.query(
+        `select 1 from stolen_cases k join user_roles r on r.scope_type = 'agency' and r.scope_id = k.agency_id and r.user_id = $2 where k.item_id = $1`,
+        [ownerId, p.userId],
+      );
+      return police.rowCount || hasRole(p, 'platform_admin') ? 'staff' : null;
+    }
+    if (ownerType === 'stolen_case') {
+      const k = (await this.db.query(`select reporter_id, agency_id, state from stolen_cases where id = $1`, [ownerId])).rows[0];
+      if (!k) return null;
+      if (k.reporter_id === p.userId) return forUpload && !['reported', 'investigating', 'located'].includes(k.state) ? null : 'self';
+      if (forUpload) return null;
+      const staff = await this.db.query(`select 1 from user_roles where user_id = $1 and scope_type = 'agency' and scope_id = $2`, [p.userId, k.agency_id]);
+      return staff.rowCount ? 'staff' : null;
+    }
     if (ownerType === 'learn_post') {
       // Platform team uploads to drafts; once live, anyone signed in can watch (no audit for public lessons).
       const lp = (await this.db.query(`select state, source_agency from learn_posts where id = $1`, [ownerId])).rows[0];
@@ -158,11 +184,12 @@ export class MediaService {
     return null;
   }
 
-  async register(p: Principal, b: { ownerType: OwnerType; ownerId: string; contentType: string; sizeBytes: number; durationS?: number }) {
+  async register(p: Principal, b: { ownerType: OwnerType; ownerId: string; contentType: string; sizeBytes: number; durationS?: number; docCode?: string }) {
     // "audio/webm;codecs=opus" is still a WebM voice note.
     const contentType = b.contentType.split(';')[0]!.trim().toLowerCase();
     const kind = TYPES[contentType];
     if (!kind || b.sizeBytes <= 0 || b.sizeBytes > MAX_BYTES) throw new AppError(422, 'file_rejected', TOO_BIG);
+    if ((kind === 'document' || b.docCode) && !DOCUMENT_OWNERS.includes(b.ownerType)) throw new AppError(422, 'file_rejected', TOO_BIG);
     if (kind === 'voice' && (b.durationS ?? 0) > MAX_VOICE_SECONDS) throw new AppError(422, 'file_rejected', 'Voice notes can be up to 2 minutes.');
     if (!(await this.access(p, b.ownerType, b.ownerId, true))) throw new AppError(404, 'not_found', 'You cannot add files here.');
     const count = (await this.db.query(`select count(*)::int as n from media where owner_type = $1 and owner_id = $2 and uploader_id = $3 and state <> 'rejected'`, [b.ownerType, b.ownerId, p.userId])).rows[0].n;
@@ -170,8 +197,8 @@ export class MediaService {
     const key = `${b.ownerType}/${b.ownerId}/${createHash('sha256').update(`${p.userId}${Date.now()}${Math.random()}`).digest('hex').slice(0, 24)}`;
     const m = (
       await this.db.query(
-        `insert into media (owner_type, owner_id, uploader_id, kind, content_type, size_bytes, storage_key, duration_s) values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
-        [b.ownerType, b.ownerId, p.userId, kind, contentType, b.sizeBytes, key, kind === 'photo' ? null : (b.durationS ?? null)],
+        `insert into media (owner_type, owner_id, uploader_id, kind, content_type, size_bytes, storage_key, duration_s, doc_code) values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
+        [b.ownerType, b.ownerId, p.userId, kind, contentType, b.sizeBytes, key, kind === 'photo' || kind === 'document' ? null : (b.durationS ?? null), b.docCode ?? null],
       )
     ).rows[0];
     return { id: m.id, uploadUrl: `/media/${m.id}/content`, method: 'PUT', maxBytes: MAX_BYTES };
@@ -213,12 +240,12 @@ export class MediaService {
     const who = await this.access(p, ownerType, ownerId);
     if (!who) throw new AppError(404, 'not_found', 'Not found.');
     const r = await this.db.query(
-      `select id, kind, content_type, size_bytes, duration_s, created_at, uploader_id = $3 as mine from media
+      `select id, kind, content_type, size_bytes, duration_s, doc_code, created_at, uploader_id = $3 as mine from media
         where owner_type = $1 and owner_id = $2 and state = 'ready' and ($4 = false or uploader_id = $3) order by created_at`,
       // A reporter sees their own files on an incident, never the officers' evidence photos.
       [ownerType, ownerId, p.userId, who === 'self' && ownerType === 'incident'],
     );
-    return r.rows.map((m) => ({ id: m.id, kind: m.kind, contentType: m.content_type, sizeBytes: m.size_bytes, durationS: m.duration_s, mine: m.mine, at: m.created_at, url: `/media/${m.id}/content` }));
+    return r.rows.map((m) => ({ id: m.id, kind: m.kind, contentType: m.content_type, sizeBytes: m.size_bytes, durationS: m.duration_s, docCode: m.doc_code, mine: m.mine, at: m.created_at, url: `/media/${m.id}/content` }));
   }
 
   /** Bytes for viewing. Staff views are written to the audit log (each look is logged). */

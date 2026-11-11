@@ -256,7 +256,7 @@ function TypePicker() {
         ))}
       </div>
       <p className="muted center" style={{ marginTop: 16 }}>
-        Not an emergency? <Link href="/tips/new">Report a tip</Link> or <Link href="/issues/new">a problem in your area</Link>.
+        Not an emergency? <Link href="/tips/new">Report a tip</Link>, <Link href="/issues/new">a problem in your area</Link> or <Link href="/stolen/new">a stolen item</Link>.
       </p>
     </main>
   );

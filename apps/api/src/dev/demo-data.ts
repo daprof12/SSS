@@ -55,6 +55,7 @@ export async function seedDemoData(c: Queryable, ids: Ids, at: Places) {
   await assets(c, ids, at, L);
   await stock(c);
   await invoices(c, ids, at);
+  await stolenItems(c, ids, at, L);
 }
 
 // ---------------------------------------------------------------- public issues
@@ -291,4 +292,83 @@ async function invoices(c: Queryable, ids: Ids, at: Places) {
       }
     }
   }
+}
+
+// ---------------------------------------------------------------- stolen-item registry
+/** A one-page PDF that says "Receipt", so proof documents show as provided. */
+const RECEIPT_PDF = Buffer.from(
+  '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj ' +
+    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj ' +
+    '4 0 obj<</Length 44>>stream\nBT /F1 18 Tf 40 100 Td (Demo receipt) Tj ET\nendstream endobj ' +
+    '5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n',
+);
+
+async function stolenItems(c: Queryable, ids: Ids, at: Places, L: Record<string, string>) {
+  if ((await c.query(`select 1 from stolen_cases where public_no like 'S-90%' limit 1`)).rowCount) return;
+  const item = async (owner: string, type: string, identifier: string, make: string, model: string, colour: string, days: number, registered = true) =>
+    (
+      await c.query(`insert into owned_items (owner_id, type_code, identifier, make, model, colour, registered, created_at) values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`, [
+        owner, type, identifier, make, model, colour, registered, ago(days),
+      ])
+    ).rows[0].id as string;
+  const receipt = async (ownerType: 'owned_item' | 'stolen_case', ownerId: string, uploader: string, doc: string) => {
+    const key = `${ownerType}/${ownerId}/demo-${doc}`;
+    await c.query(
+      `insert into media (owner_type, owner_id, uploader_id, kind, content_type, size_bytes, storage_key, state, doc_code, sha256) values ($1, $2, $3, 'document', 'application/pdf', $4, $5, 'ready', $6, $7)`,
+      [ownerType, ownerId, uploader, RECEIPT_PDF.length, key, doc, createHash('sha256').update(RECEIPT_PDF).digest('hex')],
+    );
+    await c.query(`insert into media_blobs (storage_key, bytes) values ($1, $2)`, [key, RECEIPT_PDF]);
+  };
+  const kase = async (no: string, itemId: string, owner: string, type: string, identifier: string, loc: string, days: number, state: string, text: string, reportNo: string | null) =>
+    (
+      await c.query(
+        `insert into stolen_cases (public_no, item_id, reporter_id, type_code, identifier, state, stolen_on, circumstances, police_report_no, location_id, geom, agency_id, agency_label, station_id, client_ref, created_at, updated_at, closed_at)
+         select $1, $2, $3, $4, $5, $6, $7, $8, $9, l.id, l.geom, $10, 'Nigeria Police Force (demo)', $11, $12, $13, $13, $14 from locations l where l.id = $15 returning id`,
+        [no, itemId, owner, type, identifier, state, isoDay(ago(days)), text, reportNo, at.police, at.ikeja, `demo-${no}`, ago(days), state === 'returned' ? ago(days - 8) : null, loc],
+      )
+    ).rows[0].id as string;
+  const event = (caseId: string, kind: string, actor: string, actorId: string | null, days: number, to: string | null, payload: Record<string, unknown> = {}) =>
+    c.query(`insert into stolen_case_events (case_id, kind, actor_kind, actor_id, to_state, payload, at) values ($1, $2, $3, $4, $5, $6, $7)`, [caseId, kind, actor, actorId, to, payload, ago(days)]);
+  const check = async (no: string, checker: string, type: string, identifier: string, caseId: string | null, loc: string, days: number, context = 'buying') =>
+    (
+      await c.query(
+        `insert into item_checks (check_no, checker_id, type_code, identifier, result, case_id, context, location_id, geom, accuracy_m, agency_id, station_id, at)
+         select $1, $2, $3, $4, $5, $6, $7, l.id, l.geom, 15, $8, $9, $10 from locations l where l.id = $11 returning id`,
+        [no, checker, type, identifier, caseId ? 'stolen' : 'clean', caseId, context, at.police, at.ikeja, ago(days), loc],
+      )
+    ).rows[0].id as string;
+
+  // Ada's phone: registered with a receipt, stolen on Allen Avenue, then offered for sale at Sabo market.
+  const phone = await item(ids.citizen, 'phone', '356938035643809', 'Tecno', 'Camon 20', 'Black', 40);
+  await receipt('owned_item', phone, ids.citizen, 'receipt');
+  const k1 = await kase('S-900101', phone, ids.citizen, 'phone', '356938035643809', L.allen!, 3, 'reported', 'Snatched from my hand by two men on a motorbike near the bus stop, around 7 pm.', null);
+  await event(k1, 'reported', 'owner', ids.citizen, 3, 'reported');
+  const m1 = await check('C-900101', ids.neighbour, 'phone', '356938035643809', k1, L.sabo!, 1);
+  await event(k1, 'match', 'checker', ids.neighbour, 1, null, { checkId: m1, context: 'buying' });
+  await event(k1, 'match_detail', 'checker', ids.neighbour, 0.95, null, { checkId: m1, sellerName: 'Young man called Tunde', sellerPhone: '0803 555 0199', note: 'Selling it for ₦45,000 at a stall by the Sabo market gate.' });
+
+  // Ada's laptop: registered, never stolen. Checks of its serial come back clean.
+  const laptop = await item(ids.citizen, 'laptop', '5CG1234XYZ', 'HP', 'EliteBook 840', 'Silver', 25);
+  await receipt('owned_item', laptop, ids.citizen, 'receipt');
+
+  // The neighbour's car: stolen in Yaba, under investigation; a buyer check near Ikorodu Road was followed up.
+  const car = await item(ids.neighbour, 'car', '2T1BU4EE9CC123456', 'Toyota', 'Corolla 2012', 'Grey', 200);
+  await receipt('owned_item', car, ids.neighbour, 'ownership');
+  const k2 = await kase('S-900102', car, ids.neighbour, 'car', '2T1BU4EE9CC123456', L.yaba!, 10, 'investigating', 'Taken from outside my house overnight. The gate lock was cut.', 'LA/YAB/2026/1182');
+  await event(k2, 'reported', 'owner', ids.neighbour, 10, 'reported');
+  await event(k2, 'investigate', 'agency', ids.agencyAdmin, 9, 'investigating', { note: 'Plate circulated to all Lagos divisions.' });
+  const m2 = await check('C-900102', ids.citizen, 'car', '2T1BU4EE9CC123456', k2, L.ikorodu!, 2);
+  await event(k2, 'match', 'checker', ids.citizen, 2, null, { checkId: m2, context: 'buying' });
+  await event(k2, 'match_reviewed', 'agency', ids.agencyAdmin, 1.5, null, { checkId: m2, outcome: 'followed_up', note: 'Team visited the car lot on Ikorodu Road. Seller fled; lot owner questioned.', agencyId: at.police });
+
+  // The neighbour's old phone: stolen, recovered and returned.
+  const old = await item(ids.neighbour, 'phone', '352099001761481', 'Samsung', 'Galaxy A54', 'Blue', 90);
+  const k3 = await kase('S-900103', old, ids.neighbour, 'phone', '352099001761481', L.opebi!, 30, 'returned', 'Left in a taxi on Opebi Road.', null);
+  await event(k3, 'reported', 'owner', ids.neighbour, 30, 'reported');
+  await event(k3, 'locate', 'agency', ids.agencyAdmin, 26, 'located', { note: 'Phone switched on in Ikeja; repair shop identified.' });
+  await event(k3, 'recover', 'agency', ids.agencyAdmin, 25, 'recovered', { note: 'Recovered from a repair shop on Toyin Street.' });
+  await event(k3, 'return_to_owner', 'agency', ids.agencyAdmin, 22, 'returned', { note: 'Owner collected it at Ikeja station with the receipt.' });
+
+  // A clean check: someone about to buy a phone that was never reported.
+  await check('C-900103', ids.citizen, 'phone', '867531042211876', null, L.toyin!, 5);
 }

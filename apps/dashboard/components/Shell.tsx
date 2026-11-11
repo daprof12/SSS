@@ -36,6 +36,7 @@ const AGENCY_BUILT: Record<string, NavItem> = {
   'Learn feed': { label: 'Learn feed', href: '/agency/learn', built: true },
   Bounties: { label: 'Bounties', href: '/agency/bounties', built: true, also: ['/agency/tips'] },
   'Public issues': { label: 'Public issues', href: '/agency/issues', built: true },
+  'Stolen items': { label: 'Stolen items', href: '/agency/stolen', built: true },
   Payouts: { label: 'Payouts and donations', href: '/agency/payouts', built: true },
   Statements: { label: 'Statements', href: '/agency/statements', built: true },
   Officers: { label: 'Officers', href: '/agency/officers', built: true },
@@ -65,6 +66,7 @@ const ADMIN_BUILT: Record<string, NavItem> = {
   'Fleet and access': { label: 'Fleet and access', href: '/admin/fleet', built: true },
   Inventory: { label: 'Inventory', href: '/admin/inventory', built: true },
   Agencies: { label: 'Agencies', href: '/admin/agencies', built: true },
+  'Item types': { label: 'Stolen-item types', href: '/admin/item-types', built: true },
   'Audit log': { label: 'Audit log', href: '/admin/audit', built: true },
   'AI and LLM': { label: 'AI and LLM', href: '/admin/ai', built: true },
   'CRM messaging': { label: 'CRM messaging', href: '/admin/crm', built: true },
@@ -85,10 +87,10 @@ const NAV: Record<string, NavItem[]> = {
     { label: 'Settings', href: '/station/settings', built: true },
   ],
   agency: [
-    'Overview', 'Live map', 'Control centre', 'Stations', 'Officers', 'Statements', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Learn feed', 'Assets', 'Messaging', 'Settings',
+    'Overview', 'Live map', 'Control centre', 'Stations', 'Officers', 'Statements', 'Inventory', 'Routing rules', 'Bounties', 'Billing', 'Payouts', 'Public issues', 'Stolen items', 'Learn feed', 'Assets', 'Messaging', 'Settings',
   ].map((l) => AGENCY_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
   admin: [
-    'Overview', 'Live incident map', 'Coverage map', 'Device wall', 'Fleet and access', 'Users', 'Inventory', 'Installation team', 'Subscriptions', 'KYC queue', 'Fines and appeals', 'Help inbox', 'Donations', 'Learn feed', 'Agencies', 'Audit log', 'AI and LLM', 'CRM messaging', 'Settings',
+    'Overview', 'Live incident map', 'Coverage map', 'Device wall', 'Fleet and access', 'Users', 'Inventory', 'Installation team', 'Subscriptions', 'KYC queue', 'Fines and appeals', 'Help inbox', 'Donations', 'Learn feed', 'Agencies', 'Item types', 'Audit log', 'AI and LLM', 'CRM messaging', 'Settings',
   ].map((l) => ADMIN_BUILT[l] ?? { label: l, href: `/soon?page=${encodeURIComponent(l)}` }),
 };
 
@@ -114,6 +116,7 @@ const PERM: Record<string, Permission> = {
   '/admin/ai': 'platform.ai',
   '/admin/crm': 'platform.crm',
   '/admin/settings': 'platform.settings',
+  '/admin/item-types': 'platform.settings',
   // Agency
   '/agency/overview': 'agency.view',
   '/agency/billing': 'agency.money',
@@ -232,7 +235,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 }
 
 /** Agency menus that depend on what the agency handles: hidden until known, so they never flash in and out. */
-const GATED: Record<string, 'tips' | 'issues'> = { Bounties: 'tips', 'Public issues': 'issues' };
+const GATED: Record<string, 'tips' | 'issues' | 'stolen'> = { Bounties: 'tips', 'Public issues': 'issues', 'Stolen items': 'stolen' };
 
 function RailLinks({ items, current, gated }: { items: NavItem[]; current: (i: NavItem) => boolean | undefined; gated: boolean }) {
   const { agency } = useAgency();

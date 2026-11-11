@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { haptic } from '@/lib/client';
 
-export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'field_report' | 'fine' | 'repair' | 'statement';
+export type OwnerType = 'tip' | 'issue_case' | 'incident' | 'field_report' | 'fine' | 'repair' | 'statement' | 'owned_item' | 'stolen_case';
 export interface Picked {
   key: string;
   file: File;
@@ -98,6 +98,13 @@ function put(url: string, file: File, onProgress: (n: number) => void): Promise<
     x.onerror = () => reject(new ApiError(0, 'offline', 'You are offline. Try again when you have signal.'));
     x.send(file);
   });
+}
+
+/** Uploads one file, e.g. a receipt for a registered item (docCode says which document it is). */
+export async function uploadFile(ownerType: OwnerType, ownerId: string, file: File, docCode?: string, onProgress: (n: number) => void = () => {}): Promise<void> {
+  await ensureFreshToken();
+  const reg = await api<{ uploadUrl: string }>('/media', { method: 'POST', body: JSON.stringify({ ownerType, ownerId, contentType: file.type, sizeBytes: file.size, ...(docCode ? { docCode } : {}) }) });
+  await put(reg.uploadUrl, file, onProgress);
 }
 
 /** Uploads every file not yet sent. Returns how many failed (each keeps its own error). */
@@ -198,7 +205,8 @@ export function AttachPicker({ picked, error, disabled }: { picked: ReturnType<t
 
 interface Item {
   id: string;
-  kind: 'photo' | 'video' | 'voice';
+  kind: 'photo' | 'video' | 'voice' | 'document';
+  docCode?: string | null;
   url: string;
   durationS: number | null;
   mine: boolean;
@@ -231,7 +239,7 @@ export function Attachments({ ownerType, ownerId, refreshKey = 0, title = 'Photo
   }, [ownerType, ownerId, refreshKey]);
 
   if (!items?.length) return null;
-  const big = items.find((x) => x.id === open && x.kind !== 'voice');
+  const big = items.find((x) => x.id === open && x.kind !== 'voice' && x.kind !== 'document');
   return (
     <>
       <p className="section-label">{title}</p>
@@ -242,6 +250,11 @@ export function Attachments({ ownerType, ownerId, refreshKey = 0, title = 'Photo
               <span className="skeleton" style={{ height: '100%', margin: 0 }} />
             ) : it.kind === 'voice' ? (
               <VoiceTile url={it.blob} seconds={it.durationS ?? 0} />
+            ) : it.kind === 'document' ? (
+              <a className="thumb-open doc-tile" href={it.blob} target="_blank" rel="noreferrer" aria-label="Open document">
+                <Icon name="article" size={24} />
+                <span>PDF</span>
+              </a>
             ) : (
               <button type="button" className="thumb-open" aria-label={`Open ${it.kind}`} onClick={() => setOpen(it.id)}>
                 {it.kind === 'photo' ? <img src={it.blob} alt="" /> : <video src={it.blob} muted playsInline preload="metadata" />}

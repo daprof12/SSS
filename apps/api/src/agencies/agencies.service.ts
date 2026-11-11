@@ -100,7 +100,7 @@ export class AgenciesService {
     return r.rows.map((a) => {
       const h = agencyHandles(a.kind);
       const { sha, ...rest } = a;
-      return { ...rest, logoUrl: logoUrl(a.id, sha), statusLabel: stateLabels[a.status as AgencyRow['status']], handles: { tips: h.tips, bounties: h.bounties, issues: h.issues } };
+      return { ...rest, logoUrl: logoUrl(a.id, sha), statusLabel: stateLabels[a.status as AgencyRow['status']], handles: { tips: h.tips, bounties: h.bounties, issues: h.issues, stolen: h.stolen } };
     });
   }
 
