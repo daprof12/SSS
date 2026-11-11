@@ -63,8 +63,7 @@ jobs:
         working-directory: deploy/cloudflare
         run: terraform init -backend=false -input=false && terraform validate && terraform fmt -check
       - name: Lint Dockerfiles
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: deploy/docker/*.Dockerfile
-          recursive: false
-          failure-threshold: error
+        run: |
+          for f in deploy/docker/*.Dockerfile; do
+            docker run --rm -i hadolint/hadolint:v2.12.0 hadolint --failure-threshold error - < "$f"
+          done

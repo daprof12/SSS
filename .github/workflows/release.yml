@@ -49,7 +49,7 @@ jobs:
           provenance: true
           sbom: true
       - name: Scan the image; stop on fixable high or critical CVEs
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/sss-api:${{ github.sha }}
           severity: HIGH,CRITICAL
@@ -96,7 +96,7 @@ jobs:
           cache-to: type=gha,scope=${{ matrix.app }}-${{ matrix.environment }},mode=max
           provenance: true
           sbom: true
-      - uses: aquasecurity/trivy-action@0.28.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/sss-${{ matrix.app }}:${{ matrix.environment }}-${{ github.sha }}
           severity: HIGH,CRITICAL
