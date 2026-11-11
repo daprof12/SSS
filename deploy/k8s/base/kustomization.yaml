@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sss
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - config.yaml
+  - api.yaml
+  - dashboard.yaml
+  - mobile.yaml
+  - ingress.yaml
+  - networkpolicy.yaml

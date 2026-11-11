@@ -11,6 +11,8 @@ export async function createApp(config = loadConfig()) {
   const origins = process.env.CORS_ORIGINS?.split(',') ?? (config.env === 'production' ? [] : [/^http:\/\/localhost:\d+$/]);
   app.enableCors({ origin: origins, credentials: false });
   app.disable('x-powered-by');
+  // Behind a load balancer the caller's address is in X-Forwarded-For. TRUST_PROXY is how many proxies sit in front (CDN + ingress = 2).
+  if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY));
   app.enableShutdownHooks();
   return app;
 }
@@ -19,7 +21,7 @@ if (require.main === module) {
   void (async () => {
     const app = await createApp();
     const port = Number(process.env.PORT ?? 4000);
-    await app.listen(port);
+    await app.listen(port, '0.0.0.0');
     console.log(`api listening on http://localhost:${port}`);
   })();
 }

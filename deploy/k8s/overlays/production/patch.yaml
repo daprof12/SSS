@@ -1,0 +1,22 @@
+# Production sizing. Vertical scaling of the apps happens here: raise requests/limits
+# (use the VPA's advice), commit, and the pipeline rolls it out with no downtime.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sss-api-config
+data:
+  CORS_ORIGINS: https://app.example.com,https://dashboard.example.com
+  PUBLIC_BASE_URL: https://api.example.com
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sss-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          resources:
+            requests: { cpu: 500m, memory: 512Mi }
+            limits: { memory: 1Gi }

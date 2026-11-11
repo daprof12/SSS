@@ -1,0 +1,61 @@
+# Load balancing: the ingress-nginx controller (itself behind the cloud load balancer) spreads
+# requests over the pods of each Service. Cloudflare sits in front as CDN and firewall.
+# TLS certificates come from cert-manager (ClusterIssuer "letsencrypt").
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sss-api
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 12m # uploads are capped at 10 MB by the API
+    # Live incident streams (SSE): no buffering, long idle time.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Per-address ceiling as a second line behind Cloudflare's rate limits.
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    nginx.ingress.kubernetes.io/limit-connections: "40"
+    nginx.ingress.kubernetes.io/load-balance: ewma
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [api.example.com]
+      secretName: sss-api-tls
+  rules:
+    - host: api.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: sss-api, port: { name: http } } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sss-web
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [app.example.com, dashboard.example.com]
+      secretName: sss-web-tls
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: sss-mobile, port: { name: http } } }
+    - host: dashboard.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: sss-dashboard, port: { name: http } } }

@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sss
+resources:
+  - ../../base
+# Uncomment once the Vertical Pod Autoscaler is installed in the cluster.
+# components:
+#   - ../../components/vpa
+images:
+  # The release pipeline sets these tags to the commit being deployed (kustomize edit set image).
+  - { name: ghcr.io/daprof12/sss-api, newTag: latest }
+  - { name: ghcr.io/daprof12/sss-dashboard, newTag: production-latest }
+  - { name: ghcr.io/daprof12/sss-mobile, newTag: production-latest }
+patches:
+  - path: patch.yaml
+  - target: { kind: Namespace, name: sss }
+    patch: |-
+      - { op: replace, path: /metadata/name, value: sss }
+  - target: { kind: Ingress, name: sss-api }
+    patch: |-
+      - { op: replace, path: /spec/tls/0/hosts/0, value: api.example.com }
+      - { op: replace, path: /spec/rules/0/host, value: api.example.com }
+  - target: { kind: Ingress, name: sss-web }
+    patch: |-
+      - { op: replace, path: /spec/tls/0/hosts, value: [app.example.com, dashboard.example.com] }
+      - { op: replace, path: /spec/rules/0/host, value: app.example.com }
+      - { op: replace, path: /spec/rules/1/host, value: dashboard.example.com }

@@ -1,0 +1,16 @@
+**/node_modules
+**/.next
+**/.next-dev*
+**/dist
+**/coverage
+**/*.tsbuildinfo
+.git
+.github
+.env
+**/.env
+**/.env.*
+design
+docs
+deploy
+README.md
+**/.DS_Store

@@ -1,0 +1,97 @@
+# A production-shaped stack on one machine: Nginx load balancer → 3 API instances, dashboard and
+# app, PostgreSQL. For rehearsing a release and for load tests, not for real traffic
+# (production runs on Kubernetes: deploy/k8s).
+#
+#   docker compose -f deploy/compose/docker-compose.yml up --build -d
+#   http://localhost:8080 (app) · http://localhost:8081 (dashboard) · http://localhost:8082 (API)
+#   docker compose -f deploy/compose/docker-compose.yml up -d --scale api=5     # scale out
+name: sss-stack
+
+x-hardening: &hardening
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: erp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-erp_local_only}
+      POSTGRES_DB: erp
+    volumes: [db:/var/lib/postgresql/data]
+    healthcheck:
+      # Over TCP: during first-time setup PostgreSQL listens on its socket only, and is not ready yet.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U erp -d erp"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [backend]
+
+  migrate:
+    build: { context: ../.., dockerfile: deploy/docker/api.Dockerfile }
+    command: ["node", "scripts/migrate.mjs"]
+    environment:
+      DATABASE_URL: postgres://erp:${POSTGRES_PASSWORD:-erp_local_only}@db:5432/erp
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [backend]
+
+  api:
+    <<: *hardening
+    build: { context: ../.., dockerfile: deploy/docker/api.Dockerfile }
+    environment:
+      # A rehearsal uses the mock providers. Real secrets never go in this file.
+      NODE_ENV: development
+      DEV_TOOLS: ${DEV_TOOLS:-1}
+      DATABASE_URL: postgres://erp:${POSTGRES_PASSWORD:-erp_local_only}@db:5432/erp
+      TRUST_PROXY: "1"
+      CORS_ORIGINS: http://localhost:8080,http://localhost:8081
+      PUBLIC_BASE_URL: http://localhost:8082
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      replicas: 3
+      resources:
+        limits: { cpus: "1.0", memory: 768M }
+    networks: [backend, edge]
+
+  dashboard:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: deploy/docker/web.Dockerfile
+      args: { APP: dashboard, NEXT_PUBLIC_API_URL: http://localhost:8082 }
+    tmpfs: [/tmp, /app/apps/dashboard/.next/cache]
+    deploy:
+      replicas: 2
+    networks: [edge]
+
+  mobile:
+    <<: *hardening
+    build:
+      context: ../..
+      dockerfile: deploy/docker/web.Dockerfile
+      args: { APP: mobile, NEXT_PUBLIC_API_URL: http://localhost:8082 }
+    tmpfs: [/tmp, /app/apps/mobile/.next/cache]
+    deploy:
+      replicas: 2
+    networks: [edge]
+
+  lb:
+    image: nginx:1.27-alpine
+    volumes: [./nginx.conf:/etc/nginx/nginx.conf:ro]
+    ports: ["8080:8080", "8081:8081", "8082:8082"]
+    depends_on: [api, dashboard, mobile]
+    restart: unless-stopped
+    networks: [edge]
+
+networks:
+  edge:
+  backend:
+    internal: true # the database is not reachable from outside the stack
+
+volumes:
+  db:

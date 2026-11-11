@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      db:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: erp
+          POSTGRES_PASSWORD: erp_local_only
+          POSTGRES_DB: erp
+        ports: ["54329:5432"]
+        options: >-
+          --health-cmd "pg_isready -U erp -d erp" --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build:packages
+      - run: npm run typecheck
+      - run: npm run db:migrate
+      - run: npm test
+      - name: Build the web apps
+        run: npm run build -w @erp/api -w @erp/dashboard -w @erp/mobile
+        env:
+          NEXT_PUBLIC_API_URL: https://api.example.com
+          NEXT_TELEMETRY_DISABLED: "1"
+
+  manifests:
+    name: Validate deploy config
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render and validate Kubernetes manifests
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          for env in staging production; do
+            kubectl kustomize deploy/k8s/overlays/$env > /tmp/$env.yaml
+            ./kubeconform -strict -summary -kubernetes-version 1.30.0 /tmp/$env.yaml
+          done
+          ./kubeconform -strict -summary deploy/k8s/jobs/migrate.yaml
+      - uses: hashicorp/setup-terraform@v3
+      - name: Validate Cloudflare config
+        working-directory: deploy/cloudflare
+        run: terraform init -backend=false -input=false && terraform validate && terraform fmt -check
+      - name: Lint Dockerfiles
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: deploy/docker/*.Dockerfile
+          recursive: false
+          failure-threshold: error
