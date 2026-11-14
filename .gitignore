@@ -7,3 +7,6 @@ coverage/
 .env.local
 .DS_Store
 .next-dev*/
+.open-next/
+.wrangler/
+.dev.vars

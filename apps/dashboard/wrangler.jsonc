@@ -1,0 +1,13 @@
+// Cloudflare Workers config for this app (built with the OpenNext adapter: npm run cf:build).
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "sss-dashboard",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": { "enabled": true }
+}

@@ -16,7 +16,11 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:api": "npm run start:dev -w @erp/api",
     "dev:dashboard": "npm run dev -w @erp/dashboard",
-    "dev:mobile": "npm run dev -w @erp/mobile"
+    "dev:mobile": "npm run dev -w @erp/mobile",
+    "cf:build:mobile": "npm run build:packages && npm run cf:build -w @erp/mobile",
+    "cf:deploy:mobile": "npm run cf:deploy -w @erp/mobile",
+    "cf:build:dashboard": "npm run build:packages && npm run cf:build -w @erp/dashboard",
+    "cf:deploy:dashboard": "npm run cf:deploy -w @erp/dashboard"
   },
   "engines": {
     "node": ">=20"
