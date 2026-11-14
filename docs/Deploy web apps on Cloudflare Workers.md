@@ -19,22 +19,47 @@ Turn off builds for non-production branches for now: there is no separate previe
 
 The Worker name in Cloudflare must match `name` in the app's `wrangler.jsonc` (`sss-app`, `sss-dashboard`), or change the file to match.
 
-### Build variables (Settings → Build → Variables and secrets)
+### Addresses
 
-These are compiled into the browser bundle, so they are **build** variables, not runtime ones. Changing one needs a new build.
+| What | Address |
+|---|---|
+| Citizen and officer app, landing page | `https://sssng.online` (and `www.sssng.online`) |
+| Staff dashboard | `https://dashboard.sssng.online` |
+| API | `https://api.sssng.online` |
 
-| Variable | Citizen app | Dashboard | Value |
-|---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | required | required | Public URL of the API, e.g. `https://api.example.com`. Without it the apps call `http://localhost:4000`. |
-| `NEXT_PUBLIC_DASHBOARD_URL` | required | – | Public URL of the dashboard Worker. The landing page's "Staff sign in" goes to `<this>/sign-in`. |
-| `NEXT_PUBLIC_SMS_NUMBER`, `NEXT_PUBLIC_TILES_MAP`, `NEXT_PUBLIC_TILES_SATELLITE` | optional | optional | Only to override the defaults. |
+The web apps get the API and dashboard addresses at build time from `apps/mobile/.env.production` and `apps/dashboard/.env.production`, which are committed (they are not secrets). No build variables need to be set in Cloudflare. A variable set in the build environment overrides the file, for example to build a staging copy against another API:
+
+| Variable | Used by | Default in `.env.production` |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | both apps | `https://api.sssng.online` |
+| `NEXT_PUBLIC_DASHBOARD_URL` | citizen app (landing page "Staff sign in") | `https://dashboard.sssng.online` |
+| `NEXT_PUBLIC_SMS_NUMBER`, `NEXT_PUBLIC_TILES_MAP`, `NEXT_PUBLIC_TILES_SATELLITE` | optional overrides | – |
 
 The build image needs Node 22.12 or newer (Wrangler 4). Cloudflare's default image already has it.
 
+### Connect sssng.online
+
+The domain's nameservers currently point at the registrar's parking service (`dns-parking.com`), not Cloudflare. Until that changes the Workers are only reachable on their `*.workers.dev` addresses, and the app's calls to `api.sssng.online` fail.
+
+1. In Cloudflare, add `sssng.online` as a site (free plan is enough) and note the two nameservers it gives you.
+2. At the registrar, replace the nameservers with Cloudflare's. Wait until Cloudflare shows the site as **Active**.
+3. In `apps/mobile/wrangler.jsonc` and `apps/dashboard/wrangler.jsonc`, uncomment the `routes` block and push. The next deploy attaches `sssng.online`, `www.sssng.online` and `dashboard.sssng.online` and creates their DNS records and certificates. Doing this before step 2 finishes makes the deploy fail.
+4. Add a DNS record for `api` pointing at wherever the API is hosted.
+
 ## The API side
 
-- Host `apps/api` and PostgreSQL 16 with PostGIS on a container host (Render, Railway, Fly, or the Kubernetes setup in `deploy/` on the `devops-setup` branch).
-- Set `CORS_ORIGINS` on the API to the two Worker URLs, comma-separated, e.g. `https://sss-app.<account>.workers.dev,https://sss-dashboard.<account>.workers.dev` (or your custom domains). In production the API accepts no other origins.
+- Host `apps/api` and PostgreSQL 16 with PostGIS on a container host (Render, Railway, Fly, or the Kubernetes setup in `deploy/` on the `devops-setup` branch), reachable at `https://api.sssng.online`.
+- Set these on the API:
+
+  ```
+  NODE_ENV=production
+  PUBLIC_BASE_URL=https://api.sssng.online
+  APP_URL=https://sssng.online
+  DASHBOARD_URL=https://dashboard.sssng.online
+  CORS_ORIGINS=https://sssng.online,https://www.sssng.online,https://dashboard.sssng.online
+  ```
+
+  In production the API accepts no origins other than `CORS_ORIGINS`. Add the two `*.workers.dev` addresses to it if you want to test there before the domain is connected. `APP_URL` and `DASHBOARD_URL` are where Paystack sends people back after paying.
 - Run the migrations (`npm run db:migrate`) against the production database before the first sign-in.
 
 ## Local check
@@ -42,7 +67,7 @@ The build image needs Node 22.12 or newer (Wrangler 4). Cloudflare's default ima
 Needs Node 22.12+.
 
 ```bash
-NEXT_PUBLIC_API_URL=http://localhost:4001 npm run cf:build:mobile
+NEXT_PUBLIC_API_URL=http://localhost:4001 NEXT_PUBLIC_DASHBOARD_URL=http://localhost:3000 npm run cf:build:mobile   # without these it builds against sssng.online
 npm run cf:preview -w @erp/mobile        # serves the built Worker on http://localhost:8787
 ```
 
