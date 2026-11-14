@@ -9,5 +9,11 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Custom domain. Uncomment once sssng.online is an active zone in this Cloudflare account
+  // (nameservers moved to Cloudflare); before that, a deploy with these routes fails.
+  // "routes": [
+  //   { "pattern": "sssng.online", "custom_domain": true },
+  //   { "pattern": "www.sssng.online", "custom_domain": true }
+  // ]
 }
