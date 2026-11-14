@@ -1,0 +1,54 @@
+# Staging: same shape as production, smaller.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sss-api-config
+data:
+  CORS_ORIGINS: https://app.staging.example.com,https://dashboard.staging.example.com
+  PUBLIC_BASE_URL: https://api.staging.example.com
+  DB_POOL_MAX: "5"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sss-api
+spec:
+  minReplicas: 2
+  maxReplicas: 4
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sss-api
+spec:
+  minAvailable: 1
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sss-dashboard
+spec:
+  minReplicas: 1
+  maxReplicas: 2
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: sss-mobile
+spec:
+  minReplicas: 1
+  maxReplicas: 2
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sss-dashboard
+spec:
+  minAvailable: 0
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: sss-mobile
+spec:
+  minAvailable: 0

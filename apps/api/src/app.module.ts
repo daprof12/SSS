@@ -83,6 +83,12 @@ import { WithdrawalsService } from './wallet/withdrawals.service';
 @Controller('health')
 class HealthController {
   constructor(@Inject(Db) private readonly db: Db) {}
+  /** Liveness: the process answers. Does not touch the database, so a database blip never restarts the API. */
+  @Get('live')
+  live() {
+    return { ok: true };
+  }
+  /** Readiness: the database answers, so this instance can take traffic. */
   @Get()
   async health() {
     await this.db.query('select 1');

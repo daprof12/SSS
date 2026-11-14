@@ -12,7 +12,7 @@ export class Db implements OnModuleDestroy {
   readonly pool: pg.Pool;
 
   constructor(@Inject(CONFIG) config: AppConfig) {
-    this.pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10 });
+    this.pool = new pg.Pool({ connectionString: config.databaseUrl, max: Number(process.env.DB_POOL_MAX ?? 10) });
   }
 
   query<T extends pg.QueryResultRow = any>(sql: string, params: unknown[] = []) {

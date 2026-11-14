@@ -1,0 +1,16 @@
+# Non-secret settings for the API. Secrets (DATABASE_URL, JWT_SECRET, …) live in the
+# `sss-api-secrets` Secret; see secrets.example.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sss-api-config
+data:
+  NODE_ENV: production
+  PORT: "4000"
+  # Cloudflare + the ingress controller sit in front of the API.
+  TRUST_PROXY: "2"
+  # Connections per API pod. Keep (max pods × this) under the database's connection limit.
+  DB_POOL_MAX: "10"
+  SMS_PROVIDER: termii
+  CORS_ORIGINS: https://app.example.com,https://dashboard.example.com
+  PUBLIC_BASE_URL: https://api.example.com

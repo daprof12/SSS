@@ -1,0 +1,56 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}
+      NAMESPACE: ${{ vars.NAMESPACE }}
+      REGISTRY: ghcr.io/${{ github.repository_owner }}
+      SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Connect to the cluster
+        run: |
+          mkdir -p ~/.kube
+          printf '%s' "$KUBE_CONFIG" > ~/.kube/config
+          chmod 600 ~/.kube/config
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+      - name: Pin images to this commit
+        working-directory: deploy/k8s/overlays/${{ inputs.environment }}
+        run: |
+          kustomize edit set image \
+            "$REGISTRY/sss-api=$REGISTRY/sss-api:$SHA" \
+            "$REGISTRY/sss-dashboard=$REGISTRY/sss-dashboard:$ENVIRONMENT-$SHA" \
+            "$REGISTRY/sss-mobile=$REGISTRY/sss-mobile:$ENVIRONMENT-$SHA"
+      - name: Migrate the database first
+        run: |
+          kubectl -n "$NAMESPACE" delete job sss-migrate --ignore-not-found
+          sed "s#sss-api:latest#sss-api:$SHA#" deploy/k8s/jobs/migrate.yaml | kubectl -n "$NAMESPACE" apply -f -
+          kubectl -n "$NAMESPACE" wait --for=condition=complete job/sss-migrate --timeout=10m \
+            || { kubectl -n "$NAMESPACE" logs job/sss-migrate --tail=100; exit 1; }
+      - name: Roll out
+        run: kubectl apply -k "deploy/k8s/overlays/$ENVIRONMENT"
+      - name: Wait until healthy; roll back if not
+        run: |
+          for d in sss-api sss-dashboard sss-mobile; do
+            if ! kubectl -n "$NAMESPACE" rollout status deploy/$d --timeout=5m; then
+              echo "::error::$d did not become healthy; rolling back"
+              for r in sss-api sss-dashboard sss-mobile; do kubectl -n "$NAMESPACE" rollout undo deploy/$r || true; done
+              exit 1
+            fi
+          done

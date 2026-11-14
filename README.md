@@ -17,6 +17,10 @@ npm run dev:mobile     # http://localhost:3001 → citizen and officer app (PWA)
 npm test               # all suites (the API suite resets the local database)
 ```
 
+## Deploy
+
+Production runs as containers on Kubernetes behind Cloudflare, released by GitHub Actions. Scaling, CDN, load balancing, security and the first-time setup are in [`deploy/README.md`](deploy/README.md).
+
 ## Layout
 
 | Path | What it is |
@@ -50,7 +54,7 @@ Dev‑only endpoints under `/dev` (seed, tokens, simulated Paystack completion, 
 
 ## Known foundation limits
 
-- Timers (cancel window, offer expiry) and the event bus are in‑process. They must move to a durable queue (TRD: NATS/Kafka) before more than one API instance runs.
+- The event bus reaches other API instances through PostgreSQL `LISTEN/NOTIFY`, and timers are backed by database sweeps, so several API instances can run. A durable queue (TRD: NATS/Kafka) is still the plan at larger scale.
 - The SSE stream takes the token as a query parameter because EventSource can't send headers. Replace it with a short‑lived single‑use stream ticket before production, so tokens don't land in access logs.
 - Dev sign‑in issues HS256 tokens; production uses the OIDC provider.
 - Routing escalates within the same station; "next station" overflow, the AI brief, clips and the remaining dashboard pages come next.

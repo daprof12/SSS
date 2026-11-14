@@ -1,0 +1,39 @@
+# Database migrations. The pipeline runs this to completion BEFORE rolling out new pods:
+#   kubectl -n sss delete job sss-migrate --ignore-not-found
+#   kubectl -n sss apply -f deploy/k8s/jobs/migrate.yaml   (the pipeline sets the image tag and namespace)
+#   kubectl -n sss wait --for=condition=complete job/sss-migrate --timeout=10m
+# Migrations must stay backward compatible with the running version (add first, remove a release later).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sss-migrate
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: sss-migrate }
+    spec:
+      restartPolicy: Never
+      serviceAccountName: sss-app
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: migrate
+          image: ghcr.io/daprof12/sss-api:latest
+          command: ["node", "scripts/migrate.mjs"]
+          env:
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: sss-api-secrets, key: DATABASE_URL } }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }

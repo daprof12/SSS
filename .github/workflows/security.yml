@@ -1,0 +1,70 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1" # weekly: new CVEs appear in code that has not changed
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: Code scanning (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v3
+
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Blocks on critical for now: two high advisories (next/postcss, zod) need major upgrades
+      # (Next 16, zod 4). Tighten to --audit-level=high once those land.
+      - name: Fail on critical advisories in what ships
+        run: npm audit --omit=dev --audit-level=critical
+      - name: Report everything else
+        if: always()
+        run: npm audit --omit=dev || true
+
+  secrets:
+    name: Secret scanning (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  config:
+    name: Dockerfile and Kubernetes misconfiguration (Trivy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: deploy
+          # Overlays hold partial patches, which read as insecure on their own; base is the full spec.
+          skip-dirs: deploy/k8s/overlays
+          severity: HIGH,CRITICAL
+          exit-code: "1"

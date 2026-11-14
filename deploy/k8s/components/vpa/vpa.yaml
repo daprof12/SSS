@@ -1,0 +1,32 @@
+# Vertical scaling advice. Needs the Vertical Pod Autoscaler installed in the cluster.
+# Mode "Off" = recommendations only (kubectl -n sss describe vpa): the HPA already scales on CPU,
+# and two autoscalers acting on the same signal fight. Apply the advice by changing the
+# requests in the overlay.
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: sss-api
+spec:
+  targetRef: { apiVersion: apps/v1, kind: Deployment, name: sss-api }
+  updatePolicy: { updateMode: "Off" }
+  resourcePolicy:
+    containerPolicies:
+      - containerName: api
+        minAllowed: { cpu: 100m, memory: 256Mi }
+        maxAllowed: { cpu: "2", memory: 2Gi }
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: sss-dashboard
+spec:
+  targetRef: { apiVersion: apps/v1, kind: Deployment, name: sss-dashboard }
+  updatePolicy: { updateMode: "Off" }
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: sss-mobile
+spec:
+  targetRef: { apiVersion: apps/v1, kind: Deployment, name: sss-mobile }
+  updatePolicy: { updateMode: "Off" }
