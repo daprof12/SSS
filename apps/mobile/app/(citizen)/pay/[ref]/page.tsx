@@ -23,7 +23,7 @@ export default function MockCheckout({ params }: { params: Promise<{ ref: string
     router.replace(!p || p.purpose === 'wallet_fund' ? `/wallet/confirm/${encodeURIComponent(ref)}` : `/payments/${encodeURIComponent(ref)}?thanks=${p.purpose === 'donation' ? 1 : 0}`);
   };
 
-  if (process.env.NODE_ENV === 'production') {
+  if (!(process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEMO === '1')) {
     return (
       <main className="app bare">
         <Header title="Checkout" back="/wallet" />

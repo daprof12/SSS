@@ -1,0 +1,42 @@
+# The API on this machine, published at https://api.sssng.online through a Cloudflare Tunnel.
+#   npm run online:up      (docker compose -f docker-compose.yml -f docker-compose.online.yml up -d --build)
+# Needs TUNNEL_TOKEN, JWT_SECRET and OTP_SECRET in .env (not committed). The web apps run on
+# Cloudflare Workers (docs/Deploy web apps on Cloudflare Workers.md).
+services:
+  migrate:
+    build: { context: ., dockerfile: deploy/docker/api.Dockerfile }
+    command: ["node", "scripts/migrate.mjs"]
+    environment:
+      DATABASE_URL: postgres://erp:erp_local_only@db:5432/erp
+    depends_on:
+      db: { condition: service_healthy }
+
+  api:
+    build: { context: ., dockerfile: deploy/docker/api.Dockerfile }
+    restart: unless-stopped
+    environment:
+      # Demo mode: mocked SMS and payments, /dev demo sign-in on. Switch to NODE_ENV=production
+      # with real Termii, Paystack and VAPID keys before real users arrive.
+      NODE_ENV: development
+      DEV_TOOLS: "1"
+      DATABASE_URL: postgres://erp:erp_local_only@db:5432/erp
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      OTP_SECRET: ${OTP_SECRET:?set OTP_SECRET in .env}
+      TRUST_PROXY: "1"
+      PUBLIC_BASE_URL: https://api.sssng.online
+      APP_URL: https://sssng.online
+      DASHBOARD_URL: https://dashboard.sssng.online
+      CORS_ORIGINS: https://sssng.online,https://www.sssng.online,https://dashboard.sssng.online
+    ports:
+      - "127.0.0.1:4001:4000"
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.11.0
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
+    depends_on:
+      - api

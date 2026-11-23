@@ -7,7 +7,8 @@ import { Qr } from '@erp/web-ui/Qr';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
-const DEMO = process.env.NODE_ENV !== 'production';
+// NEXT_PUBLIC_DEMO=1 keeps the demo accounts in a production build (public demo against mocked providers).
+const DEMO = (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEMO === '1');
 const DEMO_ACCOUNTS = [
   { key: 'head', name: 'CSP Ngozi Eze', roleLabel: 'Station head', home: '/incidents' },
   { key: 'dispatcher', name: 'Amaka Dispatch', roleLabel: 'Dispatcher', home: '/incidents' },

@@ -87,7 +87,7 @@ export default function Fund() {
         <button className="btn block signal" type="button" onClick={() => router.push(`/wallet/confirm/${encodeURIComponent(transfer.reference)}`)}>
           I have sent it
         </button>
-        {process.env.NODE_ENV !== 'production' && (
+        {(process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEMO === '1') && (
           <button
             className="btn block"
             type="button"

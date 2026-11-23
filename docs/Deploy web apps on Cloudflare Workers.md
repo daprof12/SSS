@@ -78,3 +78,11 @@ npm run cf:preview -w @erp/mobile        # serves the built Worker on http://loc
 - `apps/*/wrangler.jsonc`: Worker name, `nodejs_compat`, static assets from `.open-next/assets`.
 - `apps/*/open-next.config.ts`: default OpenNext config. The pages are static shells that call the API from the browser, so there is no R2 cache or image binding.
 - Each Worker is about 1.3 MB compressed, inside the 3 MB limit of the free plan.
+
+## Current setup (November 2026)
+
+- `sss-app` serves `sssng.online` and `www.sssng.online` (landing page at `/`); `sss-dashboard` serves `dashboard.sssng.online`. Both deployed from this machine with `npx wrangler deploy` in each app folder after `npm run cf:build`.
+- The API and PostgreSQL run in Docker on the office Mac and reach the internet through the Cloudflare Tunnel `sss-api` (ID `3871cd2a-433a-4428-a308-176468e61e7d`). Its ingress (`api.sssng.online` → `http://api:4000`) is set in Cloudflare; DNS has `api` as a proxied CNAME to `3871cd2a-433a-4428-a308-176468e61e7d.cfargotunnel.com`.
+  - Start: `npm run online:up` (db, migrations, API, tunnel; containers restart with Docker). Stop: `npm run online:down`. Logs: `npm run online:logs`.
+  - Needs `.env` at the repo root with `JWT_SECRET`, `OTP_SECRET` and `TUNNEL_TOKEN` (not committed). The API is only reachable while this Mac is on and Docker is running.
+- **Public demo mode.** The API runs with mocked SMS and payments and `/dev` demo sign-in on, and the web apps are built with `NEXT_PUBLIC_DEMO=1` so the demo accounts and test checkout show. Anyone can sign in as any demo account. Before real users: set the API to `NODE_ENV=production` with Termii, Paystack and VAPID keys and `DEV_TOOLS=0`, remove `NEXT_PUBLIC_DEMO` from both `.env.production` files, and redeploy.

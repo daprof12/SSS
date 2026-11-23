@@ -1,6 +1,10 @@
+# Local database for development (npm run db:up starts only `db`).
+#
+# The API online from this machine: see docker-compose.online.yml.
 services:
   db:
     image: postgis/postgis:16-3.4
+    restart: unless-stopped
     environment:
       POSTGRES_USER: erp
       POSTGRES_PASSWORD: erp_local_only

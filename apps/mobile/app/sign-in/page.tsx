@@ -98,9 +98,9 @@ export default function SignIn() {
       <p className="muted center" style={{ marginTop: 24 }}>
         By continuing you agree to the Terms and Privacy notice.
       </p>
-      {process.env.NODE_ENV !== 'production' && (
+      {(process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEMO === '1') && (
         <p className="center">
-          <Link href="/sign-in/demo">Demo accounts (development)</Link>
+          <Link href="/sign-in/demo">Demo accounts</Link>
         </p>
       )}
     </main>

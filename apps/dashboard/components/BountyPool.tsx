@@ -38,7 +38,7 @@ export const naira = (k: number) => formatNaira(k).replace(/\.00$/, '');
 const toKobo = (v: string) => Math.round(Number(v.replace(/[^\d.]/g, '')) * 100);
 const fromKobo = (k: number | null) => (k == null ? '' : String(k / 100));
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-const DEV = process.env.NODE_ENV !== 'production';
+const DEV = (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_DEMO === '1');
 
 type Method = 'card' | 'bank_transfer' | 'ussd';
 const METHODS: [Method, string][] = [
