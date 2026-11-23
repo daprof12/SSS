@@ -1,0 +1,51 @@
+# Render Blueprint: the API and its PostgreSQL (PostGIS) database.
+# Web apps stay on Cloudflare Workers; api.sssng.online is a CNAME to the Render service.
+# Free plans: the API sleeps after 15 minutes idle and the free database expires after 30 days.
+databases:
+  - name: sss-db
+    plan: free
+    region: frankfurt
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: sss-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./deploy/docker/api.Dockerfile
+    dockerContext: .
+    # Free plans have no pre-deploy step, so migrations run before the API starts.
+    dockerCommand: sh -c "node scripts/migrate.mjs && node apps/api/dist/main.js"
+    healthCheckPath: /health
+    autoDeploy: true
+    domains:
+      - api.sssng.online
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sss-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: OTP_SECRET
+        generateValue: true
+      # Public demo mode: mocked SMS and payments, /dev demo sign-in on.
+      # For real users: NODE_ENV=production, DEV_TOOLS=0 and Termii, Paystack and VAPID keys.
+      - key: NODE_ENV
+        value: development
+      - key: DEV_TOOLS
+        value: "1"
+      - key: PORT
+        value: "4000"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: PUBLIC_BASE_URL
+        value: https://api.sssng.online
+      - key: APP_URL
+        value: https://sssng.online
+      - key: DASHBOARD_URL
+        value: https://dashboard.sssng.online
+      - key: CORS_ORIGINS
+        value: https://sssng.online,https://www.sssng.online,https://dashboard.sssng.online
