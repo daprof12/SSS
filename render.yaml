@@ -17,7 +17,7 @@ services:
     dockerfilePath: ./deploy/docker/api.Dockerfile
     dockerContext: .
     # Free plans have no pre-deploy step, so migrations run before the API starts.
-    dockerCommand: sh -c "node scripts/migrate.mjs && node apps/api/dist/main.js"
+    dockerCommand: ./scripts/start.sh
     healthCheckPath: /health
     autoDeploy: true
     domains:
