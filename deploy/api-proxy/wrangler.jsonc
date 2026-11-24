@@ -1,0 +1,8 @@
+// Forwards api.sssng.online to the API on Render. Deploy: npx wrangler deploy (from this folder).
+{
+  "name": "sss-api-proxy",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-01",
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "api.sssng.online", "custom_domain": true }]
+}

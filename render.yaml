@@ -1,5 +1,7 @@
 # Render Blueprint: the API and its PostgreSQL (PostGIS) database.
-# Web apps stay on Cloudflare Workers; api.sssng.online is a CNAME to the Render service.
+# Web apps stay on Cloudflare Workers. api.sssng.online reaches this service through the Cloudflare
+# Worker in deploy/api-proxy (the domain is still registered to an old Render account), so no
+# custom domain is set here. If the proxy's ORIGIN changes, redeploy deploy/api-proxy.
 # Free plans: the API sleeps after 15 minutes idle and the free database expires after 30 days.
 databases:
   - name: sss-db
