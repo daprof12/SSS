@@ -20,8 +20,6 @@ services:
     dockerCommand: ./scripts/start.sh
     healthCheckPath: /health
     autoDeploy: true
-    domains:
-      - api.sssng.online
     envVars:
       - key: DATABASE_URL
         fromDatabase:
